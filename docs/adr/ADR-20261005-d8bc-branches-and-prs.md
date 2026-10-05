@@ -25,7 +25,7 @@ This amends ADR-20261005-ae6e and ADR-20261005-2565; the rest of them stands.
 4. **Each PR carries its own bookkeeping:** SPEC updates, any ADR, the `docs/PROGRESS.md` update and `Part of #N` (the week's tracking issue). The PR template (`.github/pull_request_template.md`) lists these.
 5. **Reviews:** CI must be green (or a GitHub outage noted in the PR), Copilot reviews automatically, and the agent that wrote the code self-reviews against SPEC before asking for a merge.
 6. **The owner merges**, using **squash merge** so `main` keeps one commit per PR, and deletes the branch. Issue checklist boxes are ticked when the PR merges, not before.
-7. When the repo goes public (rulesets become free), add a ruleset for `main`: require the `tests` check, block direct pushes, and request Copilot review automatically.
+7. When the repo goes public (rulesets become free), add a ruleset for `main`: require the **`ci-ok`** check, block direct pushes, and request Copilot review automatically. `ci-ok` is a summary job in `.github/workflows/tests.yml` that passes only if every matrix job passed. A ruleset can't require the workflow name `tests` (GitHub reports one `test (<os>, <python>)` check per matrix entry), and requiring those individual names would break whenever the matrix changes.
 
 **Alternatives considered:**
 - *Keep pushing to `main`:* rejected; nothing gets reviewed before it lands.
