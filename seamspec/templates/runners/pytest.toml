@@ -1,6 +1,7 @@
 [runners.pytest]
 # SeamSpec's own pytest.ini and --noconftest: project conftest.py / addopts can't change what a locked test sees (§12.3).
-cmd = ["pytest", "-c", ".seamspec/pytest.ini", "--rootdir=.", "--noconftest", "-q", "-p", "no:cacheprovider", "--junitxml={report}", "{each}"]
+# --continue-on-collection-errors: one broken harness must not stop the others from running (§12A.4).
+cmd = ["pytest", "-c", ".seamspec/pytest.ini", "--rootdir=.", "--noconftest", "--continue-on-collection-errors", "-q", "-p", "no:cacheprovider", "--junitxml={report}", "{each}"]
 harness_dir = ".seamspec/tests"
 filename = "test_{id}.py"
 report = "junit"

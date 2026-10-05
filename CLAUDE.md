@@ -25,6 +25,7 @@ Python ≥ 3.11, uv (flat layout: the package is `./seamspec`), pytest, ruff. De
 
 ```bash
 uv sync                                   # install
+npm ci --prefix tests/fixtures/ts_repo    # pinned vitest for the vitest tests (else they skip)
 uv run pytest                             # tests
 uv run ruff check . && uv run ruff format --check .
 uv run seamspec --help                    # the CLI

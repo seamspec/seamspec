@@ -13,7 +13,7 @@ from seamspec.installers.directive import BEGIN, END, DirectiveError
 def test_init_scaffolds_python_repo(repo: Path) -> None:
     for d in ("invariants", "dead_ends", "adrs", "proposed", "retired", ".local", "tests"):
         assert (repo / ".seamspec" / d).is_dir()
-    assert (repo / ".seamspec/pytest.ini").read_text().count("pythonpath = .") == 1
+    assert "pythonpath = ..\n" in (repo / ".seamspec/pytest.ini").read_text()
     assert not (repo / ".seamspec/vitest.config.mjs").exists()
     assert ".seamspec/.local/" in (repo / ".gitignore").read_text()
     cfg = load_config(repo)

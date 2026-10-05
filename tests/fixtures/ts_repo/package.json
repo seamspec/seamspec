@@ -1,0 +1,9 @@
+{
+  "name": "seamspec-ts-fixture",
+  "private": true,
+  "description": "vitest install used by tests/test_verifier_vitest.py. Install with: npm ci --prefix tests/fixtures/ts_repo",
+  "type": "module",
+  "devDependencies": {
+    "vitest": "3.2.7"
+  }
+}
