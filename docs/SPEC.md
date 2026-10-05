@@ -2974,7 +2974,7 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 > [!IMPORTANT]
 > If the week-3 rough benchmark shows (C) no better than (D), weeks 4–5 shift toward what plain tests can't do (capture, approval, dead ends, §4.4) before launch.
 
-**How progress is tracked** (ADR-20261005-ae6e, ADR-20261005-2565): one GitHub milestone per week above, each with a tracking issue that mirrors its deliverables and exit criteria, plus a committed [`docs/PROGRESS.md`](PROGRESS.md) (done / in progress / next), updated in the same commit as the code. `CLAUDE.md` at the repo root is the entry point for agents picking up the work. This spec is kept current as the code evolves; anything that changes or adds to it gets an ADR in `docs/adr/` (moving to `.seamspec/adrs/` when SeamSpec starts governing its own repo in week 3).
+**How progress is tracked** (ADR-20261005-ae6e, ADR-20261005-2565): one GitHub milestone per week above, each with a tracking issue that mirrors its deliverables and exit criteria, plus a committed [`docs/PROGRESS.md`](PROGRESS.md) (done / in progress / next), updated in the same commit as the code. `CLAUDE.md` at the repo root is the entry point for agents picking up the work. From week 2, every change lands through a branch and a pull request (ADR-20261005-d8bc). This spec is kept current as the code evolves; anything that changes or adds to it gets an ADR in `docs/adr/` (moving to `.seamspec/adrs/` when SeamSpec starts governing its own repo in week 3).
 
 ### v0.2 — soon after v0.1
 
