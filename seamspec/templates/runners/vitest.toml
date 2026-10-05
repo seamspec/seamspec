@@ -1,0 +1,8 @@
+[runners.vitest]
+# SeamSpec's own vitest config: project setupFiles don't apply (§12.3).
+cmd = ["npx", "vitest", "run", "--config", ".seamspec/vitest.config.mjs", "--reporter=default", "--reporter=junit", "--outputFile.junit={report}", "{each}"]
+harness_dir = "tests/seamspec"
+filename = "{id}.test.ts"
+report = "junit"
+config_files = [".seamspec/vitest.config.mjs"]
+paths = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]

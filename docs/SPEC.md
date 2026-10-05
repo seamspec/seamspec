@@ -431,6 +431,7 @@ LOCKED harnesses for other languages live where their toolchain can find them (�
 ### 9.4 Schema Location
 
 - JSON Schemas ship **inside the package** at `seamspec/schemas/v1/*.json` and are published on GitHub Pages at `https://seamspec.github.io/schemas/v1/` (the `$id` base). Validation always uses the packaged copy, so the URL is an identifier, not a runtime dependency. If a custom domain is acquired later, the old URLs keep serving (redirect pages) so existing `$id`s never break.
+- `config.json` is generated from the config model (`config_json_schema()`, §19.2); `invariant.json` and `dead_end.json` are hand-written and checked against the models by the tests.
 - Each record carries `"schema_version": "1"`.
 - `seamspec doctor` validates every record; `seamspec migrate` upgrades records when the schema version changes.
 
@@ -572,21 +573,37 @@ trust_level = "runners"        # runners | harness — strict mode defaults to h
       "then": {
         "required": ["approved_at", "approved_by"],
         "properties": {
-          "verification": { "required": ["harness_sha256", "assertion_sha256"] }
+          "approved_at": { "type": "string" },
+          "approved_by": { "type": "string" },
+          "verification": {
+            "required": ["harness_sha256", "assertion_sha256"],
+            "properties": {
+              "harness_sha256": { "type": "string" },
+              "assertion_sha256": { "type": "string" }
+            }
+          }
         }
       }
     },
     {
       "if": { "properties": { "status": { "const": "SUPERSEDED" } } },
-      "then": { "required": ["superseded_by", "status_reason"] }
+      "then": {
+        "required": ["superseded_by", "status_reason"],
+        "properties": { "status_reason": { "type": "string" } }
+      }
     },
     {
       "if": { "properties": { "status": { "const": "REJECTED" } } },
-      "then": { "required": ["status_reason"] }
+      "then": {
+        "required": ["status_reason"],
+        "properties": { "status_reason": { "type": "string" } }
+      }
     }
   ]
 }
 ```
+
+> The schemas above are copies of the packaged files in `seamspec/schemas/v1/`, which are the source of truth. The `then` branches require the status-specific fields to be **non-null strings**, not just present: every record carries every key, so a bare `required` would accept `null` (ADR-20261005-6f2a).
 
 **Example — `.seamspec/invariants/inv_1a2b3c4d.json`:**
 
@@ -649,7 +666,16 @@ trust_level = "runners"        # runners | harness — strict mode defaults to h
     "status": { "enum": ["ACTIVE", "RETIRED"] },
     "retired_reason": { "type": ["string", "null"], "description": "e.g. 'Fixed upstream in redis-py 6.2'" },
     "created_at": { "type": "string", "format": "date-time" }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "RETIRED" } } },
+      "then": {
+        "required": ["retired_reason"],
+        "properties": { "retired_reason": { "type": "string" } }
+      }
+    }
+  ]
 }
 ```
 
@@ -1936,7 +1962,7 @@ Written to `CLAUDE.md` in v0.1; `.cursor/rules/seamspec.mdc`, `.github/copilot-i
 <!-- seamspec:end -->
 ```
 
-Re-running `init` updates only the block. `seamspec doctor` reports drift between the block and the packaged template. Rules marked *(v0.2)* below are left out of the v0.1 block, because the tools and hooks they refer to (`braindump_pending`, the session-start nudge) don't exist yet.
+Re-running `init` updates only the block. `seamspec doctor` reports drift between the block and the packaged template. Rules marked *(v0.2)* below are left out of the v0.1 block, because the tools and hooks they refer to (`braindump_pending`, the session-start nudge) don't exist yet. The packaged text, [`seamspec/templates/directive.md`](../seamspec/templates/directive.md), is the source of truth; the v0.1 block numbers the remaining rules consecutively.
 
 ```markdown
 # SeamSpec Protocol
@@ -1945,7 +1971,8 @@ This repository uses SeamSpec. Locked invariants are enforced by hooks, pre-comm
 failing them will block you from finishing and block commits.
 
 1. Before editing a file, call `get_constraints(files)` (or run `seamspec context <files>`).
-   Respect every LOCKED invariant. Do not reuse approaches listed as dead ends.
+   Respect every LOCKED invariant. Approaches listed as previously failed (dead ends) failed for
+   the stated reason; don't reuse them unless that reason no longer applies (§11.3).
 2. When you establish a new behavior worth protecting, call `propose_invariant` with a focused,
    behavior-level test (not implementation details). The tool does not run the test: run
    `seamspec verify --proposed <id>` with your shell tool and fix the test until it passes.
@@ -1973,427 +2000,71 @@ failing them will block you from finishing and block commits.
 
 ## 19. Reference Implementation
 
-Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`, `filelock`, `jsonschema`.
+Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`, `filelock`, `jsonschema` (+ `rfc3339-validator`, so the schemas' `date-time` format is actually checked).
 
-### 19.1 `seamspec/core/root.py`
+**Implemented modules are the source of truth** (ADR-20261005-6f2a). Once a module exists, its listing below is replaced by a short contract and a link to the code, so the spec and the code can't drift apart. Modules not built yet keep their reference listing until they are.
 
-```python
-from __future__ import annotations
+### 19.1 `seamspec/core/root.py` — implemented (week 1)
 
-import os
-from pathlib import Path
+[`seamspec/core/root.py`](../seamspec/core/root.py)
 
+- `find_root(start=None)`: `$SEAMSPEC_ROOT` if set (it must contain `.seamspec/config.toml`, else `RootNotFound`), otherwise walk up from `start` / cwd to the first directory with `.seamspec/config.toml`.
+- `to_rel(root, path)`: repo-relative POSIX path, resolving `..` and symlinks; `None` if the path is outside the repo.
 
-class RootNotFound(RuntimeError):
-    pass
+### 19.2 `seamspec/core/config.py` — implemented (week 1)
 
+[`seamspec/core/config.py`](../seamspec/core/config.py). Keys and defaults are exactly §9.5 and §12A.3, with these rules:
 
-def find_root(start: Path | None = None) -> Path:
-    """Resolve the project root: $SEAMSPEC_ROOT, else walk up to .seamspec/config.toml."""
-    env = os.environ.get("SEAMSPEC_ROOT")
-    if env:
-        return Path(env).resolve()
-    current = (start or Path.cwd()).resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / ".seamspec" / "config.toml").is_file():
-            return candidate
-    raise RootNotFound("No .seamspec/config.toml found. Run `seamspec init`.")
+- **Unknown keys are errors** (`extra="forbid"` on every table), so a typo such as `timout_seconds` fails loudly instead of being ignored. `parse_config` / `load_config` raise `ConfigError` with the file name.
+- `runners` defaults to `{}`: `init` writes the presets commented out when no language is detected (§12A.7).
+- Runner `filename` must contain `{id}` (attribution relies on it, §12A.4); `harness_dir`, `filename` and `config_files` must be relative paths inside the repo.
+- `RunnerCfg.harness_path(id)` and `RunnerCfg.protect_glob()` build the harness path and the protection glob (§12A.5).
+- `strict` mode defaults (`hooks.fail_closed = true`, `execution.trust_level = "harness"`) apply only to keys not set explicitly (§9.5).
+- `config_json_schema()` generates `schemas/v1/config.json` from the model; a test fails if the packaged file is stale (§9.4).
 
+### 19.3 `seamspec/core/models.py` — implemented (week 1)
 
-def to_rel(root: Path, path: str | Path) -> str | None:
-    """Repo-relative POSIX path, or None if outside the repo."""
-    p = Path(path)
-    p = (p if p.is_absolute() else root / p).resolve()
-    try:
-        return p.relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return None
-```
+[`seamspec/core/models.py`](../seamspec/core/models.py): `Invariant`, `DeadEnd`, `Scope`, `Origin`, `Verification`, `InvStatus`.
 
-### 19.2 `seamspec/core/config.py`
+- Mirror the JSON Schemas in §10 field for field: `extra="forbid"` (= `additionalProperties: false`), the same id / ADR id / SHA-256 patterns and length limits.
+- Datetimes must be timezone-aware (`AwareDatetime`) and serialize as UTC with `Z`.
+- Status rules, the same as the schemas' `allOf` (§10.1, §10.2): `LOCKED` needs non-null `approved_at`, `approved_by`, `verification.harness_sha256` and `verification.assertion_sha256`; `SUPERSEDED` and `REJECTED` need a non-null `status_reason` (`superseded_by` may stay null for a pure retirement, §11.1); a `RETIRED` dead end needs `retired_reason`.
+- Tests check that every record the models write validates against the packaged schema, and that bad records fail **both**.
 
-```python
-from __future__ import annotations
+### 19.4 `seamspec/core/store.py` — implemented (week 1)
 
-import tomllib
-from pathlib import Path, PurePosixPath
-from typing import Literal
+[`seamspec/core/store.py`](../seamspec/core/store.py)
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+- One JSON file per record under `.seamspec/invariants/` and `.seamspec/dead_ends/` (§9.2), written with `atomic_write` (temp file + fsync + `os.replace`) under a `FileLock` at `.seamspec/.local/store.lock`.
+- `create(record)` refuses to overwrite an existing id (`DuplicateRecord`); `save(record)` creates or replaces. `new_id(prefix)` returns a random, unused `inv_` / `de_` id.
+- Record ids are validated before any path is built, so a crafted id can't reach outside the ledger.
+- `load_all(prefix)` / `get(id)` raise `RecordError` **naming the bad file**, so `status` (and later `doctor` and the hooks' error path, §16.1 step 10) can say which record is broken.
+- `revision()`: content hash of all records, used to re-arm edit-time context (§7.2).
 
+### 19.5 `seamspec/core/scope.py` and `hashing.py` — implemented (week 1)
 
-class RunnerCfg(BaseModel):
-    cmd: list[str] = Field(min_length=1)        # argv tokens; {each} and {report} are expanded
-    filename: str                               # e.g. "test_{id}.py" or "{id}/seamspec_test.go"
-    harness_dir: str = ".seamspec/tests"
-    each: list[str] = Field(default_factory=lambda: ["{path}"])  # vars: {path} {dir} {stem} {id}
-    report: Literal["junit", "go-test-json", "none"] = "none"
-    env: dict[str, str] = Field(default_factory=dict)            # runner-only env; may use {report}
-    paths: list[str] = Field(default_factory=list)               # project files this runner covers
-    config_files: list[str] = Field(default_factory=list)        # fingerprinted + protected (§12.2)
+[`scope.py`](../seamspec/core/scope.py), [`hashing.py`](../seamspec/core/hashing.py)
 
-    @field_validator("harness_dir", "filename")
-    @classmethod
-    def _inside_repo(cls, v: str) -> str:
-        p = PurePosixPath(v)
-        if p.is_absolute() or ".." in p.parts:
-            raise ValueError("must be a relative path inside the repo")
-        return v
+- `matches(patterns, rel_path)`: gitignore semantics via `pathspec.GitIgnoreSpec` (incl. `!` negation and `/`-anchored patterns). pathspec 1.x deprecates the older `gitwildmatch` name.
+- `effective_protected_paths(cfg)`: `protect.paths` + every runner's harness glob + every runner's `config_files` (§12A.5).
+- `sha256_file`, and `sha256_text`, which hashes whitespace-normalized, lowercased text so reflowing an assertion doesn't trip integrity checks.
 
-    def harness_path(self, inv_id: str) -> str:
-        return str(PurePosixPath(self.harness_dir) / self.filename.format(id=inv_id))
+### 19.6 `seamspec/core/context.py` — implemented (week 1)
 
-    def protect_glob(self) -> str:
-        """Glob covering every harness of this runner (§12A.5)."""
-        rel = PurePosixPath(self.harness_dir) / self.filename.format(id="inv_*")
-        return f"{rel.parent}/**" if "inv_*" in rel.parent.name else str(rel)
+[`seamspec/core/context.py`](../seamspec/core/context.py)
 
+- `constraints_for(store, files, limit=20)` returns a `ConstraintSet` of LOCKED and PROPOSED invariants and ACTIVE dead ends whose scope matches any of the files. Files outside the repo are ignored.
+- `ConstraintSet.empty` ignores PROPOSED invariants: they don't gate anything.
+- Matches beyond `limit` are counted in `omitted` and rendered as *"... and N more"*, never cut silently.
+- `render()` returns the **body only**; callers add their own header (e.g. *"SeamSpec: src/queue/redis.py is governed by:"*, §16.1), so the header is never doubled. Dead ends render as history, not orders (§11.3): *"- de_x: tried <approach>; failed previously because: <symptom> (recorded 2026-10-03)"*.
+- `to_dict()`: the JSON shape shared by `seamspec context --json` and the MCP `get_constraints` tool (§14).
 
-class VerifyCfg(BaseModel):
-    timeout_seconds: int = 120
-    stop_deadline_seconds: int = Field(default=240, ge=10)  # one overall budget per hook/gate run (§12.2)
-    max_output_chars: int = 4000
-    max_stop_retries: int = 3
-    run_on_stop: Literal["auto", "all", "scoped"] = "auto"
-    stop_all_threshold: int = Field(default=100, ge=1)  # auto: all below, scoped at/above
-    isolate_on_failure: int = Field(default=10, ge=0)   # max one-at-a-time reruns for attribution
+### 19.6a `seamspec/core/schemas.py`, `core/runners.py`, `installers/scaffold.py`, `installers/directive.py` — implemented (week 1)
 
-
-class HooksCfg(BaseModel):
-    gate_mode: Literal["context", "deny_once", "off"] = "context"
-    fail_closed: bool = False
-
-
-class BraindumpCfg(BaseModel):
-    path: str = "BRAINDUMP.md"
-    marker: str = "<!-- seamspec:processed -->"
-    redact_secrets: bool = True
-
-
-class ProtectCfg(BaseModel):
-    paths: list[str] = Field(default_factory=lambda: [".seamspec/**"])
-
-
-class CommandsCfg(BaseModel):
-    namespace: str = "seamspec"
-    hosts: list[str] = Field(default_factory=lambda: ["auto"])
-    max_proposals_per_run: int = 3
-
-
-class ProposalsCfg(BaseModel):
-    max_pending: int = Field(default=10, ge=1)  # project-wide PROPOSED backlog cap
-
-
-class ExecutionCfg(BaseModel):
-    run_proposed: Literal["auto", "host", "ask", "never"] = "auto"
-    env_passthrough: list[str] = Field(default_factory=list)
-    trust_level: Literal["runners", "harness"] = "runners"
-
-
-class Config(BaseModel):
-    schema_version: Literal["1"] = "1"
-    mode: Literal["advisory", "enforced", "strict"] = "enforced"
-    verify: VerifyCfg = Field(default_factory=VerifyCfg)
-    runners: dict[str, RunnerCfg]
-    hooks: HooksCfg = Field(default_factory=HooksCfg)
-    braindump: BraindumpCfg = Field(default_factory=BraindumpCfg)
-    protect: ProtectCfg = Field(default_factory=ProtectCfg)
-    commands: CommandsCfg = Field(default_factory=CommandsCfg)
-    proposals: ProposalsCfg = Field(default_factory=ProposalsCfg)
-    execution: ExecutionCfg = Field(default_factory=ExecutionCfg)
-
-    @model_validator(mode="after")
-    def _strict_defaults(self) -> "Config":
-        """strict mode tightens defaults the user did not set explicitly in config.toml."""
-        if self.mode == "strict":
-            if "fail_closed" not in self.hooks.model_fields_set:
-                self.hooks.fail_closed = True
-            if "trust_level" not in self.execution.model_fields_set:
-                self.execution.trust_level = "harness"
-        return self
-
-
-def load_config(root: Path) -> Config:
-    data = tomllib.loads((root / ".seamspec" / "config.toml").read_text(encoding="utf-8"))
-    return Config.model_validate(data)
-```
-
-### 19.3 `seamspec/core/models.py`
-
-```python
-from __future__ import annotations
-
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Literal
-
-from pydantic import BaseModel, Field
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-class InvStatus(str, Enum):
-    PROPOSED = "PROPOSED"
-    LOCKED = "LOCKED"
-    SUPERSEDED = "SUPERSEDED"
-    REJECTED = "REJECTED"
-
-
-class Scope(BaseModel):
-    paths: list[str] = Field(min_length=1)
-    tags: list[str] = Field(default_factory=list)
-
-
-class Origin(BaseModel):
-    type: Literal["prompt", "braindump", "manual", "import"]
-    text: str = Field(max_length=2000)
-    ref: str | None = None
-
-
-class Verification(BaseModel):
-    runner: str
-    harness_path: str
-    harness_sha256: str | None = None
-    assertion_sha256: str | None = None
-
-
-class Invariant(BaseModel):
-    schema_version: Literal["1"] = "1"
-    id: str = Field(pattern=r"^inv_[a-f0-9]{8}$")
-    title: str = Field(min_length=3, max_length=120)
-    assertion: str = Field(min_length=10)
-    scope: Scope
-    status: InvStatus = InvStatus.PROPOSED
-    origin: Origin
-    verification: Verification
-    adr_id: str | None = None
-    created_at: datetime = Field(default_factory=utcnow)
-    approved_at: datetime | None = None
-    approved_by: str | None = None
-    superseded_by: str | None = None
-    status_reason: str | None = None
-
-
-class DeadEnd(BaseModel):
-    schema_version: Literal["1"] = "1"
-    id: str = Field(pattern=r"^de_[a-f0-9]{8}$")
-    scope: Scope
-    approach: str = Field(min_length=10)
-    failure_symptom: str = Field(max_length=1000)
-    source: Literal["verifier", "braindump", "manual", "agent"]
-    related_invariant: str | None = None
-    status: Literal["ACTIVE", "RETIRED"] = "ACTIVE"
-    retired_reason: str | None = None
-    created_at: datetime = Field(default_factory=utcnow)
-```
-
-### 19.4 `seamspec/core/store.py`
-
-```python
-from __future__ import annotations
-
-import hashlib
-import os
-import secrets
-import tempfile
-from pathlib import Path
-from typing import TypeVar
-
-from filelock import FileLock
-from pydantic import BaseModel
-
-from .models import DeadEnd, Invariant
-
-T = TypeVar("T", bound=BaseModel)
-
-KINDS: dict[str, tuple[str, type[BaseModel]]] = {
-    "inv": ("invariants", Invariant),
-    "de": ("dead_ends", DeadEnd),
-}
-
-
-def atomic_write(path: Path, text: str) -> None:
-    """Write via temp file + fsync + os.replace so readers never see partial files."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
-
-
-class Store:
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.base = root / ".seamspec"
-        self.local = self.base / ".local"
-        self.local.mkdir(parents=True, exist_ok=True)
-        self._lock = FileLock(str(self.local / "store.lock"), timeout=10)
-
-    def _folder(self, prefix: str) -> Path:
-        return self.base / KINDS[prefix][0]
-
-    def new_id(self, prefix: str) -> str:
-        folder = self._folder(prefix)
-        while True:
-            candidate = f"{prefix}_{secrets.token_hex(4)}"
-            if not (folder / f"{candidate}.json").exists():
-                return candidate
-
-    def save(self, record: Invariant | DeadEnd) -> Path:
-        prefix = record.id.split("_", 1)[0]
-        path = self._folder(prefix) / f"{record.id}.json"
-        with self._lock:
-            atomic_write(path, record.model_dump_json(indent=2) + "\n")
-        return path
-
-    def load_all(self, prefix: str) -> list:
-        folder, model = self._folder(prefix), KINDS[prefix][1]
-        if not folder.is_dir():
-            return []
-        return [
-            model.model_validate_json(p.read_text(encoding="utf-8"))
-            for p in sorted(folder.glob(f"{prefix}_*.json"))
-        ]
-
-    def get(self, record_id: str):
-        prefix = record_id.split("_", 1)[0]
-        path = self._folder(prefix) / f"{record_id}.json"
-        if not path.is_file():
-            raise KeyError(record_id)
-        return KINDS[prefix][1].model_validate_json(path.read_text(encoding="utf-8"))
-
-    def revision(self) -> str:
-        """Content hash of all records; changes whenever the ledger changes."""
-        h = hashlib.sha256()
-        for prefix in KINDS:
-            folder = self._folder(prefix)
-            if folder.is_dir():
-                for p in sorted(folder.glob("*.json")):
-                    h.update(p.name.encode())
-                    h.update(p.read_bytes())
-        return h.hexdigest()[:16]
-```
-
-### 19.5 `seamspec/core/scope.py` and `hashing.py`
-
-```python
-# scope.py
-from __future__ import annotations
-
-from functools import lru_cache
-
-import pathspec
-
-
-@lru_cache(maxsize=512)
-def _spec(patterns: tuple[str, ...]) -> pathspec.PathSpec:
-    return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
-
-
-def matches(patterns: list[str], rel_path: str) -> bool:
-    return _spec(tuple(patterns)).match_file(rel_path)
-
-
-def effective_protected_paths(cfg) -> list[str]:
-    """One list used by the PreToolUse hook, CODEOWNERS and `doctor --ci` (§12A.5):
-    protect.paths + every runner's harness glob + every runner's config files."""
-    globs = list(cfg.protect.paths)
-    for runner in cfg.runners.values():
-        globs.append(runner.protect_glob())
-        globs.extend(runner.config_files)
-    return globs
-```
-
-```python
-# hashing.py
-from __future__ import annotations
-
-import hashlib
-import re
-from pathlib import Path
-
-
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def sha256_file(path: Path) -> str:
-    return sha256_bytes(path.read_bytes())
-
-
-def normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip().lower()
-
-
-def sha256_text(text: str) -> str:
-    return sha256_bytes(normalize_text(text).encode("utf-8"))
-```
-
-### 19.6 `seamspec/core/context.py`
-
-```python
-from __future__ import annotations
-
-from dataclasses import dataclass, field
-
-from .models import InvStatus
-from .root import to_rel
-from .scope import matches
-from .store import Store
-
-
-@dataclass
-class ConstraintSet:
-    files: list[str]
-    locked: list = field(default_factory=list)
-    proposed: list = field(default_factory=list)
-    dead_ends: list = field(default_factory=list)
-
-    @property
-    def empty(self) -> bool:
-        return not (self.locked or self.dead_ends)
-
-    def render(self) -> str:
-        lines = [f"SeamSpec: {', '.join(self.files)} is governed by:"]
-        for inv in self.locked:
-            adr = f" ({inv.adr_id})" if inv.adr_id else ""
-            lines.append(f"- [LOCKED] {inv.id}: {inv.assertion}{adr}")
-        for inv in self.proposed:
-            lines.append(f"- [PROPOSED] {inv.id}: {inv.assertion}")
-        if self.dead_ends:
-            lines.append("Avoid known dead ends:")
-            for de in self.dead_ends:
-                lines.append(f"- {de.id}: {de.approach} — {de.failure_symptom[:200]}")
-        return "\n".join(lines)
-
-
-def constraints_for(store: Store, files: list[str], limit: int = 20) -> ConstraintSet:
-    rels = [r for r in (to_rel(store.root, f) for f in files) if r]
-    cs = ConstraintSet(files=rels)
-
-    def hit(paths: list[str]) -> bool:
-        return any(matches(paths, r) for r in rels)
-
-    for inv in store.load_all("inv"):
-        if not hit(inv.scope.paths):
-            continue
-        if inv.status == InvStatus.LOCKED:
-            cs.locked.append(inv)
-        elif inv.status == InvStatus.PROPOSED:
-            cs.proposed.append(inv)
-    cs.dead_ends = [d for d in store.load_all("de") if d.status == "ACTIVE" and hit(d.scope.paths)]
-
-    cs.locked, cs.proposed, cs.dead_ends = cs.locked[:limit], cs.proposed[:limit], cs.dead_ends[:limit]
-    return cs
-```
+- [`schemas.py`](../seamspec/core/schemas.py): loads the packaged schemas (§9.4); `validation_errors(name, data)` checks with Draft 2020-12 and a format checker. `doctor` (week 4) builds on it.
+- [`runners.py`](../seamspec/core/runners.py): v0.1 presets live as commented TOML in `templates/runners/{pytest,vitest}.toml`, used both to write `config.toml` and to build `RunnerCfg`s. `detect(root)` implements §12A.7; jest, go and cargo are detected and reported as *"support arrives in v0.2"*.
+- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` to `.gitignore`, and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. Plugin, pre-commit, CI and the consent screen arrive in weeks 2–4.
+- [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`.
 
 ### 19.7 `seamspec/core/verifier.py`
 
@@ -3192,15 +2863,18 @@ Good harnesses test **observable behavior** (inputs → outputs, invariants over
 
 ```
 seamspec/
-├── pyproject.toml
+├── pyproject.toml                  # uv_build, flat layout (module-root = "")
+├── uv.lock
 ├── README.md
+├── CLAUDE.md                       # entry point for agents working on SeamSpec (ADR-20261005-2565)
 ├── LICENSE                         # Apache-2.0
+├── .github/workflows/tests.yml     # SeamSpec's own tests: ruff + pytest, Python 3.11–3.14
 ├── seamspec-plugin/                # Claude Code plugin (§16.1): hooks, skills, MCP config, wrapper
 │   ├── .claude-plugin/plugin.json
 │   ├── hooks/hooks.json
 │   ├── skills/                     # rendered from templates/commands/ (lock, dead-end, ...)
 │   ├── .mcp.json
-│   └── bin/seamspec-hook
+│   └── bin/                        # seamspec-hook, seamspec-mcp (§16.1)
 ├── seamspec/
 │   ├── __init__.py
 │   ├── cli.py                      # typer app: init, status, context, review, verify, doctor, mcp, hook, trust (drain, commands: v0.2)
@@ -3218,6 +2892,7 @@ seamspec/
 │   │   ├── scope.py                # globs + effective_protected_paths()
 │   │   ├── hashing.py
 │   │   ├── context.py
+│   │   ├── schemas.py              # packaged JSON Schemas + validation (§9.4)
 │   │   ├── verifier.py
 │   │   ├── lifecycle.py            # propose/approve/reject/supersede, fingerprints
 │   │   ├── journal.py              # approval journal + unjournaled-change check (§11.1)
@@ -3236,6 +2911,8 @@ seamspec/
 │   │   ├── vscode.py               # v0.2
 │   │   └── cursor.py               # v0.2
 │   ├── installers/                 # init: merge configs without clobbering
+│   │   ├── scaffold.py             # `seamspec init` scaffolding (week 1)
+│   │   ├── directive.py            # marked CLAUDE.md block (§18)
 │   │   ├── claude.py               # plugin install + optional .claude/settings.json entry
 │   │   ├── vscode.py               # v0.2
 │   │   ├── cursor.py               # v0.2
@@ -3243,7 +2920,8 @@ seamspec/
 │   │   ├── commands.py             # write slash-command files per host (v0.2; Claude Code skills ship in the plugin)
 │   │   └── ci.py
 │   └── templates/
-│       ├── config.toml
+│       ├── config.toml             # with {{runners}} filled from templates/runners/*.toml
+│       ├── runners/                # pytest.toml, vitest.toml presets (v0.1)
 │       ├── pytest.ini              # SeamSpec's own pytest config (§12.3)
 │       ├── vitest.config.mjs       # SeamSpec's own vitest config (§12.3)
 │       ├── BRAINDUMP.md            # v0.2
@@ -3259,8 +2937,15 @@ seamspec/
 │           ├── context.md
 │           └── status.md
 └── tests/
+    ├── conftest.py                 # `repo` / `store` fixtures, record factories
+    ├── test_root.py
+    ├── test_config.py              # presets, strict defaults, unknown keys, config.json drift
+    ├── test_models_schemas.py      # models and packaged schemas agree; bad records fail both
     ├── test_store.py
-    ├── test_scope.py
+    ├── test_scope_hashing.py
+    ├── test_context.py
+    ├── test_init.py                # scaffold, detection, CLAUDE.md block merge
+    ├── test_cli.py
     ├── test_verifier.py            # incl. process-group kill, deadline, empty/skipped tests
     ├── test_lifecycle.py           # incl. journal + fingerprints
     ├── test_braindump.py           # v0.2

@@ -1,0 +1,313 @@
+{
+  "$defs": {
+    "BraindumpCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "marker": {
+          "default": "<!-- seamspec:processed -->",
+          "title": "Marker",
+          "type": "string"
+        },
+        "nudge": {
+          "default": "ask",
+          "enum": [
+            "ask",
+            "off"
+          ],
+          "title": "Nudge",
+          "type": "string"
+        },
+        "path": {
+          "default": "BRAINDUMP.md",
+          "title": "Path",
+          "type": "string"
+        },
+        "redact_secrets": {
+          "default": true,
+          "title": "Redact Secrets",
+          "type": "boolean"
+        }
+      },
+      "title": "BraindumpCfg",
+      "type": "object"
+    },
+    "CommandsCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "hosts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hosts",
+          "type": "array"
+        },
+        "max_proposals_per_run": {
+          "default": 3,
+          "minimum": 1,
+          "title": "Max Proposals Per Run",
+          "type": "integer"
+        },
+        "namespace": {
+          "default": "seamspec",
+          "title": "Namespace",
+          "type": "string"
+        }
+      },
+      "title": "CommandsCfg",
+      "type": "object"
+    },
+    "ExecutionCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "env_passthrough": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Passthrough",
+          "type": "array"
+        },
+        "run_proposed": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "host",
+            "ask",
+            "never"
+          ],
+          "title": "Run Proposed",
+          "type": "string"
+        },
+        "trust_level": {
+          "default": "runners",
+          "enum": [
+            "runners",
+            "harness"
+          ],
+          "title": "Trust Level",
+          "type": "string"
+        }
+      },
+      "title": "ExecutionCfg",
+      "type": "object"
+    },
+    "HooksCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "fail_closed": {
+          "default": false,
+          "title": "Fail Closed",
+          "type": "boolean"
+        },
+        "gate_mode": {
+          "default": "context",
+          "enum": [
+            "context",
+            "deny_once",
+            "off"
+          ],
+          "title": "Gate Mode",
+          "type": "string"
+        }
+      },
+      "title": "HooksCfg",
+      "type": "object"
+    },
+    "ProposalsCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "max_pending": {
+          "default": 10,
+          "minimum": 1,
+          "title": "Max Pending",
+          "type": "integer"
+        }
+      },
+      "title": "ProposalsCfg",
+      "type": "object"
+    },
+    "ProtectCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        }
+      },
+      "title": "ProtectCfg",
+      "type": "object"
+    },
+    "RunnerCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "cmd": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Cmd",
+          "type": "array"
+        },
+        "config_files": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Config Files",
+          "type": "array"
+        },
+        "each": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Each",
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Env",
+          "type": "object"
+        },
+        "filename": {
+          "title": "Filename",
+          "type": "string"
+        },
+        "harness_dir": {
+          "default": ".seamspec/tests",
+          "title": "Harness Dir",
+          "type": "string"
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "report": {
+          "default": "none",
+          "enum": [
+            "junit",
+            "go-test-json",
+            "none"
+          ],
+          "title": "Report",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cmd",
+        "filename"
+      ],
+      "title": "RunnerCfg",
+      "type": "object"
+    },
+    "VerifyCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "isolate_on_failure": {
+          "default": 10,
+          "minimum": 0,
+          "title": "Isolate On Failure",
+          "type": "integer"
+        },
+        "max_output_chars": {
+          "default": 4000,
+          "minimum": 200,
+          "title": "Max Output Chars",
+          "type": "integer"
+        },
+        "max_stop_retries": {
+          "default": 3,
+          "minimum": 0,
+          "title": "Max Stop Retries",
+          "type": "integer"
+        },
+        "run_on_stop": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "all",
+            "scoped"
+          ],
+          "title": "Run On Stop",
+          "type": "string"
+        },
+        "stop_all_threshold": {
+          "default": 100,
+          "minimum": 1,
+          "title": "Stop All Threshold",
+          "type": "integer"
+        },
+        "stop_deadline_seconds": {
+          "default": 240,
+          "minimum": 10,
+          "title": "Stop Deadline Seconds",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "default": 120,
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "title": "VerifyCfg",
+      "type": "object"
+    }
+  },
+  "$id": "https://seamspec.github.io/schemas/v1/config.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "braindump": {
+      "$ref": "#/$defs/BraindumpCfg"
+    },
+    "commands": {
+      "$ref": "#/$defs/CommandsCfg"
+    },
+    "execution": {
+      "$ref": "#/$defs/ExecutionCfg"
+    },
+    "hooks": {
+      "$ref": "#/$defs/HooksCfg"
+    },
+    "mode": {
+      "default": "enforced",
+      "enum": [
+        "advisory",
+        "enforced",
+        "strict"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "proposals": {
+      "$ref": "#/$defs/ProposalsCfg"
+    },
+    "protect": {
+      "$ref": "#/$defs/ProtectCfg"
+    },
+    "runners": {
+      "additionalProperties": {
+        "$ref": "#/$defs/RunnerCfg"
+      },
+      "title": "Runners",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "verify": {
+      "$ref": "#/$defs/VerifyCfg"
+    }
+  },
+  "title": "Config",
+  "type": "object"
+}

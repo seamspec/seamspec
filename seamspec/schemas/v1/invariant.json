@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://seamspec.github.io/schemas/v1/invariant.json",
+  "title": "Invariant",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "title", "assertion", "scope", "status", "origin", "verification", "created_at"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "id": { "type": "string", "pattern": "^inv_[a-f0-9]{8}$" },
+    "title": { "type": "string", "minLength": 3, "maxLength": 120 },
+    "assertion": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Behavioral rule in plain language, e.g. 'Retry delay never exceeds 30s'"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths"],
+      "properties": {
+        "paths": {
+          "type": "array", "minItems": 1, "items": { "type": "string" },
+          "description": "gitignore-style globs relative to repo root, e.g. src/queue/**"
+        },
+        "tags": {
+          "type": "array", "items": { "type": "string" },
+          "description": "Cross-cutting concerns, e.g. tenant-isolation"
+        }
+      }
+    },
+    "status": { "enum": ["PROPOSED", "LOCKED", "SUPERSEDED", "REJECTED"] },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "enum": ["prompt", "braindump", "manual", "import"] },
+        "text": { "type": "string", "maxLength": 2000, "description": "Redacted copy of the originating intent" },
+        "ref": { "type": ["string", "null"], "description": "e.g. braindump item id bd_77aa0c12" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner", "harness_path"],
+      "properties": {
+        "runner": { "type": "string" },
+        "harness_path": { "type": "string" },
+        "harness_sha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+        "assertion_sha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "adr_id": { "type": ["string", "null"], "pattern": "^ADR-[0-9]{8}-[a-f0-9]{4}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "approved_at": { "type": ["string", "null"], "format": "date-time" },
+    "approved_by": { "type": ["string", "null"] },
+    "superseded_by": { "type": ["string", "null"], "pattern": "^inv_[a-f0-9]{8}$" },
+    "status_reason": { "type": ["string", "null"], "description": "Why rejected or superseded" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "LOCKED" } } },
+      "then": {
+        "required": ["approved_at", "approved_by"],
+        "properties": {
+          "approved_at": { "type": "string" },
+          "approved_by": { "type": "string" },
+          "verification": {
+            "required": ["harness_sha256", "assertion_sha256"],
+            "properties": {
+              "harness_sha256": { "type": "string" },
+              "assertion_sha256": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "SUPERSEDED" } } },
+      "then": {
+        "required": ["superseded_by", "status_reason"],
+        "properties": { "status_reason": { "type": "string" } }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "REJECTED" } } },
+      "then": {
+        "required": ["status_reason"],
+        "properties": { "status_reason": { "type": "string" } }
+      }
+    }
+  ]
+}

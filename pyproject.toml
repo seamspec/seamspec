@@ -1,0 +1,57 @@
+[project]
+name = "seamspec"
+version = "0.1.0.dev0"
+description = "Executable specs for AI coding agents. Build first; every seam that works gets a spec."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "vamshidhar.p" }]
+keywords = ["ai", "coding-agents", "specs", "testing", "mcp", "claude-code", "regression"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "filelock>=3.13",
+    "jsonschema>=4.21",
+    "pathspec>=0.12",
+    "pydantic>=2.6",
+    "rfc3339-validator>=0.1.4",
+    "rich>=13.7",
+    "typer>=0.12",
+]
+
+[project.urls]
+Homepage = "https://seamspec.github.io"
+
+[project.scripts]
+seamspec = "seamspec.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""   # flat layout: the package lives in ./seamspec (SPEC §21)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["docs", "notes"]   # SPEC code blocks are edited by hand, never reformatted
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

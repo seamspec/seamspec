@@ -20,6 +20,17 @@ SeamSpec is an open-source governance layer for AI coding agents: when something
 
 ## Tech
 
-Python ≥ 3.11, uv, pytest, ruff. Dependencies per SPEC §19: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`, `filelock`, `jsonschema`.
+Python ≥ 3.11, uv (flat layout: the package is `./seamspec`), pytest, ruff. Dependencies per SPEC §19.
+
+```bash
+uv sync                                   # install
+uv run pytest                             # tests
+uv run ruff check . && uv run ruff format --check .
+uv run seamspec --help                    # the CLI
+```
+
+- **Implemented modules are the source of truth**; SPEC §19 keeps a short contract per module (ADR-20261005-6f2a). If you change a module's behavior, update its §19 contract.
+- `seamspec/schemas/v1/config.json` is generated: after changing `core/config.py`, regenerate it from `config_json_schema()` (a test fails if it's stale).
+- Never run `ruff format` on `docs/` (it's excluded): SPEC code blocks are edited by hand.
 
 <!-- From week 3, `seamspec init` adds its own marked directive block below (SPEC §18), when SeamSpec starts governing this repo. -->
