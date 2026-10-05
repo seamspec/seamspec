@@ -317,7 +317,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 |---|---|---|---|
 | `advisory` | MCP config + rules file | Prompt-based (labeled honestly) | Trying SeamSpec; hosts without hooks |
 | `enforced` *(default)* | + host hooks + git pre-commit + **CI workflow (offered; `--ci` / `--no-ci`)** | In-session + commit-time + PR | Daily individual use |
-| `strict` | + CI workflow (always), `fail_closed = true`, `trust_level = "harness"` *(v0.2)*, CODEOWNERS entry for `.seamspec/` | Everything above, hooks fail closed (retry-capped), any new upstream test needs re-trust | Teams, shared repos |
+| `strict` | + CI workflow (always), `fail_closed = true`, `trust_level = "harness"`, CODEOWNERS entry for `.seamspec/` | Everything above, hooks fail closed (retry-capped), any new upstream test needs re-trust | Teams, shared repos |
 
 **CI by mode** (ADR-20261005-c41d): `init` in `enforced` mode asks *"Add a CI workflow (.github/workflows/seamspec.yml)? [Y/n]"*; `--ci` / `--no-ci` answer it for scripts. `strict` always installs it, plus CODEOWNERS. `advisory` never does. The workflow is the same in every mode (§16.5).
 
@@ -492,7 +492,7 @@ max_pending = 10               # project-wide cap on PROPOSED invariants awaitin
 [execution]                    # §12.4 Execution Consent
 run_proposed = "auto"          # auto | host | ask | never — how proposed (unapproved) tests may run (v0.1: host | never; ask = v0.2)
 env_passthrough = []           # extra env vars tests may see, e.g. ["DATABASE_URL"]
-trust_level = "runners"        # runners | harness — strict mode defaults to harness (harness = v0.2)
+trust_level = "runners"        # runners | harness — strict mode defaults to harness
 ```
 
 - Commands are **argv lists**, never shell strings.
@@ -900,6 +900,9 @@ Allow automatic test runs in this repository? [y/N]
 
 - Answering **No** installs everything in `advisory` mode.
 - Scripted setups must pass the explicit `--accept-auto-run` flag; a generic `--yes` does not imply consent.
+- Not a terminal and no `--accept-auto-run`: the answer is **No** (advisory mode), with a note saying how to turn runs on.
+- **Changing your mind later:** re-running `seamspec init` with consent switches an advisory config to the requested mode, rewriting only the `mode` line. For `strict` it also restores the strict values of the `fail_closed` / `trust_level` lines that `init` itself wrote; values a human edited are left alone (ADR-20261005-8e80).
+- `init` also **trusts the clone** when it creates `config.toml` (whoever runs it just wrote those runner commands). An existing config, e.g. from a clone, is not trusted automatically: run `seamspec trust`.
 
 #### 12.4.6 Repo Trust (Trust-on-First-Use)
 
@@ -1301,7 +1304,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec supersede <id> --reason [--replacement <id>]` | Human-initiated supersede, or approve a pending request |
 | `seamspec retire-dead-end <id> --reason` | Retire a dead end |
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
-| `seamspec verify [--changed\|--all\|--proposed <id...>] [--gate] [--ci] [--json]` | Run the verifier; `--gate` exits non-zero on failure and prints pending-review reminder. `--proposed` runs unapproved tests and is meant to be invoked by the human or through the agent's permission-checked shell tool (§12.4) |
+| `seamspec verify [--changed\|--all\|--proposed <id...>] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
 | `seamspec drain [--json] [--tidy]` *(v0.2)* | List pending braindump items; `--tidy` moves processed items below the marker |
 | `seamspec doctor [--ci]` | Validate schemas, hashes, runner config fingerprints, hook installation, host tiers, MCP token budget, `CLAUDE.md` directive drift (§18); `--ci` adds ledger-forward-only checks against the base branch and the retirement summary |
 | `seamspec mcp` | Run the MCP server (stdio) |
@@ -1864,11 +1867,18 @@ The `vscode` adapter normalizes the payload and maps decisions to the host's out
 
 ### 16.4 git pre-commit
 
-Installed to `.git/hooks/pre-commit` (or registered with `pre-commit` / Husky / Lefthook if detected):
+Installed by `init` (only with auto-run consent) into the repo's hooks directory, respecting `core.hooksPath` and worktrees. It never overwrites a hook it didn't write: with an existing hook, or with `pre-commit` / Husky / Lefthook detected, `init` prints the line to add instead (ADR-20261005-8e80).
 
 ```sh
 #!/bin/sh
 # Installed by seamspec init. Remove this file to uninstall.
+# Runs every LOCKED SeamSpec invariant before each commit (SPEC §16.4).
+if ! command -v seamspec >/dev/null 2>&1; then
+  echo "SeamSpec: the seamspec CLI is not installed (uv tool install seamspec)." >&2
+  echo "SeamSpec: install it, or delete this hook to stop checking." >&2
+  exit 1
+fi
+cd "$(git rev-parse --show-toplevel)/services/api" || exit 1   # only when .seamspec/ is in a subfolder
 exec seamspec verify --all --gate
 ```
 
@@ -2096,6 +2106,17 @@ Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`
 - `journal.unjournaled_changes(store)` implements the rules in §11.1 against `git HEAD` (works when `.seamspec/` sits in a subfolder of the git repo). No git or no commit means "everything is new".
 - `origin.text` and `failure_symptom` pass through `redact()` (§13.8) when `braindump.redact_secrets` is on (the default), for every origin, not only braindump.
 - ADR files use JSON-valued frontmatter (valid YAML flow style), so no YAML dependency is needed. Hand-written ADRs in the same format, including this repo's `docs/adr/`, parse (a test checks it).
+
+### 19.8a `seamspec/core/trust.py`, `core/tree.py`, `installers/git_hooks.py`, `seamspec verify` — implemented (week 2)
+
+[`trust.py`](../seamspec/core/trust.py), [`tree.py`](../seamspec/core/tree.py), [`git_hooks.py`](../seamspec/installers/git_hooks.py), [`cli.py`](../seamspec/cli.py)
+
+- **Consent** (`.local/consent.json`): `record_consent()` / `consent_given()`. Only the CLI asks; `scaffold.init(auto_run=...)` takes the answer.
+- **Trust** (`.local/trust.json`): `trust_hash()` covers every runner's full settings (command, env, paths, report, config files), `execution.env_passthrough` and the trust level. At `trust_level = "harness"` it also covers the hash of every `LOCKED` test, so any new or changed approved test needs re-trust. `state()` explains why a clone isn't trusted and lists tests that are new since the last trust; `grant()` records who trusted and when.
+- `execution_permitted(store, cfg) -> (allowed, why)`: not advisory, consent given, clone trusted. Used by the Stop hook (week 3); `verify --gate` applies the same checks.
+- `tree.changed_files(root)`: changed vs `HEAD` (staged and unstaged) plus untracked, non-ignored files, relative to the SeamSpec root; `None` outside git, in which case `--changed` runs everything.
+- `git_hooks.install_pre_commit(root)` → `created | updated | unchanged | manual | skipped`, per §16.4.
+- **Tested end to end with real `git commit` and the installed hook** (`tests/test_trust_gate.py`, `tests/test_verifier_vitest.py`): a regression is blocked with the rule named in pytest and vitest repos, a silent retirement is blocked, and an untrusted clone runs nothing.
 
 ### 19.9 `seamspec/core/braindump.py`
 
@@ -2596,6 +2617,7 @@ seamspec/
     ├── test_lifecycle.py           # propose/approve/reject/supersede against real pytest runs
     ├── test_journal_adr.py         # journal vs real git history; ADR files
     ├── test_cli_lifecycle.py
+    ├── test_trust_gate.py          # consent, trust, verify CLI, pre-commit end to end with real git
     ├── fixtures/ts_repo/           # pinned vitest install: npm ci --prefix tests/fixtures/ts_repo
     ├── test_braindump.py           # v0.2
     ├── test_claude_adapter.py      # feed recorded hook payloads, assert outputs
@@ -2632,7 +2654,7 @@ Competing tools already support several hosts, so v0.2 follows quickly. The adap
 - **Cursor and VS Code Copilot** adapters (§16.2, §16.3) and per-host command rendering (§15A.4).
 - **BRAINDUMP**: parse/drain/tidy + redaction, `/seamspec:drain`, session-start nudge (§13); `propose_decision` and `braindump_pending` tools.
 - **More presets**: jest, Go, Rust (cargo), `custom` (§12A.2).
-- MCP **elicitation** for `run_proposed = "ask"`; `trust_level = "harness"`.
+- MCP **elicitation** for `run_proposed = "ask"`. (`trust_level = "harness"` moved into v0.1, ADR-20261005-8e80.)
 - `npx seamspec` wrapper for JS developers.
 
 ### Later
@@ -2737,7 +2759,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 | 5 | License | **Apache-2.0** | Explicit patent grant; companies prefer it for a governance tool | §21 |
 | 6 | Name and schema domain | **SeamSpec** (CLI `seamspec`). *Name history:* drafted as "VibeSpec"; dropped 2026-10-03 because GitHub user/org `vibespec` was taken and `vibespec.dev` resolves. `seamspec` was free everywhere and is now claimed: PyPI (0.0.3), npm (0.0.1) + `@seamspec` org, GitHub org `seamspec`. Schema `$id`s use `https://seamspec.github.io/schemas/v1/` | Names get taken, and a schema `$id` should never move | §9.4, §10, §22 |
 | 7 | `run_proposed` default | New default **`auto`**: `ask` when the MCP client declares elicitation support, else `host`. **In v0.1 elicitation is deferred, so `auto` = `host`** | `ask` shows the human a consent prompt in the IDE, which is stronger than relying on the agent's shell permissions. Falling back is safe while host support is unverified | §9.5, §12.4.2, §12.4.4, §19.2 |
-| 8 | `trust_level` in `strict` | **Yes, defaults to `harness`** (explicit config wins; ships in v0.2). `fail_closed` follows the same rule | `strict` users opted into rigor; any new upstream test should need re-trust before it runs locally | §7.3, §9.5, §12.4.6, §19.2 |
+| 8 | `trust_level` in `strict` | **Yes, defaults to `harness`** (explicit config wins; implemented in v0.1, ADR-20261005-8e80). `fail_closed` follows the same rule | `strict` users opted into rigor; any new upstream test should need re-trust before it runs locally | §7.3, §9.5, §12.4.6, §19.2 |
 | 9 | v0.1 scope | **Claude Code only**; pytest + vitest; ledger, `review`, `verify`, pre-commit, Stop gate, `/lock`, `/dead-end`, 5-tool MCP, CI. Cursor/Copilot, BRAINDUMP, jest/Go/Rust, elicitation and harness trust move to **v0.2** | The original v0.1 was about 3× too big; the biggest risk is whether SeamSpec helps at all, so test the core loop first | §0, §8, §12A.2, §14, §22 |
 | 10 | Claude Code packaging | Ship as a **plugin** (hooks + skills + MCP); commands are plugin skills, e.g. `/seamspec:lock` | Only plugin skills get a namespace; nothing is merged into committed settings, so teammates without SeamSpec are unaffected | §15A.4, §16.1 |
 | 11 | Edit-time gate | **`context`** by default: add constraints with no permission decision. Deny once only for brand-new governed files or `gate_mode = "deny_once"`. Never return `allow` | A denial can push the agent to write through Bash, skipping the gate; `allow` would bypass the user's permission prompts | §7.2, §16.1, §19.10 |

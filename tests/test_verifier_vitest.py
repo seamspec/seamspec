@@ -67,3 +67,44 @@ def test_vitest_passes_with_project_setup_ignored(ts_repo: Path) -> None:
     inv = write_locked(ts_repo, cfg, "inv_00000001", PASS, runner="vitest")
     report = verifier.run(ts_repo, cfg, [inv])
     assert report.passed, report.results[0].output
+
+
+def test_pre_commit_blocks_a_typescript_regression(ts_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Week 2 exit criterion, TypeScript half: propose → approve → pre-commit blocks a regression."""
+    import subprocess
+
+    from typer.testing import CliRunner
+
+    from seamspec.cli import app
+    from seamspec.core import lifecycle
+    from seamspec.core.store import Store
+
+    from .conftest import git
+
+    root = ts_repo
+    (root / ".gitignore").write_text((root / ".gitignore").read_text() + "node_modules\n")
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.name", "Maya Rao")
+    git(root, "config", "user.email", "maya@example.com")
+    result = CliRunner().invoke(app, ["init", "--path", str(root), "--accept-auto-run"])
+    assert result.exit_code == 0 and "git pre-commit hook" in result.output, result.output
+
+    monkeypatch.setenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", "1")
+    store, cfg = Store(root), load_config(root)
+    out = lifecycle.propose_invariant(
+        store, cfg, title="Retry delay is capped", assertion="Retry delay never exceeds 30 seconds.",
+        scope_paths=["src/**"], runner="vitest", harness_code=PASS, origin_text="cap at 30s",
+    )  # fmt: skip
+    lifecycle.approve(store, cfg, out["id"])
+    assert (root / f"tests/seamspec/{out['id']}.test.ts").is_file()
+
+    env = {k: v for k, v in os.environ.items() if k != "SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE"}
+
+    def commit(msg: str) -> subprocess.CompletedProcess[str]:
+        git(root, "add", "-A")
+        return subprocess.run(["git", "commit", "-q", "-m", msg], cwd=root, capture_output=True, text=True, env=env)
+
+    assert commit("lock").returncode == 0
+    (root / "src/queue.ts").write_text("export const backoffDelay = (n: number) => 0.1 * 2 ** n;\n")
+    blocked = commit("remove the cap")
+    assert blocked.returncode != 0 and f"[FAIL] {out['id']} (vitest)" in blocked.stderr, blocked.stderr
