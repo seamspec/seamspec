@@ -3237,6 +3237,8 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 > [!IMPORTANT]
 > If the week-3 rough benchmark shows (C) no better than (D), weeks 4–5 shift toward what plain tests can't do (capture, approval, dead ends, §4.4) before launch.
 
+**How progress is tracked** (ADR-20261005-ae6e): one GitHub milestone per week above, each with a tracking issue that mirrors its deliverables and exit criteria. This spec is kept current as the code evolves; anything that changes or adds to it gets an ADR in `docs/adr/` (moving to `.seamspec/adrs/` when SeamSpec starts governing its own repo in week 3).
+
 ### v0.2 — soon after v0.1
 
 Competing tools already support several hosts, so v0.2 follows quickly. The adapter layer stays thin so new hosts are cheap to add.
@@ -3338,7 +3340,7 @@ Measured against the real baseline, plain tests + a Stop hook (§4.4), not again
 
 ## 26. Resolved Decisions
 
-Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 2026-10-05 after the peer review.
+Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 2026-10-05 after the peer review. **Decisions made after the build started are recorded as ADRs in `docs/adr/`**, not in this table.
 
 | # | Question | Decision | Rationale | Where applied |
 |---|---|---|---|---|
