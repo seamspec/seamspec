@@ -8,17 +8,20 @@ later steps (roadmap weeks 2-4, SPEC §22).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
+from ..core import trust
 from ..core.config import load_config, parse_config
+from ..core.lifecycle import approver_identity
 from ..core.root import CONFIG_REL
 from ..core.runners import V01_PRESETS, Detection, detect, preset_toml
-from ..core.store import atomic_write
+from ..core.store import Store, atomic_write
 from ..core.verifier import FINGERPRINTS_REL, confirm_fingerprints, current_fingerprints
-from . import directive
+from . import directive, git_hooks
 
 Mode = Literal["advisory", "enforced", "strict"]
 
@@ -36,6 +39,9 @@ class InitReport:
     mode: Mode
     detection: Detection
     actions: list[tuple[str, str]] = field(default_factory=list)  # (path, created|updated|unchanged|kept)
+    consent: bool = False
+    trusted: bool = False
+    hook: git_hooks.HookResult | None = None
 
     def add(self, path: str, what: str) -> None:
         self.actions.append((path, what))
@@ -43,6 +49,12 @@ class InitReport:
 
 def _template(name: str) -> str:
     return files("seamspec.templates").joinpath(name).read_text("utf-8")
+
+
+STRICT_HOOKS = "fail_closed = true             # strict mode default\n"
+NON_STRICT_HOOKS = "fail_closed = false            # strict mode defaults to true\n"
+STRICT_TRUST = 'trust_level = "harness"        # strict mode default\n'
+NON_STRICT_TRUST = 'trust_level = "runners"        # runners | harness\n'
 
 
 def render_config(mode: Mode, runners: list[str]) -> str:
@@ -58,18 +70,8 @@ def render_config(mode: Mode, runners: list[str]) -> str:
         _template("config.toml")
         .replace("{{mode}}", mode)
         .replace("{{runners}}", tables.rstrip("\n"))
-        .replace(
-            "{{hooks_extra}}",
-            "fail_closed = true             # strict mode default\n"
-            if strict
-            else "fail_closed = false            # strict mode defaults to true\n",
-        )
-        .replace(
-            "{{execution_extra}}",
-            'trust_level = "harness"        # strict mode default (v0.2)\n'
-            if strict
-            else 'trust_level = "runners"        # runners | harness\n',
-        )
+        .replace("{{hooks_extra}}", STRICT_HOOKS if strict else NON_STRICT_HOOKS)
+        .replace("{{execution_extra}}", STRICT_TRUST if strict else NON_STRICT_TRUST)
     )
     parse_config(text, "generated config.toml")  # never write a config SeamSpec itself can't load
     return text
@@ -109,19 +111,61 @@ def _record_initial_fingerprints(root: Path, report: InitReport) -> None:
     report.add(FINGERPRINTS_REL.as_posix(), "created")
 
 
-def init(root: Path, mode: Mode = "enforced", claude_md: bool = True) -> InitReport:
+def _set_mode(root: Path, mode: Mode) -> None:
+    """Rewrite only the top-level `mode = ...` line, keeping comments and everything else."""
+    path = root / CONFIG_REL
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.startswith("["):
+            break  # top-level keys come before the first table
+        if re.match(r"\s*mode\s*=", line):
+            comment = line.split("#", 1)[1] if "#" in line else " advisory | enforced | strict\n"
+            lines[i] = f'mode = "{mode}"              #{comment}'
+            break
+    else:
+        lines.insert(1 if lines and lines[0].startswith("#") else 0, f'mode = "{mode}"\n')
+    text = "".join(lines)
+    if mode == "strict":  # init's own non-strict defaults would loosen strict mode; edited values stay
+        text = text.replace(NON_STRICT_HOOKS, STRICT_HOOKS).replace(NON_STRICT_TRUST, STRICT_TRUST)
+    parse_config(text, str(path))
+    atomic_write(path, text)
+
+
+def init(
+    root: Path,
+    mode: Mode = "enforced",
+    claude_md: bool = True,
+    auto_run: bool = False,
+    actor: str | None = None,
+) -> InitReport:
+    """Set up SeamSpec in `root`.
+
+    `auto_run` is the human's answer to the consent screen (§12.4.5); the CLI asks, this function
+    never does. Without consent, `enforced` and `strict` fall back to `advisory`, and no pre-commit
+    hook is installed. Whoever creates the config with `init` also trusts this clone for it (§12.4.6).
+    """
     root = root.resolve()
     found = detect(root)
-    report = InitReport(root=root, mode=mode, detection=found)
+    effective: Mode = mode if auto_run or mode == "advisory" else "advisory"
+    report = InitReport(root=root, mode=effective, detection=found)
 
     base = root / ".seamspec"
     for d in LEDGER_DIRS:
         (base / d).mkdir(parents=True, exist_ok=True)
 
-    _write_if_missing(root, CONFIG_REL.as_posix(), render_config(mode, found.runners), report)
+    config_rel = CONFIG_REL.as_posix()
+    created_config = not (root / CONFIG_REL).exists()
+    _write_if_missing(root, config_rel, render_config(effective, found.runners), report)
+
+    # Consent given now, after an earlier "no" left the repo in advisory mode: switch the mode on.
+    if not created_config and auto_run and mode != "advisory" and load_config(root).mode == "advisory":
+        _set_mode(root, mode)
+        report.add(config_rel, f"updated (mode: {mode})")
 
     # Follow the config actually on disk, so re-running init after editing it stays consistent.
-    for runner in load_config(root).runners.values():
+    cfg = load_config(root)
+    report.mode = cfg.mode
+    for runner in cfg.runners.values():
         (root / runner.harness_dir).mkdir(parents=True, exist_ok=True)
         for rel in runner.config_files:
             if rel in RUNNER_CONFIG_TEMPLATES:
@@ -131,4 +175,14 @@ def init(root: Path, mode: Mode = "enforced", claude_md: bool = True) -> InitRep
     _merge_gitignore(root, report)
     if claude_md:
         report.add("CLAUDE.md", directive.install(root))
+
+    store = Store(root)
+    who = actor or approver_identity(store)
+    trust.record_consent(store, auto_run, who)
+    report.consent = auto_run
+    if created_config:
+        trust.grant(store, cfg, who)  # they just wrote these runner commands themselves
+    report.trusted = trust.state(store, cfg).trusted
+    if auto_run and cfg.mode != "advisory":
+        report.hook = git_hooks.install_pre_commit(root)
     return report
