@@ -9,7 +9,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 | Date | What | Where |
 |---|---|---|
 | 2026-10-05 | **Week 1 code:** package scaffold (uv, flat layout, ruff, pytest, GitHub Actions on Python 3.11–3.14); `core/` root, config, models, store, scope, hashing, context, schemas, runners; JSON Schemas v1 (invariant, dead_end, config); `seamspec init` (ledger folders, `config.toml` from detected languages, `.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`, `.gitignore`, marked `CLAUDE.md` block), `seamspec status`, `seamspec context`. 112 tests, passing locally on 3.11, 3.12 and 3.14 | `seamspec/`, `tests/`, SPEC §19.1–§19.6a |
-| 2026-10-05 | Branches + PRs for every change; PR template; owner squash-merges | ADR-20261005-d8bc |
+| 2026-10-05 | Branches + PRs for every change; PR template; owner squash-merges; `ci-ok` summary check for future rulesets (from Copilot's review of PR #8) | ADR-20261005-d8bc, PR #8 |
 | 2026-10-05 | Week 1 implementation decisions (schema status rules require non-null values, unknown config keys are errors, store id validation, `render()` body only, §19 listings → contracts for implemented modules) | ADR-20261005-6f2a |
 | 2026-10-05 | Progress tracking: this file + `CLAUDE.md` as the agent entry point | ADR-20261005-2565 |
 | 2026-10-05 | v0.1 spec inconsistencies resolved (CI by mode, `CLAUDE.md` directive block, MCP wrapper, journal rules, approve fingerprints) | ADR-20261005-c41d |
@@ -19,7 +19,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 1 exit criterion "unit tests green in CI":** the first runs (run 37368198257, two attempts) never started, because GitHub had an open Actions incident ("job was not acquired by Runner of type hosted"). No code ran. Once githubstatus.com shows Actions operational, re-run with `gh run rerun 37368198257 --repo seamspec/seamspec --failed`; if green, tick issue #1 and close the Week 1 milestone. If it still isn't picked up after the incident, check the org's Actions minutes/billing.
+- Nothing. **Week 1 is complete:** CI passed on all 5 jobs (Python 3.11–3.14 on Linux, 3.12 on macOS) on PR #8, which contains all of the Week 1 code. The first runs on `main` (run 37368198257) never started because of a GitHub Actions incident. Once PR #8 merges: tick issue #1 and close the Week 1 milestone.
 
 ## Next (Week 2, issue #2)
 
