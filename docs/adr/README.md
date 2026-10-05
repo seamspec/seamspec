@@ -32,3 +32,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261005-2565](ADR-20261005-2565-committed-progress-log.md) | Track progress in a committed PROGRESS.md, with CLAUDE.md as the agent entry point | ACCEPTED |
 | [ADR-20261005-6f2a](ADR-20261005-6f2a-week1-implementation-decisions.md) | Week 1 implementation decisions (schemas, config strictness, store, context, spec listings) | ACCEPTED |
 | [ADR-20261005-d8bc](ADR-20261005-d8bc-branches-and-prs.md) | All changes land through branches and pull requests | ACCEPTED |
+| [ADR-20261005-4b1e](ADR-20261005-4b1e-verifier-findings.md) | Verifier fixes found by running real pytest and vitest | ACCEPTED |

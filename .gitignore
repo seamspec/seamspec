@@ -20,3 +20,6 @@ htmlcov/
 # Editors
 .vscode/
 .idea/
+
+# JS fixture installs
+node_modules/

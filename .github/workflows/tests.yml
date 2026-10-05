@@ -31,11 +31,29 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run pytest
 
-  # One stable check for branch rulesets to require (ADR-20261005-d8bc). The matrix above
-  # reports one check per OS/Python pair, and those names change whenever the matrix does.
-  ci-ok:
-    if: always()
-    needs: test
+  # Real vitest runs against the pinned fixture install (tests/test_verifier_vitest.py).
+  # SEAMSPEC_REQUIRE_VITEST turns a missing install into a failure instead of a skip.
+  vitest:
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.test.result }}" = "success"
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --prefix tests/fixtures/ts_repo
+      - run: uv sync --locked
+      - run: uv run pytest tests/test_verifier_vitest.py
+        env:
+          SEAMSPEC_REQUIRE_VITEST: "1"
+
+  # One stable check for branch rulesets to require (ADR-20261005-d8bc). The jobs above
+  # report one check per OS/Python pair, and those names change whenever the matrix does.
+  ci-ok:
+    if: always()
+    needs: [test, vitest]
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test.result }}" = "success" && test "${{ needs.vitest.result }}" = "success"
