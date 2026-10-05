@@ -316,8 +316,10 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 | Mode | Installs | Enforcement | Use when |
 |---|---|---|---|
 | `advisory` | MCP config + rules file | Prompt-based (labeled honestly) | Trying SeamSpec; hosts without hooks |
-| `enforced` *(default)* | + host hooks + git pre-commit | In-session + commit-time | Daily individual use |
-| `strict` | + CI workflow, `fail_closed = true`, `trust_level = "harness"` *(v0.2)*, CODEOWNERS entry for `.seamspec/` | Everything above, hooks fail closed (retry-capped), any new upstream test needs re-trust | Teams, shared repos |
+| `enforced` *(default)* | + host hooks + git pre-commit + **CI workflow (offered; `--ci` / `--no-ci`)** | In-session + commit-time + PR | Daily individual use |
+| `strict` | + CI workflow (always), `fail_closed = true`, `trust_level = "harness"` *(v0.2)*, CODEOWNERS entry for `.seamspec/` | Everything above, hooks fail closed (retry-capped), any new upstream test needs re-trust | Teams, shared repos |
+
+**CI by mode** (ADR-20261005-c41d): `init` in `enforced` mode asks *"Add a CI workflow (.github/workflows/seamspec.yml)? [Y/n]"*; `--ci` / `--no-ci` answer it for scripts. `strict` always installs it, plus CODEOWNERS. `advisory` never does. The workflow is the same in every mode (§16.5).
 
 `advisory` mode **never runs tests automatically**. `enforced` and `strict` show a one-time auto-run consent screen at `init`, and automatic runs only happen in trusted clones (§12.4).
 
@@ -341,9 +343,10 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 | Edit-time context (§7.2) | ✅ `PreToolUse` `additionalContext` or `PostToolUse` on `Read` *(pick after hands-on test)* | ✅ `PreToolUse` (deny-once fallback: `permissionDecision: "deny"`) | ✅ `preToolUse` (deny-once fallback: `permission: "deny"`) | ❌ |
 | Ledger protection | ✅ | ✅ | ✅ | ❌ |
 | Completion gate | ✅ `Stop` + `decision: block` | ✅ `Stop` + `decision: block` | ✅ `stop` + `followup_message` (auto-continue, capped by `loop_limit`) | ❌ |
-| Session-start nudge (§13.9) | ✅ `SessionStart` | ✅ `SessionStart` | ✅ `sessionStart` (local agents) | Directive fallback |
+| Session-start nudge (§13.9) *(v0.2)* | ✅ `SessionStart` | ✅ `SessionStart` | ✅ `sessionStart` (local agents) | Directive fallback |
 | git pre-commit | ✅ | ✅ | ✅ | ✅ |
 | CI gate | ✅ | ✅ | ✅ | ✅ |
+| **Ships in** | **v0.1** | v0.2 | v0.2 | v0.1 (MCP + CLI + git/CI) |
 | **Tier** | **Full** | **Full** *(hooks API in Preview)* | **Full** | **Commit-time** |
 
 > [!WARNING]
@@ -360,12 +363,13 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 ```
 <repo>/
 ├── BRAINDUMP.md                      # human-owned scratchpad (gitignored by default) — v0.2
+├── CLAUDE.md                         # SeamSpec directive block between markers, written by init (§18)
 ├── .claude/
 │   └── settings.json                 # enables the seamspec Claude Code plugin for the team (§16.1; key names to verify)
 ├── .github/
 │   ├── hooks/seamspec.json           # VS Code Copilot hooks (generated) — v0.2
 │   ├── prompts/seamspec-*.prompt.md  # Copilot workflow commands (generated, §15A) — v0.2
-│   ├── workflows/seamspec.yml        # CI gate
+│   ├── workflows/seamspec.yml        # CI gate (enforced: offered at init; strict: always; §7.3)
 │   └── CODEOWNERS                    # .seamspec/ ownership (strict mode)
 ├── .cursor/                          # v0.2
 │   ├── mcp.json
@@ -714,7 +718,17 @@ stateDiagram-v2
 
 **Why rejection doesn't auto-create a dead end.** People reject proposals for different reasons: bad wording, wrong scope, or a genuinely wrong approach. Only the last one is a dead end, so the human decides with one key. When they say yes, the dead end gets the proposal's scope, `approach` = the assertion, and `failure_symptom` = the rejection reason.
 
-**Approval journal.** Every status change made through the CLI (`approve`, `reject`, `supersede`, `retire`) appends a line to `.seamspec/.local/journal.jsonl`: record id, old → new status, actor, time. At Stop and pre-commit, SeamSpec compares the status of every record in `.seamspec/invariants/` with `HEAD` and **flags any change that has no journal entry** (e.g. an agent editing `inv_x.json` to `SUPERSEDED` with Bash). That is not tamper-proof, since an agent with shell access could write the journal too, but it turns a silent retirement into a visible warning. CI adds a **retirement summary** listing every rule whose status changed in the PR (§16.5), so a reviewer can't miss it.
+**Approval journal.** Every status change made through the CLI (`approve`, `reject`, `supersede`, `retire`) appends a line to `.seamspec/.local/journal.jsonl`: record id, old → new status, actor, time. At Stop and pre-commit, SeamSpec compares the status of every record in `.seamspec/invariants/` with `HEAD` and **flags any change that has no journal entry** (e.g. an agent editing `inv_x.json` to `SUPERSEDED` with Bash). The comparison rules (ADR-20261005-c41d):
+
+| Record at `HEAD` | Record now | Needs a journal entry? |
+|---|---|---|
+| absent | `PROPOSED` | No (proposing is open to the agent) |
+| absent | `LOCKED`, `SUPERSEDED` or `REJECTED` | **Yes.** A record that appears already locked counts as `none → LOCKED`, so a LOCKED file written with Bash is flagged |
+| `PROPOSED` | `PROPOSED` (e.g. `replace_id`) | No |
+| any status | a different status other than `PROPOSED` | **Yes**, matching `from → to` |
+| `LOCKED` | file deleted | **Always flagged.** The CLI never deletes records, so there is no valid journal entry for this |
+
+A journal entry matches when its `id`, `from` and `to` equal the change. That is not tamper-proof, since an agent with shell access could write the journal too, but it turns a silent retirement into a visible warning. CI adds a **retirement summary** listing every rule whose status changed in the PR (§16.5), so a reviewer can't miss it.
 
 **Approver identity.** `approved_by` (and `actor` in the journal) is the git identity `user.name <user.email>`, falling back to the OS user name. It is committed with the record; users who keep their email private should use their forge's noreply address in git config.
 
@@ -1204,7 +1218,19 @@ braindump_pending(dismiss: list[{ item_id: str, as: "todo" | "exploration" }] = 
 
 ### 14.3 MCP Configuration Per Host
 
-**Claude Code — `.mcp.json` (project root):**
+**Claude Code (v0.1) — bundled in the plugin**, not a project `.mcp.json`. The plugin's `.mcp.json` (§16.1) starts the server through `bin/seamspec-mcp`:
+
+```json
+{
+  "mcpServers": {
+    "seamspec": { "command": "${CLAUDE_PLUGIN_ROOT}/bin/seamspec-mcp" }
+  }
+}
+```
+
+*(Key names and `${CLAUDE_PLUGIN_ROOT}` expansion in plugin MCP configs to verify against the plugin docs in week 3.)* Users of other MCP clients, or of Claude Code without the plugin, can still register `seamspec mcp` by hand, as below.
+
+**Cursor — `.cursor/mcp.json`** *(v0.2)*:
 
 ```json
 {
@@ -1214,17 +1240,7 @@ braindump_pending(dismiss: list[{ item_id: str, as: "todo" | "exploration" }] = 
 }
 ```
 
-**Cursor — `.cursor/mcp.json`:**
-
-```json
-{
-  "mcpServers": {
-    "seamspec": { "command": "seamspec", "args": ["mcp"] }
-  }
-}
-```
-
-**VS Code — `.vscode/mcp.json`** (note the `servers` key):
+**VS Code — `.vscode/mcp.json`** *(v0.2; note the `servers` key)*:
 
 ```json
 {
@@ -1248,7 +1264,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 
 | Command | Purpose |
 |---|---|
-| `seamspec init [--mode advisory\|enforced\|strict] [--hosts auto\|claude,vscode,cursor] [--accept-auto-run]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the Claude Code plugin install, pre-commit, (strict) CI + CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
+| `seamspec init [--mode advisory\|enforced\|strict] [--hosts auto\|claude,vscode,cursor] [--ci\|--no-ci] [--accept-auto-run]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install, pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
 | `seamspec status [--json]` | Counts by status, pending reviews, new braindump notes, last verify result, detected host tiers |
 | `seamspec context <files...>` | Human/agent-readable constraints for files (MCP-free fallback) |
 | `seamspec review` | Interactive batch review: proposed invariants (each with its **red-green result**, §11.4), decisions, supersede requests, runner config changes, recent dead ends first. Each proposal's full test code is shown **before** the approve prompt (§12.4.3). Keys: `a`pprove `r`eject `s`kip `q`uit. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"* |
@@ -1258,7 +1274,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
 | `seamspec verify [--changed\|--all\|--proposed <id...>] [--gate] [--ci] [--json]` | Run the verifier; `--gate` exits non-zero on failure and prints pending-review reminder. `--proposed` runs unapproved tests and is meant to be invoked by the human or through the agent's permission-checked shell tool (§12.4) |
 | `seamspec drain [--json] [--tidy]` *(v0.2)* | List pending braindump items; `--tidy` moves processed items below the marker |
-| `seamspec doctor [--ci]` | Validate schemas, hashes, runner config fingerprints, hook installation, host tiers, MCP token budget; `--ci` adds ledger-forward-only checks against the base branch and the retirement summary |
+| `seamspec doctor [--ci]` | Validate schemas, hashes, runner config fingerprints, hook installation, host tiers, MCP token budget, `CLAUDE.md` directive drift (§18); `--ci` adds ledger-forward-only checks against the base branch and the retirement summary |
 | `seamspec mcp` | Run the MCP server (stdio) |
 | `seamspec trust [--show]` | Trust this clone for automatic test runs (interactive); `--show` prints the current trust state (§12.4.6) |
 | `seamspec hook <host> <event>` | Internal: host hook entry point (reads JSON on stdin) |
@@ -1648,18 +1664,34 @@ seamspec-plugin/
 ├── hooks/hooks.json                # hook config below
 ├── skills/                         # lock, dead-end, supersede, checkpoint, context, status (drain: v0.2)
 │   └── lock/SKILL.md
-├── .mcp.json                       # starts `seamspec mcp` through the wrapper
-└── bin/seamspec-hook               # wrapper, below
+├── .mcp.json                       # starts the MCP server through bin/seamspec-mcp (§14.3)
+└── bin/
+    ├── seamspec-hook               # hook wrapper: silent when the CLI is missing
+    └── seamspec-mcp                # MCP wrapper: clear error when the CLI is missing
 ```
 
 - **Install:** `seamspec init` prints (or runs, with consent) the plugin install command, and can add the plugin to the project's `.claude/settings.json` so teammates are offered it.
-- **Wrapper:** every hook and the MCP server go through `bin/seamspec-hook`, which **exits 0 silently** when `seamspec` isn't on `PATH`, so a teammate who has the plugin enabled but not the CLI installed never sees hook errors:
+- **Directive:** a plugin can't write `CLAUDE.md`, so `seamspec init` writes the directive (§18) into it (ADR-20261005-c41d).
+- **Two wrappers** (ADR-20261005-c41d), because a missing CLI should be silent for hooks but explained for MCP:
+  - Every hook goes through `bin/seamspec-hook`, which **exits 0 silently** when `seamspec` isn't on `PATH`, so a teammate who has the plugin enabled but not the CLI installed never sees hook errors:
 
 ```sh
 #!/bin/sh
 # Exit quietly if the SeamSpec CLI isn't installed on this machine.
 command -v seamspec >/dev/null 2>&1 || exit 0
 exec seamspec "$@"
+```
+
+  - The MCP server goes through `bin/seamspec-mcp`. Exiting silently would only show up as a vague "MCP server failed to connect", so it prints an actionable message to stderr (shown in the host's MCP logs) and exits 1:
+
+```sh
+#!/bin/sh
+# Explain a missing CLI instead of failing silently.
+if ! command -v seamspec >/dev/null 2>&1; then
+  echo "SeamSpec CLI not found on PATH. Install it with: uv tool install seamspec" >&2
+  exit 1
+fi
+exec seamspec mcp "$@"
 ```
 
 **`hooks/hooks.json`:**
@@ -1732,7 +1764,7 @@ Never blocks, never runs tests; any error → exit 0 with no output.
 1. Read stdin JSON (inside the error handler): `session_id`, `stop_hook_active`.
 2. If `stop_hook_active` is `false`, reset this session's retry counter (fresh stop).
 3. If auto-run consent is missing or the clone is not trusted (§12.4) → allow, with a warning; **no tests run**.
-4. **Journal check** (§11.1): any invariant whose status differs from `HEAD` without a matching journal entry counts as a failure: *"inv_1a2b3c4d was changed to SUPERSEDED outside the SeamSpec CLI. Revert it, or ask the user to run `seamspec review`."*
+4. **Journal check** (§11.1, including records absent at `HEAD` and deleted LOCKED records): any invariant whose status differs from `HEAD` without a matching journal entry counts as a failure: *"inv_1a2b3c4d was changed to SUPERSEDED outside the SeamSpec CLI. Revert it, or ask the user to run `seamspec review`."*
 5. If the tree fingerprint (git-visible files only, §12.2) equals the last **green** verify and step 4 found nothing → allow.
 6. Run the verifier on `LOCKED` invariants only, within `verify.stop_deadline_seconds`. Selection follows `verify.run_on_stop`: `auto` (default) runs all of them below `stop_all_threshold` (100) and only those matching changed files at or above it. Proposed tests never run here.
 7. All pass → save result, allow.
@@ -1813,7 +1845,7 @@ exec seamspec verify --all --gate
 
 `--gate` behavior: exit non-zero if any `LOCKED` invariant fails, an integrity or fingerprint check fails, or an invariant's status changed without a journal entry (§11.1); print `N items awaiting review` as a non-blocking reminder. Pre-commit has **no deadline**: it always runs the full set. In an untrusted clone it fails with "Run `seamspec trust`" instead of running anything (§12.4.6).
 
-### 16.5 CI (strict mode)
+### 16.5 CI (enforced: offered at init; strict: always)
 
 **`.github/workflows/seamspec.yml`:**
 
@@ -1894,7 +1926,17 @@ flowchart LR
 
 ## 18. Agent Directive (Advisory Layer)
 
-Written to `CLAUDE.md`, `.cursorrules` / `.cursor/rules/seamspec.mdc`, `.github/copilot-instructions.md`, or `AGENTS.md`. This is the **soft** layer; hooks, git, and CI are the hard layers.
+Written to `CLAUDE.md` in v0.1; `.cursor/rules/seamspec.mdc`, `.github/copilot-instructions.md` or `AGENTS.md` for other hosts in v0.2. This is the **soft** layer; hooks, git, and CI are the hard layers.
+
+**How it gets there in v0.1** (ADR-20261005-c41d): the Claude Code plugin can ship hooks, skills and MCP config, but not project instructions. So `seamspec init` writes the directive into `CLAUDE.md` (creating the file if needed) **between markers**, and never touches anything outside them:
+
+```markdown
+<!-- seamspec:begin (managed by `seamspec init`; edit outside these markers) -->
+...directive...
+<!-- seamspec:end -->
+```
+
+Re-running `init` updates only the block. `seamspec doctor` reports drift between the block and the packaged template. Rules marked *(v0.2)* below are left out of the v0.1 block, because the tools and hooks they refer to (`braindump_pending`, the session-start nudge) don't exist yet.
 
 ```markdown
 # SeamSpec Protocol
@@ -1911,17 +1953,17 @@ failing them will block you from finishing and block commits.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
 5. Never edit files under `.seamspec/` directly; use SeamSpec tools.
-6. When asked to "drain the braindump", call `braindump_pending`, classify each item as
+6. *(v0.2)* When asked to "drain the braindump", call `braindump_pending`, classify each item as
    constraint / decision / failed approach / exploration / task, and use the matching tool.
    Dismiss explorations and tasks via `braindump_pending(dismiss=[...])`.
 7. Only humans approve invariants. Remind the user to run `seamspec review` when proposals are pending.
 8. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
    the SeamSpec summary block.
 9. Users don't have to type commands. Treat plain requests as the matching workflow command:
-   "sort my braindump" → drain; "protect this" / "lock that" → lock; "that didn't work" → dead-end;
+   "sort my braindump" → drain *(v0.2)*; "protect this" / "lock that" → lock; "that didn't work" → dead-end;
    a changed requirement for a LOCKED rule → supersede; "what applies here?" → context;
    "wrap up" → checkpoint.
-10. At the start of a session, if SeamSpec reports new braindump notes (via the session-start hook,
+10. *(v0.2)* At the start of a session, if SeamSpec reports new braindump notes (via the session-start hook,
     or `seamspec status --json` on hosts without one), ask the user once whether to sort them.
     Do not drain without a yes, and don't ask again this session after a no. If items await
     review, mention `seamspec review` once.
@@ -2423,10 +2465,12 @@ def check_integrity(root: Path, inv: Invariant) -> str | None:
     return None
 
 
-def check_fingerprints(root: Path, cfg: Config) -> list[str]:
-    """Runner config files must match what a human confirmed (§12.2)."""
-    path = root / ".seamspec" / "fingerprints.json"
-    confirmed = json.loads(path.read_text()) if path.is_file() else {}
+def check_fingerprints(root: Path, cfg: Config, confirmed: dict[str, str] | None = None) -> list[str]:
+    """Runner config files must match what a human confirmed (§12.2). `approve` passes the
+    hashes the human is confirming right now, so a failed approval writes nothing."""
+    if confirmed is None:
+        path = root / ".seamspec" / "fingerprints.json"
+        confirmed = json.loads(path.read_text()) if path.is_file() else {}
     problems = []
     for runner in cfg.runners.values():
         for rel in runner.config_files:
@@ -2585,11 +2629,13 @@ def _invoke(root: Path, cfg: Config, name: str, runner: RunnerCfg, invs: list[In
                         time.monotonic() - start, failed_ids=failed_ids)
 
 
-def run(root: Path, cfg: Config, invariants: list[Invariant], deadline: float | None = None) -> VerifyReport:
+def run(root: Path, cfg: Config, invariants: list[Invariant], deadline: float | None = None,
+        fingerprints: dict[str, str] | None = None) -> VerifyReport:
     """`deadline` is a time.monotonic() value. Hooks pass now + verify.stop_deadline_seconds;
-    pre-commit and CI pass None (no deadline, always the full set)."""
+    pre-commit and CI pass None (no deadline, always the full set). `fingerprints` overrides
+    the committed fingerprints.json (used by approve, §19.8)."""
     report = VerifyReport(passed=True)
-    report.config_failures = check_fingerprints(root, cfg)
+    report.config_failures = check_fingerprints(root, cfg, fingerprints)
 
     runnable: list[Invariant] = []
     for inv in invariants:
@@ -2686,11 +2732,15 @@ def append_journal(store: Store, record_id: str, old: str, new: str, actor: str)
         f.write(json.dumps(line) + "\n")
 
 
-def confirm_fingerprints(store: Store, cfg: Config) -> None:
-    """Record the runner config files a human has just seen in review (§12.2)."""
-    prints = {rel: sha256_file(store.root / rel)
-              for runner in cfg.runners.values() for rel in runner.config_files
-              if (store.root / rel).is_file()}
+def current_fingerprints(store: Store, cfg: Config) -> dict[str, str]:
+    """Hashes of the runner config files as they are now (§12.2). Nothing is written."""
+    return {rel: sha256_file(store.root / rel)
+            for runner in cfg.runners.values() for rel in runner.config_files
+            if (store.root / rel).is_file()}
+
+
+def confirm_fingerprints(store: Store, prints: dict[str, str]) -> None:
+    """Record runner config the human has just seen in review. Called only after success."""
     atomic_write(store.base / "fingerprints.json", json.dumps(prints, indent=2, sort_keys=True) + "\n")
 
 
@@ -2702,7 +2752,8 @@ def approve(store: Store, cfg: Config, inv_id: str) -> None:
 
     # Review has already shown the human the full harness, its red-green result and any
     # runner config changes (§11.4, §12.2, §12.4.3 rule 4), so this run is consented.
-    confirm_fingerprints(store, cfg)
+    # Fingerprints are checked against what the human saw, but written only on success.
+    prints = current_fingerprints(store, cfg)
     runner = cfg.runners[inv.verification.runner]
     proposed = store.root / inv.verification.harness_path      # .seamspec/proposed/...
     final_rel = runner.harness_path(inv.id)
@@ -2711,11 +2762,12 @@ def approve(store: Store, cfg: Config, inv_id: str) -> None:
     os.replace(proposed, final)                                 # into the runner's harness_dir
     inv.verification.harness_path = final_rel
 
-    report = verifier.run(store.root, cfg, [inv])
+    report = verifier.run(store.root, cfg, [inv], fingerprints=prints)
     if not report.passed:
-        os.replace(final, proposed)                             # put it back; nothing else changed
+        os.replace(final, proposed)                             # put it back; nothing was written
         raise ApprovalError(f"{inv_id} harness is failing; cannot approve.")
 
+    confirm_fingerprints(store, prints)
     actor = approver_identity(store)
     inv.verification.harness_sha256 = sha256_file(final)
     inv.verification.assertion_sha256 = sha256_text(inv.assertion)
@@ -3227,10 +3279,10 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 
 | Week | Deliverables | Exit criteria |
 |---|---|---|
-| **1** | Names already claimed (PyPI `seamspec`, npm `seamspec` + `@seamspec` org, GitHub org `seamspec`, site `seamspec.github.io`). `root`, `config`, `models`, `store` (atomic, locked, per-record), `scope`, `hashing`, JSON Schemas; `seamspec init` (scaffold, incl. `.seamspec/pytest.ini` and `vitest.config.mjs`), `status`, `context` | Unit tests green; records validate against schemas |
+| **1** | Names already claimed (PyPI `seamspec`, npm `seamspec` + `@seamspec` org, GitHub org `seamspec`, site `seamspec.github.io`). `root`, `config`, `models`, `store` (atomic, locked, per-record), `scope`, `hashing`, JSON Schemas; `seamspec init` (scaffold, incl. `.seamspec/pytest.ini`, `vitest.config.mjs` and the marked `CLAUDE.md` directive block, §18), `status`, `context` | Unit tests green; records validate against schemas |
 | **2** | `verifier` for **pytest + vitest**: `{each}`/`{report}` expansion, process-group kill, one overall deadline, integrity + runner config fingerprints, empty/skipped = fail, env scrubbing (no "under verification" flag), JUnit attribution + isolated reruns. `lifecycle` (propose/approve/reject/supersede; `proposed/` → `harness_dir`; journal; git identity), `adr`, `review` TUI (harness, **red-green info**, recent dead ends first); execution consent (`init` consent screen, `seamspec trust`); pre-commit installer; `verify --gate` | propose → approve → pre-commit blocks a regression in the **Python and TypeScript** fixture repos, naming the failing rule; an empty or all-skipped harness fails; an untrusted clone runs nothing |
 | **3** | **Claude Code plugin**: Stop gate (deadline, retries, supersede escape, journal check), edit-time context, ledger protection, MCP server (5 tools, 2 resources), skills `/seamspec:lock` and `/seamspec:dead-end`; hands-on check of hook outputs (§16.1). **Rough benchmark A/B/C/D** on 2–3 tasks (§23) | Core loop works end to end in Claude Code on the sample repo; first A/B/C/D numbers and the kill/pivot check (§4.4) |
-| **4** | CI workflow (`doctor --ci` forward-only checks, `verify --all --ci`, **retirement summary**); `doctor`; remaining skills (`supersede`, `checkpoint`, `context`, `status`); `--mode` handling; **dogfood** on SeamSpec itself and real projects | CI blocks a regression and lists retirements on a test PR; `doctor` is clean on the fixtures |
+| **4** | CI workflow, installed by `init` in enforced (offered) and strict (always) mode (§7.3) (`doctor --ci` forward-only checks, `verify --all --ci`, **retirement summary**); `doctor`; remaining skills (`supersede`, `checkpoint`, `context`, `status`); `--mode` handling; **dogfood** on SeamSpec itself and real projects | CI blocks a regression and lists retirements on a test PR; `doctor` is clean on the fixtures |
 | **5** | Benchmark proper (§23); README with Python and TypeScript quickstarts; docs site; MCP token-budget check in CI | Benchmark reproducible from published scripts |
 | **6** | 45–60s demo recording; technical write-up; launch | Public repo; PyPI release (`uv tool install seamspec`); plugin installs in one command |
 

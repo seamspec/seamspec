@@ -27,3 +27,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | ID | Title | Status |
 |---|---|---|
 | [ADR-20261005-ae6e](ADR-20261005-ae6e-build-directly-dogfood-from-week-3.md) | Build SeamSpec directly from SPEC.md; dogfood from week 3 | ACCEPTED |
+| [ADR-20261005-c41d](ADR-20261005-c41d-v01-consistency-fixes.md) | Resolve v0.1 spec inconsistencies before week 1 | ACCEPTED |
