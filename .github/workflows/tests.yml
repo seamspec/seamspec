@@ -30,3 +30,12 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pytest
+
+  # One stable check for branch rulesets to require (ADR-20261005-d8bc). The matrix above
+  # reports one check per OS/Python pair, and those names change whenever the matrix does.
+  ci-ok:
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test.result }}" = "success"

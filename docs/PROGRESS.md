@@ -9,6 +9,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 | Date | What | Where |
 |---|---|---|
 | 2026-10-05 | **Week 1 code:** package scaffold (uv, flat layout, ruff, pytest, GitHub Actions on Python 3.11–3.14); `core/` root, config, models, store, scope, hashing, context, schemas, runners; JSON Schemas v1 (invariant, dead_end, config); `seamspec init` (ledger folders, `config.toml` from detected languages, `.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`, `.gitignore`, marked `CLAUDE.md` block), `seamspec status`, `seamspec context`. 112 tests, passing locally on 3.11, 3.12 and 3.14 | `seamspec/`, `tests/`, SPEC §19.1–§19.6a |
+| 2026-10-05 | Branches + PRs for every change; PR template; owner squash-merges; `ci-ok` summary check for future rulesets (from Copilot's review of PR #8) | ADR-20261005-d8bc, PR #8 |
 | 2026-10-05 | Week 1 implementation decisions (schema status rules require non-null values, unknown config keys are errors, store id validation, `render()` body only, §19 listings → contracts for implemented modules) | ADR-20261005-6f2a |
 | 2026-10-05 | Progress tracking: this file + `CLAUDE.md` as the agent entry point | ADR-20261005-2565 |
 | 2026-10-05 | v0.1 spec inconsistencies resolved (CI by mode, `CLAUDE.md` directive block, MCP wrapper, journal rules, approve fingerprints) | ADR-20261005-c41d |
@@ -18,7 +19,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 1 exit criterion "unit tests green in CI":** the workflow (`.github/workflows/tests.yml`) runs on the first push. Check the Actions tab; if it's green, tick the box on issue #1 and close the Week 1 milestone.
+- Nothing. **Week 1 is complete:** CI passed on all 5 jobs (Python 3.11–3.14 on Linux, 3.12 on macOS) on PR #8, which contains all of the Week 1 code. The first runs on `main` (run 37368198257) never started because of a GitHub Actions incident. Once PR #8 merges: tick issue #1 and close the Week 1 milestone.
 
 ## Next (Week 2, issue #2)
 
@@ -39,4 +40,4 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 1. Read this file, then [`CLAUDE.md`](../CLAUDE.md) (working rules), then the current week's GitHub issue and SPEC §22.
 2. `uv sync && uv run pytest && uv run ruff check . && uv run ruff format --check .` must pass before you start.
 3. Try the CLI in a scratch repo: `uv run --project <this repo> seamspec init`, then `seamspec status` / `seamspec context <file>`.
-4. When you stop, update this file and tick the matching boxes in the week's GitHub issue, **in the same commit as the code** (ADR-20261005-2565).
+4. Work on a branch and open a PR (ADR-20261005-d8bc). Update this file **in the same PR as the code**; tick the week's issue boxes once the PR is merged.
