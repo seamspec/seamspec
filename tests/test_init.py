@@ -46,9 +46,16 @@ def test_init_without_known_language(tmp_path: Path) -> None:
 
 
 def test_init_strict_mode(tmp_path: Path) -> None:
-    scaffold.init(tmp_path, mode="strict")
+    scaffold.init(tmp_path, mode="strict", auto_run=True)
     cfg = load_config(tmp_path)
     assert cfg.mode == "strict" and cfg.hooks.fail_closed is True
+
+
+@pytest.mark.parametrize("mode", ["enforced", "strict"])
+def test_no_consent_falls_back_to_advisory(tmp_path: Path, mode: str) -> None:
+    report = scaffold.init(tmp_path, mode=mode, auto_run=False)
+    assert report.mode == "advisory" and load_config(tmp_path).mode == "advisory"
+    assert report.consent is False and report.hook is None
 
 
 def test_gitignore_merge_keeps_existing(tmp_path: Path) -> None:
@@ -138,3 +145,18 @@ def test_v01_directive_leaves_out_v02_rules() -> None:
 def test_init_without_claude_md(tmp_path: Path) -> None:
     scaffold.init(tmp_path, claude_md=False)
     assert not (tmp_path / "CLAUDE.md").exists()
+
+
+def test_consent_later_turns_automatic_runs_on(tmp_path: Path) -> None:
+    """Declining at first, then re-running init with consent, must switch out of advisory mode."""
+    (tmp_path / "pyproject.toml").write_text("")
+    scaffold.init(tmp_path, auto_run=False)
+    assert load_config(tmp_path).mode == "advisory"
+    before = (tmp_path / ".seamspec/config.toml").read_text()
+    report = scaffold.init(tmp_path, mode="strict", auto_run=True)
+    after = (tmp_path / ".seamspec/config.toml").read_text()
+    assert report.mode == "strict" and load_config(tmp_path).mode == "strict"
+    assert dict(report.actions)[".seamspec/config.toml"] == "updated (mode: strict)"
+    cfg = load_config(tmp_path)
+    assert cfg.hooks.fail_closed is True and cfg.execution.trust_level == "harness"  # strict defaults restored
+    assert "[runners.pytest]" in after and after.count("\n") == before.count("\n")  # nothing else moved

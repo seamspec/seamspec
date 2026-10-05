@@ -11,11 +11,12 @@ from typing import Annotated, Any
 import typer
 
 from . import __version__
-from .core import lifecycle, requests
+from .core import journal, lifecycle, requests, tree, trust, verifier
 from .core.config import ConfigError, load_config
 from .core.context import constraints_for
 from .core.models import DeadEnd, Invariant, InvStatus
 from .core.root import RootNotFound, find_root
+from .core.scope import matches
 from .core.store import RecordError, Store
 from .installers import scaffold
 from .installers.directive import DirectiveError
@@ -56,6 +57,21 @@ def _root(
     pass
 
 
+CONSENT_SCREEN = """\
+SeamSpec will automatically run your LOCKED (human-approved) tests:
+  • when the agent tries to finish a task (Stop hook)
+  • before every git commit (pre-commit)
+
+These tests import project code that the agent may have changed.
+They run with YOUR user permissions. There is no sandbox.
+Secrets are stripped from the environment, but files on disk are readable.
+"""
+
+
+def _interactive() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 @app.command()
 def init(
     mode: Annotated[scaffold.Mode, typer.Option(help="advisory | enforced | strict (SPEC §7.3)")] = "enforced",
@@ -63,17 +79,34 @@ def init(
     claude_md: Annotated[
         bool, typer.Option("--claude-md/--no-claude-md", help="Write the SeamSpec block into CLAUDE.md.")
     ] = True,
+    accept_auto_run: Annotated[
+        bool,
+        typer.Option(
+            "--accept-auto-run",
+            help="Answer yes to the auto-run consent screen (for scripted setups). Nothing else implies it.",
+        ),
+    ] = False,
 ) -> None:
     """Set up SeamSpec in this repository. Safe to re-run: existing files are kept or merged."""
     root = path.resolve()
     if not root.is_dir():
         raise _fail(f"{root} is not a directory")
+
+    auto_run = False
+    if mode != "advisory":
+        if accept_auto_run:
+            auto_run = True
+        elif _interactive():
+            typer.echo(CONSENT_SCREEN)
+            auto_run = typer.confirm("Allow automatic test runs in this repository?", default=False)
+        else:
+            typer.echo("Not a terminal and no --accept-auto-run: setting up in advisory mode (no automatic runs).")
     try:
-        report = scaffold.init(root, mode=mode, claude_md=claude_md)
+        report = scaffold.init(root, mode=mode, claude_md=claude_md, auto_run=auto_run)
     except (DirectiveError, ConfigError) as exc:
         raise _fail(str(exc)) from None
 
-    typer.echo(f"SeamSpec initialised in {root} (mode: {mode})")
+    typer.echo(f"SeamSpec initialised in {root} (mode: {report.mode})")
     for rel, what in report.actions:
         typer.echo(f"  {what:<9} {rel}")
     found = report.detection
@@ -85,9 +118,18 @@ def init(
         typer.echo(f"  note: {name} detected; support arrives in v0.2 (SPEC §12A.2)")
     for note in found.notes:
         typer.echo(f"  note: {note}")
+    if report.hook is not None:
+        if report.hook.status in ("created", "updated", "unchanged"):
+            typer.echo(f"  {report.hook.status:<9} git pre-commit hook ({report.hook.path})")
+        else:
+            typer.echo(f"  note: {report.hook.message}")
+    if not report.consent and mode != "advisory":
+        typer.echo("Automatic test runs are off (advisory mode). Re-run `seamspec init` to turn them on.")
+    if not report.trusted:
+        typer.echo("This clone isn't trusted yet: run `seamspec trust` to review its runner commands.")
     if not (root / ".git").exists():
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
-    typer.echo("Hooks, pre-commit and CI are installed by later versions of `init` (v0.1 is in progress).")
+    typer.echo("The Claude Code plugin and CI workflow are installed by later versions of `init` (v0.1 in progress).")
 
 
 def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
@@ -335,6 +377,133 @@ def retire_dead_end(
     except (lifecycle.LifecycleError, KeyError) as exc:
         raise _fail(str(exc)) from None
     typer.echo(f"RETIRED {de_id}")
+
+
+# --- trust and verify (SPEC §12.4.6, §16.4) -------------------------------------------------------
+
+
+@app.command("trust")
+def trust_cmd(
+    show: Annotated[bool, typer.Option("--show", help="Only print the current trust state.")] = False,
+) -> None:
+    """Trust this clone for automatic test runs, after reviewing what would run (human only)."""
+    _root_dir, cfg, store = _open()
+    st = trust.state(store, cfg)
+    typer.echo(f"Trust: {'trusted' if st.trusted else 'NOT trusted'}" + (f" ({st.reason})" if st.reason else ""))
+    if st.by:
+        typer.echo(f"  last trusted by {st.by} at {st.at}")
+    if show:
+        return
+    typer.echo("Runner commands that will run:")
+    for name, r in sorted(cfg.runners.items()):
+        typer.echo(f"  [{name}] {' '.join(r.cmd)}")
+        if r.env:
+            typer.echo(f"          env: {', '.join(f'{k}={v}' for k, v in r.env.items())}")
+    typer.echo(f"Env passthrough: {', '.join(cfg.execution.env_passthrough) or 'none'}")
+    locked = trust.locked_harnesses(store)
+    typer.echo(f"Locked tests: {len(locked)} (trust level: {cfg.execution.trust_level})")
+    for inv_id in st.new_or_changed_tests:
+        inv = store.get(inv_id)
+        typer.echo(f"  new/changed since last trust: {inv_id} {inv.verification.harness_path}")
+    if st.trusted:
+        return
+    _human_only()
+    if not typer.confirm("Trust this clone to run these automatically?", default=False):
+        raise _fail("not trusted")
+    trust.grant(store, cfg, lifecycle.approver_identity(store))
+    typer.echo("Trusted.")
+
+
+def _verify_text(report: verifier.VerifyReport, problems: list[str]) -> str:
+    lines = list(problems) + list(report.config_failures) + list(report.integrity_failures)
+    for r in report.results:
+        if r.passed:
+            continue
+        who = ", ".join(r.failed_ids or r.invariant_ids)
+        tag = "INCOMPLETE" if r.incomplete else "FAIL"
+        lines.append(f"[{tag}] {who} ({r.runner})\n{r.output}")
+    return "\n".join(lines)
+
+
+@app.command()
+def verify(
+    all_: Annotated[bool, typer.Option("--all", help="Run every LOCKED invariant (the default).")] = False,
+    changed: Annotated[
+        bool, typer.Option("--changed", help="Only invariants whose scope matches changed files.")
+    ] = False,
+    proposed: Annotated[
+        list[str] | None, typer.Option("--proposed", help="Run a PROPOSED invariant's test (repeatable).")
+    ] = None,
+    gate: Annotated[
+        bool, typer.Option("--gate", help="Pre-commit mode: also check the journal; exit 1 on failure.")
+    ] = False,
+    ci: Annotated[
+        bool, typer.Option("--ci", help="CI mode: skip local trust/consent; CI policy is the consent.")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+) -> None:
+    """Run invariant tests. Exits 1 if anything fails (SPEC §12.2, §16.4)."""
+    root, cfg, store = _open()
+    if sum(map(bool, (all_, changed, proposed))) > 1:
+        raise _fail("use only one of --all, --changed, --proposed")
+
+    if not ci:
+        st = trust.state(store, cfg)
+        if not st.trusted:
+            if gate or not _interactive():
+                raise _fail(f"This clone is not trusted ({st.reason}). Run `seamspec trust`.")
+            typer.echo(f"This clone is not trusted ({st.reason}).")
+            trust_cmd(show=False)
+        if gate and cfg.mode != "advisory" and not trust.consent_given(store):
+            raise _fail("automatic test runs aren't allowed on this machine. Re-run `seamspec init`.")
+
+    problems = journal.unjournaled_changes(store) if gate else []
+    try:
+        if proposed:
+            invs = []
+            for inv_id in proposed:
+                inv = store.get(inv_id)
+                if not isinstance(inv, Invariant) or inv.status != InvStatus.PROPOSED:
+                    raise _fail(f"{inv_id} is not a PROPOSED invariant")
+                invs.append(inv)
+            report = verifier.VerifyReport(passed=True)
+            for inv in invs:
+                with lifecycle.harness_in_place(store, cfg, inv) as staged:
+                    one = verifier.run(root, cfg, [staged])
+                report.results += one.results
+                report.config_failures = one.config_failures
+            report.passed = not report.config_failures and all(r.passed for r in report.results)
+        else:
+            locked = [i for i in store.load_all("inv") if isinstance(i, Invariant) and i.status == InvStatus.LOCKED]
+            if changed:
+                files = tree.changed_files(root)
+                if files is not None:
+                    locked = [i for i in locked if any(matches(i.scope.paths, f) for f in files)]
+            report = verifier.run(root, cfg, locked)
+            verifier.save_last(root, report)
+    except (RecordError, KeyError, lifecycle.LifecycleError) as exc:
+        raise _fail(str(exc)) from None
+
+    ok = report.passed and not problems
+    pending = len([i for i in store.load_all("inv") if i.status == InvStatus.PROPOSED])
+    if as_json:
+        typer.echo(json.dumps({**report.to_dict(), "journal_problems": problems, "passed": ok}, indent=2))
+    else:
+        ran = sum(len(r.invariant_ids) for r in report.results)
+        if ok:
+            typer.echo(f"SeamSpec: {ran} invariant(s) passed.")
+        else:
+            typer.echo("SeamSpec: verification failed.\n" + _verify_text(report, problems), err=gate)
+            if not proposed:
+                typer.echo(
+                    "Fix the regression, or if the change is intentional, supersede the rule "
+                    "(`seamspec supersede <id> --reason ...`).",
+                    err=gate,
+                )
+        if gate and pending:
+            typer.echo(f"SeamSpec: {pending} item(s) awaiting review: run `seamspec review`.", err=True)
+    if not ok:
+        raise typer.Exit(1)
 
 
 def main() -> None:

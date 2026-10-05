@@ -25,7 +25,7 @@ def repo(tmp_path: Path) -> Path:
     """A Python repo with SeamSpec initialised."""
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
     (tmp_path / ".git").mkdir()
-    scaffold.init(tmp_path)
+    scaffold.init(tmp_path, auto_run=True, actor="Maya Rao <maya@example.com>")
     return tmp_path
 
 
@@ -36,7 +36,7 @@ def py_repo(tmp_path: Path) -> Path:
     (tmp_path / "src").mkdir()
     (tmp_path / "src/__init__.py").write_text("")
     (tmp_path / "src/queue.py").write_text("def backoff_delay(n):\n    return min(0.1 * 2 ** n, 30.0)\n")
-    scaffold.init(tmp_path)
+    scaffold.init(tmp_path, auto_run=True, actor="Maya Rao <maya@example.com>")
     return tmp_path
 
 
