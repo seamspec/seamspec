@@ -11,6 +11,7 @@ Decisions made before the build started (up to 2026-10-05) are in SPEC §26 "Res
 | Behavior, format, CLI/MCP surface, config key, schema or default differs from SPEC | **Yes**, and update SPEC in the same commit |
 | Something new that SPEC doesn't cover | **Yes**, and add it to SPEC |
 | A SPEC item moves between v0.1 / v0.2 / Later | **Yes** |
+| A change to the build process (how we track work, review, release) | **Yes** |
 | Internal refactor, naming inside a module, test layout, bug fix that matches SPEC | No |
 
 ## Format
@@ -28,3 +29,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 |---|---|---|
 | [ADR-20261005-ae6e](ADR-20261005-ae6e-build-directly-dogfood-from-week-3.md) | Build SeamSpec directly from SPEC.md; dogfood from week 3 | ACCEPTED |
 | [ADR-20261005-c41d](ADR-20261005-c41d-v01-consistency-fixes.md) | Resolve v0.1 spec inconsistencies before week 1 | ACCEPTED |
+| [ADR-20261005-2565](ADR-20261005-2565-committed-progress-log.md) | Track progress in a committed PROGRESS.md, with CLAUDE.md as the agent entry point | ACCEPTED |

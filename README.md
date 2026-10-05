@@ -10,7 +10,7 @@ SeamSpec is an open-source governance layer for AI coding agents. When something
 
 - [Design spec](docs/SPEC.md): the full design, kept current as the code evolves.
 - [Decisions](docs/adr/README.md): ADRs for anything that changes or adds to the spec.
-- Progress: GitHub milestones (one per roadmap week, SPEC §22).
+- [Progress](docs/PROGRESS.md): what's done, in progress and next (plus GitHub milestones, one per roadmap week).
 
 ## License
 
