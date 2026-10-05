@@ -13,22 +13,11 @@ import pytest
 from seamspec.core import reports, verifier
 from seamspec.core.config import RunnerCfg, load_config, parse_config
 from seamspec.core.models import InvStatus
-from seamspec.installers import scaffold
 
 from .verify_helpers import write_locked
 
 PASS = "from src.queue import backoff_delay\n\ndef test_cap():\n    assert backoff_delay(100) <= 30\n"
 FAIL = "def test_fails():\n    assert 1 == 2\n"
-
-
-@pytest.fixture
-def py_repo(tmp_path: Path) -> Path:
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
-    (tmp_path / "src").mkdir()
-    (tmp_path / "src/__init__.py").write_text("")
-    (tmp_path / "src/queue.py").write_text("def backoff_delay(n):\n    return min(0.1 * 2 ** n, 30.0)\n")
-    scaffold.init(tmp_path)
-    return tmp_path
 
 
 def run(root: Path, invs, **kw) -> verifier.VerifyReport:

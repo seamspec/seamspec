@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-05 | **Week 2 · lifecycle** (PR `week-2/lifecycle`): `core/lifecycle.py` (propose / approve / reject / supersede / retire, `proposed/` → `harness_dir` → `retired/`, git-identity approver), `core/journal.py` (unjournaled-change check against git HEAD), `core/requests.py`, `core/adr.py`, `core/redact.py`; CLI `propose`, `dead-end`, `approve`, `reject`, `supersede` (`--request` for agents), `retire-dead-end`. Fix: the journal now flags `LOCKED → PROPOSED`. 177 tests | ADR-20261005-9c1a |
 | 2026-10-05 | **Week 2 · verifier** (PR `week-2/verifier`): `core/verifier.py` + `core/reports.py`. Real pytest/vitest runs, per-rule attribution via JUnit + isolated reruns, empty/all-skipped = fail, process-group kill, one deadline with `incomplete`, scrubbed env with no verification flag, integrity + runner config fingerprints, `last_verify.json`. Fixes: `pythonpath = ..`, `--continue-on-collection-errors`, `init` records fingerprints; CI job `vitest`. 140 tests | ADR-20261005-4b1e |
 | 2026-10-05 | **Week 1 code:** package scaffold (uv, flat layout, ruff, pytest, GitHub Actions on Python 3.11–3.14); `core/` root, config, models, store, scope, hashing, context, schemas, runners; JSON Schemas v1 (invariant, dead_end, config); `seamspec init` (ledger folders, `config.toml` from detected languages, `.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`, `.gitignore`, marked `CLAUDE.md` block), `seamspec status`, `seamspec context`. 112 tests, passing locally on 3.11, 3.12 and 3.14 | `seamspec/`, `tests/`, SPEC §19.1–§19.6a |
 | 2026-10-05 | Branches + PRs for every change; PR template; owner squash-merges; `ci-ok` summary check for future rulesets (from Copilot's review of PR #8) | ADR-20261005-d8bc, PR #8 |
@@ -20,13 +21,15 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- PR for `week-2/verifier`: waiting for review and merge. After the merge, tick the verifier boxes on issue #2 (verifier, integrity + fingerprints, empty/skipped = fail, env scrubbing, attribution).
+- PR for `week-2/lifecycle`: waiting for review and merge. After the merge, tick the lifecycle, journal and ADR boxes on issue #2.
 
 ## Next (Week 2, issue #2)
 
-- [x] `verifier` for pytest + vitest: `{each}` / `{report}` expansion, process-group kill, one overall deadline, integrity + runner config fingerprints, empty/skipped = fail, env scrubbing, JUnit attribution + isolated reruns (§12.2, §19.7). In review
-- [ ] `lifecycle`: propose / approve / reject / supersede, `proposed/` → `harness_dir`, journal, git identity (§11, §19.8)
-- [ ] `adr` module; `review` TUI with harness, red-green info and recent dead ends first (§11.4, §15)
+- [x] `verifier` for pytest + vitest (§12.2, §19.7). Merged in #9
+- [x] `lifecycle`: propose / approve / reject / supersede, `proposed/` → `harness_dir`, journal, git identity (§11, §19.8). In review
+- [x] `adr` module. In review
+- [ ] `review` TUI with harness, red-green info and recent dead ends first (§11.4, §15)
+- [ ] `seamspec verify` CLI (`--all`, `--changed`, `--proposed`, `--gate`, `--json`)
 - [ ] Execution consent: `init` consent screen, `seamspec trust` (§12.4)
 - [ ] Pre-commit installer; `verify --gate` (§16.4)
 

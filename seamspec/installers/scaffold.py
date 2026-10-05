@@ -8,7 +8,6 @@ later steps (roadmap weeks 2-4, SPEC §22).
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
@@ -18,7 +17,7 @@ from ..core.config import load_config, parse_config
 from ..core.root import CONFIG_REL
 from ..core.runners import V01_PRESETS, Detection, detect, preset_toml
 from ..core.store import atomic_write
-from ..core.verifier import FINGERPRINTS_REL, current_fingerprints
+from ..core.verifier import FINGERPRINTS_REL, confirm_fingerprints, current_fingerprints
 from . import directive
 
 Mode = Literal["advisory", "enforced", "strict"]
@@ -106,8 +105,7 @@ def _record_initial_fingerprints(root: Path, report: InitReport) -> None:
     if path.exists():
         report.add(FINGERPRINTS_REL.as_posix(), "kept")
         return
-    prints = current_fingerprints(root, load_config(root))
-    atomic_write(path, json.dumps(prints, indent=2, sort_keys=True) + "\n")
+    confirm_fingerprints(root, current_fingerprints(root, load_config(root)))
     report.add(FINGERPRINTS_REL.as_posix(), "created")
 
 

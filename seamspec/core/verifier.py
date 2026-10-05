@@ -111,6 +111,11 @@ def current_fingerprints(root: Path, cfg: Config) -> dict[str, str]:
     }
 
 
+def confirm_fingerprints(root: Path, prints: dict[str, str]) -> None:
+    """Record runner config a human has just confirmed (`init`, approval, review)."""
+    atomic_write(root / FINGERPRINTS_REL, json.dumps(prints, indent=2, sort_keys=True) + "\n")
+
+
 def check_fingerprints(root: Path, cfg: Config, confirmed: dict[str, str] | None = None) -> list[str]:
     """Runner config files must match what a human confirmed (§12.2). `approve` passes the hashes
     the human is confirming right now, so a failed approval writes nothing (§19.8)."""

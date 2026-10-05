@@ -744,17 +744,17 @@ stateDiagram-v2
 
 **Why rejection doesn't auto-create a dead end.** People reject proposals for different reasons: bad wording, wrong scope, or a genuinely wrong approach. Only the last one is a dead end, so the human decides with one key. When they say yes, the dead end gets the proposal's scope, `approach` = the assertion, and `failure_symptom` = the rejection reason.
 
-**Approval journal.** Every status change made through the CLI (`approve`, `reject`, `supersede`, `retire`) appends a line to `.seamspec/.local/journal.jsonl`: record id, old → new status, actor, time. At Stop and pre-commit, SeamSpec compares the status of every record in `.seamspec/invariants/` with `HEAD` and **flags any change that has no journal entry** (e.g. an agent editing `inv_x.json` to `SUPERSEDED` with Bash). The comparison rules (ADR-20261005-c41d):
+**Approval journal.** Every status change made through the CLI (`approve`, `reject`, `supersede`, `retire`) appends a line to `.seamspec/.local/journal.jsonl`: record id, old → new status, actor, time. At Stop and pre-commit, SeamSpec compares the status of every record in `.seamspec/invariants/` with `HEAD` and **flags any change that has no journal entry** (e.g. an agent editing `inv_x.json` to `SUPERSEDED` with Bash). The comparison rules (ADR-20261005-c41d, corrected in ADR-20261005-9c1a):
 
 | Record at `HEAD` | Record now | Needs a journal entry? |
 |---|---|---|
 | absent | `PROPOSED` | No (proposing is open to the agent) |
-| absent | `LOCKED`, `SUPERSEDED` or `REJECTED` | **Yes.** A record that appears already locked counts as `none → LOCKED`, so a LOCKED file written with Bash is flagged |
+| absent | `LOCKED`, `SUPERSEDED` or `REJECTED` | **Yes.** An absent record counts as `PROPOSED`, so a LOCKED file written with Bash needs a `PROPOSED → LOCKED` entry and is flagged without one |
 | `PROPOSED` | `PROPOSED` (e.g. `replace_id`) | No |
-| any status | a different status other than `PROPOSED` | **Yes**, matching `from → to` |
+| any status | any **different** status, **including back to `PROPOSED`** | **Yes.** The CLI never moves a record back to `PROPOSED`, so e.g. `LOCKED → PROPOSED` (which would silently drop the rule from verification) is always flagged |
 | `LOCKED` | file deleted | **Always flagged.** The CLI never deletes records, so there is no valid journal entry for this |
 
-A journal entry matches when its `id`, `from` and `to` equal the change. That is not tamper-proof, since an agent with shell access could write the journal too, but it turns a silent retirement into a visible warning. CI adds a **retirement summary** listing every rule whose status changed in the PR (§16.5), so a reviewer can't miss it.
+The journal explains a change when its entries for that `id` form a **chain** from the `HEAD` status to the current one, e.g. `PROPOSED → LOCKED` then `LOCKED → SUPERSEDED` for a rule approved and superseded before the next commit. That is not tamper-proof, since an agent with shell access could write the journal too, but it turns a silent retirement into a visible warning. CI adds a **retirement summary** listing every rule whose status changed in the PR (§16.5), so a reviewer can't miss it.
 
 **Approver identity.** `approved_by` (and `actor` in the journal) is the git identity `user.name <user.email>`, falling back to the OS user name. It is committed with the record; users who keep their email private should use their forge's noreply address in git config.
 
@@ -2081,107 +2081,21 @@ Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`
 - `save_last(root, report)` writes `.seamspec/.local/last_verify.json` (`at`, `passed`, `failing_ids`, `incomplete`, results) for `status` and the Stop hook.
 - Tested against **real pytest and vitest runs** (`tests/test_verifier.py`, `tests/test_verifier_vitest.py`): attribution, collection errors, empty and all-skipped harnesses, planted conftests, project `setupFiles`, scrubbed env, process-group kill, deadline, isolated reruns (ADR-20261005-4b1e).
 
-### 19.8 `seamspec/core/lifecycle.py` (approve excerpt)
+### 19.8 `seamspec/core/lifecycle.py`, `journal.py`, `requests.py`, `adr.py`, `redact.py` — implemented (week 2)
 
-```python
-from __future__ import annotations
+[`lifecycle.py`](../seamspec/core/lifecycle.py), [`journal.py`](../seamspec/core/journal.py), [`requests.py`](../seamspec/core/requests.py), [`adr.py`](../seamspec/core/adr.py), [`redact.py`](../seamspec/core/redact.py). Behavior is §11; the contract:
 
-import getpass
-import json
-import os
-import subprocess
-import sys
-
-from .config import Config
-from .hashing import sha256_file, sha256_text
-from .models import InvStatus, utcnow
-from .store import Store, atomic_write
-from . import verifier
-
-
-class ApprovalError(RuntimeError):
-    pass
-
-
-def require_interactive() -> None:
-    """Approvals need a human at a terminal. Agent shells are typically non-TTY."""
-    if os.environ.get("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE") == "1":
-        return
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        raise ApprovalError("Approval requires an interactive terminal. Run `seamspec review` yourself.")
-
-
-def approver_identity(store: Store) -> str:
-    """git `user.name <user.email>`, falling back to the OS user name (§11.1)."""
-    def git(key: str) -> str:
-        try:
-            out = subprocess.run(["git", "config", key], cwd=store.root,
-                                 capture_output=True, text=True, timeout=5)
-            return out.stdout.strip()
-        except (OSError, subprocess.TimeoutExpired):
-            return ""
-    name, email = git("user.name"), git("user.email")
-    if name and email:
-        return f"{name} <{email}>"
-    return name or getpass.getuser()
-
-
-def append_journal(store: Store, record_id: str, old: str, new: str, actor: str) -> None:
-    """One line per CLI status change; Stop and pre-commit flag changes without one (§11.1)."""
-    line = {"id": record_id, "from": old, "to": new, "actor": actor, "at": utcnow().isoformat()}
-    with open(store.local / "journal.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps(line) + "\n")
-
-
-def current_fingerprints(store: Store, cfg: Config) -> dict[str, str]:
-    """Hashes of the runner config files as they are now (§12.2). Nothing is written."""
-    return {rel: sha256_file(store.root / rel)
-            for runner in cfg.runners.values() for rel in runner.config_files
-            if (store.root / rel).is_file()}
-
-
-def confirm_fingerprints(store: Store, prints: dict[str, str]) -> None:
-    """Record runner config the human has just seen in review. Called only after success."""
-    atomic_write(store.base / "fingerprints.json", json.dumps(prints, indent=2, sort_keys=True) + "\n")
-
-
-def approve(store: Store, cfg: Config, inv_id: str) -> None:
-    require_interactive()
-    inv = store.get(inv_id)
-    if inv.status != InvStatus.PROPOSED:
-        raise ApprovalError(f"{inv_id} is {inv.status.value}, not PROPOSED")
-
-    # Review has already shown the human the full harness, its red-green result and any
-    # runner config changes (§11.4, §12.2, §12.4.3 rule 4), so this run is consented.
-    # Fingerprints are checked against what the human saw, but written only on success.
-    prints = current_fingerprints(store, cfg)
-    runner = cfg.runners[inv.verification.runner]
-    proposed = store.root / inv.verification.harness_path      # .seamspec/proposed/...
-    final_rel = runner.harness_path(inv.id)
-    final = store.root / final_rel
-    final.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(proposed, final)                                 # into the runner's harness_dir
-    inv.verification.harness_path = final_rel
-
-    report = verifier.run(store.root, cfg, [inv], fingerprints=prints)
-    if not report.passed:
-        os.replace(final, proposed)                             # put it back; nothing was written
-        raise ApprovalError(f"{inv_id} harness is failing; cannot approve.")
-
-    confirm_fingerprints(store, prints)
-    actor = approver_identity(store)
-    inv.verification.harness_sha256 = sha256_file(final)
-    inv.verification.assertion_sha256 = sha256_text(inv.assertion)
-    inv.status = InvStatus.LOCKED
-    inv.approved_at = utcnow()
-    inv.approved_by = actor
-    store.save(inv)
-    append_journal(store, inv.id, InvStatus.PROPOSED.value, InvStatus.LOCKED.value, actor)
-    # Also: mark the linked ADR ACCEPTED (adr.py).
-```
-
-> [!NOTE]
-> The TTY check is a **speed bump, not a security boundary**. An agent could set the env var, or write the journal, via Bash. What makes that visible is the journal check at Stop and pre-commit and the **retirement summary** in CI (§11.1, §16.5); what stops it is human PR review, with CODEOWNERS on `.seamspec/` in strict mode (§7.1 layer 7).
+- **Agent-side** (no terminal needed):
+  - `propose_invariant(...)` writes the harness to `.seamspec/proposed/<id>/<runner filename>` and the record as `PROPOSED`, and **runs nothing**. It returns `queue_full` at `proposals.max_pending` (`replace_id` updates and `by_human=True` are exempt). An optional `adr_draft` creates a `PROPOSED` ADR and links it.
+  - `log_dead_end(...)` creates an `ACTIVE` dead end; `failure_symptom` is cut to 1,000 characters.
+  - `request_supersede(...)` saves a request in `.seamspec/.local/requests/<inv_id>.json`. Only for `LOCKED` invariants; it changes no record.
+- **Human-only:** `approve`, `reject`, `supersede`, `retire_dead_end` call `require_interactive()` (stdin and stdout must be a TTY; `SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE=1` overrides it for scripts and tests, a speed bump, not a boundary).
+- `approve`: computes runner config fingerprints, moves the harness from `proposed/` into the runner's `harness_dir`, and runs it with those fingerprints. On failure the harness moves back and **nothing is written**. On success it records hashes, `LOCKED`, `approved_at`, `approved_by` (git `user.name <user.email>`), writes `fingerprints.json`, journals `PROPOSED → LOCKED` and sets the ADR to `ACCEPTED`.
+- `reject` / `supersede` move the harness to `.seamspec/retired/<id>/` (the record keeps its hash) and journal the change. `reject(as_dead_end=True)` also records a dead end. `supersede` takes its reason and replacement from a pending request when none is given, and clears the request. The replacement still needs its own approval.
+- `harness_in_place(...)`: context manager that copies a `PROPOSED` harness to its runner location for one run (`verify --proposed`, red-green) and removes it afterwards.
+- `journal.unjournaled_changes(store)` implements the rules in §11.1 against `git HEAD` (works when `.seamspec/` sits in a subfolder of the git repo). No git or no commit means "everything is new".
+- `origin.text` and `failure_symptom` pass through `redact()` (§13.8) when `braindump.redact_secrets` is on (the default), for every origin, not only braindump.
+- ADR files use JSON-valued frontmatter (valid YAML flow style), so no YAML dependency is needed. Hand-written ADRs in the same format, including this repo's `docs/adr/`, parse (a test checks it).
 
 ### 19.9 `seamspec/core/braindump.py`
 
@@ -2624,7 +2538,8 @@ seamspec/
 │   │   ├── context.py
 │   │   ├── schemas.py              # packaged JSON Schemas + validation (§9.4)
 │   │   ├── verifier.py
-│   │   ├── lifecycle.py            # propose/approve/reject/supersede, fingerprints
+│   │   ├── lifecycle.py            # propose/approve/reject/supersede/retire, harness moves
+│   │   ├── redact.py               # secret redaction for committed text (§13.8)
 │   │   ├── journal.py              # approval journal + unjournaled-change check (§11.1)
 │   │   ├── redgreen.py             # red-green check in a temporary worktree (§11.4)
 │   │   ├── adr.py
@@ -2678,9 +2593,10 @@ seamspec/
     ├── test_cli.py
     ├── test_verifier.py            # real pytest runs: attribution, empty/skipped, conftests, env, kill, deadline
     ├── test_verifier_vitest.py     # real vitest runs (CI job `vitest`)
+    ├── test_lifecycle.py           # propose/approve/reject/supersede against real pytest runs
+    ├── test_journal_adr.py         # journal vs real git history; ADR files
+    ├── test_cli_lifecycle.py
     ├── fixtures/ts_repo/           # pinned vitest install: npm ci --prefix tests/fixtures/ts_repo
-    ├── test_verifier.py            # incl. process-group kill, deadline, empty/skipped tests
-    ├── test_lifecycle.py           # incl. journal + fingerprints
     ├── test_braindump.py           # v0.2
     ├── test_claude_adapter.py      # feed recorded hook payloads, assert outputs
     ├── test_commands_render.py     # snapshot tests of rendered skills/command files

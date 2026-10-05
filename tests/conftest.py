@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,6 +27,34 @@ def repo(tmp_path: Path) -> Path:
     (tmp_path / ".git").mkdir()
     scaffold.init(tmp_path)
     return tmp_path
+
+
+@pytest.fixture
+def py_repo(tmp_path: Path) -> Path:
+    """A Python project with real code under src/ and SeamSpec initialised (no git)."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/__init__.py").write_text("")
+    (tmp_path / "src/queue.py").write_text("def backoff_delay(n):\n    return min(0.1 * 2 ** n, 30.0)\n")
+    scaffold.init(tmp_path)
+    return tmp_path
+
+
+def git(root: Path, *args: str) -> str:
+    env = {**os.environ, "GIT_AUTHOR_NAME": "Maya Rao", "GIT_AUTHOR_EMAIL": "maya@example.com",
+           "GIT_COMMITTER_NAME": "Maya Rao", "GIT_COMMITTER_EMAIL": "maya@example.com"}  # fmt: skip
+    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True, env=env).stdout
+
+
+@pytest.fixture
+def git_repo(py_repo: Path) -> Path:
+    """py_repo as a git repository with everything committed, and a git identity set."""
+    git(py_repo, "init", "-q", "-b", "main")
+    git(py_repo, "config", "user.name", "Maya Rao")
+    git(py_repo, "config", "user.email", "maya@example.com")
+    git(py_repo, "add", "-A")
+    git(py_repo, "commit", "-q", "-m", "init")
+    return py_repo
 
 
 @pytest.fixture
