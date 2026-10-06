@@ -2016,7 +2016,7 @@ failing them will block you from finishing and block commits.
 
 ## 19. Reference Implementation
 
-Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`, `filelock`, `jsonschema` (+ `rfc3339-validator`, so the schemas' `date-time` format is actually checked).
+Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pathspec`, `filelock`, `jsonschema` (+ `rfc3339-validator`, so the schemas' `date-time` format is actually checked).
 
 **Implemented modules are the source of truth** (ADR-20261005-6f2a). Once a module exists, its listing below is replaced by a short contract and a link to the code, so the spec and the code can't drift apart. Modules not built yet keep their reference listing until they are.
 
@@ -2400,96 +2400,17 @@ def main(event: str) -> int:
 > [!NOTE]
 > Output fields (`additionalContext` on `PreToolUse`, `decision: "block"` on `Stop`, `systemMessage`) were checked against the Claude Code hook docs on 2026-10-05, but must be re-verified hands-on before each release (§8). If `additionalContext` on `PreToolUse` does not reach the model, the context path moves to `PostToolUse` on `Read` (§7.2).
 
-### 19.11 `seamspec/mcp_server.py` (excerpt)
+### 19.11 `seamspec/mcp_server.py` — implemented (week 3)
 
-```python
-from __future__ import annotations
+[`mcp_server.py`](../seamspec/mcp_server.py). Built on the MCP Python SDK **2.x** (`mcp.server.mcpserver.MCPServer`, the 2.x name for what 1.x called `FastMCP`) (ADR-20261005-cc29). Started with `seamspec mcp` (stdio).
 
-from typing import Literal, TypedDict
-
-from mcp.server.fastmcp import FastMCP
-
-from .services import Services  # wires root, config, store, lifecycle, verifier
-
-mcp = FastMCP(
-    name="seamspec",
-    instructions="Query and propose project invariants, decisions, and dead ends. "
-                 "Only humans approve invariants.",
-)
-
-
-def _svc() -> Services:
-    return Services.discover()  # resolves root per call; cheap
-
-
-class AdrDraft(TypedDict):
-    context: str
-    decision: str
-    consequences: list[str]
-
-
-@mcp.tool()
-def get_constraints(files: list[str]) -> dict:
-    """Locked/proposed invariants and active dead ends that apply to these files. Call before editing."""
-    return _svc().constraints(files)
-
-
-@mcp.tool()
-def propose_invariant(
-    title: str,
-    assertion: str,
-    scope_paths: list[str],
-    runner: str,
-    harness_code: str,
-    origin_text: str,
-    origin_type: Literal["prompt", "braindump", "manual"] = "prompt",
-    origin_ref: str | None = None,
-    scope_tags: list[str] | None = None,
-    replace_id: str | None = None,
-    adr: AdrDraft | None = None,  # same shape as §14.1
-) -> dict:
-    """Propose (or update a PROPOSED) invariant with a behavior-level test.
-    Does NOT run the test: afterwards, run `seamspec verify --proposed <id>` with your shell tool.
-    Returns error "queue_full" when the review backlog is at its cap: stop proposing and tell the user."""
-    return _svc().propose_invariant(**locals())
-
-
-@mcp.tool()
-def log_dead_end(scope_paths: list[str], approach: str, failure_symptom: str,
-                 related_invariant: str | None = None, origin_ref: str | None = None) -> dict:
-    """Record an approach that was tried and failed, so it is not retried."""
-    return _svc().log_dead_end(**locals())
-
-
-@mcp.tool()
-def request_supersede(invariant_id: str, reason: str, replacement_id: str | None = None) -> dict:
-    """Ask the human to retire or replace a LOCKED invariant. Never edit its test instead."""
-    return _svc().request_supersede(invariant_id, reason, replacement_id)
-
-
-@mcp.tool()
-def verify(scope: Literal["changed", "all"] = "all") -> dict:
-    """Run LOCKED (human-approved) invariant tests and integrity checks. Never runs proposed tests."""
-    return _svc().verify(scope)
-
-
-# propose_decision and braindump_pending (v0.2, with BRAINDUMP) follow the same pattern.
-# Workflow-command prompts (@mcp.prompt) are shown in §15A.5.
-
-
-@mcp.resource("seamspec://adrs")
-def adrs_summary() -> str:
-    return _svc().adrs_summary()
-
-
-@mcp.resource("seamspec://adrs/{adr_id}")
-def adr(adr_id: str) -> str:
-    return _svc().adr_markdown(adr_id)
-
-
-def run() -> None:
-    mcp.run(transport="stdio")
-```
+- **Tools (v0.1):** `get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`, with the signatures in §14.1; `adr` is an object `{context, decision, consequences}`. Errors come back as `{"error": ..., "message": ...}`: `not_a_seamspec_project`, `invalid`, `queue_full`, `not_permitted`.
+- `get_constraints` also returns `summary` (the rendered text, §19.6) and `runners`: the runners whose `paths` match the files, with where their tests live, so the agent picks the right runner (§12A.7).
+- `verify` runs LOCKED rules only, and only where `execution_permitted` holds (not advisory, consent given, clone trusted); otherwise `not_permitted`. It saves `last_verify.json`.
+- **Resources:** `seamspec://adrs` (one line per ADR) and `seamspec://adrs/{adr_id}` (full Markdown).
+- The project is resolved per call: `$SEAMSPEC_ROOT`, else walk up from the server's working directory. The plugin sets `SEAMSPEC_ROOT` to the project directory (§16.1).
+- **Token budget:** the five tool definitions serialize to about 4,000 characters (≈ 1,000 tokens), checked by a test against the 1,500-token target (§4.3).
+- MCP prompts for the workflow commands arrive with the skills in the plugin slice.
 
 ### 19.12 Example Harness (agent-generated, human-approved)
 
