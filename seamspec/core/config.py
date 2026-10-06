@@ -59,9 +59,15 @@ class RunnerCfg(_Strict):
         return f"{rel.parent}/**" if "inv_*" in rel.parent.name else str(rel)
 
 
+HOOK_TIMEOUT_SECONDS = 300  # seamspec-plugin/hooks/hooks.json, Stop
+MAX_STOP_DEADLINE = HOOK_TIMEOUT_SECONDS - 30  # leave time to start up, attribute and print
+
+
 class VerifyCfg(_Strict):
     timeout_seconds: int = Field(default=120, ge=1)
-    stop_deadline_seconds: int = Field(default=240, ge=10)  # one overall budget per hook/gate run (§12.2)
+    # One overall budget per hook/gate run (§12.2). Capped below the plugin's 300 s Stop hook timeout:
+    # a hook Claude Code kills has its decision discarded, which would silently let the agent stop.
+    stop_deadline_seconds: int = Field(default=240, ge=10, le=MAX_STOP_DEADLINE)
     max_output_chars: int = Field(default=4000, ge=200)
     max_stop_retries: int = Field(default=3, ge=0)
     run_on_stop: Literal["auto", "all", "scoped"] = "auto"

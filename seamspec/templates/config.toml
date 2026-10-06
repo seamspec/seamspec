@@ -4,7 +4,7 @@ mode = "{{mode}}"              # advisory | enforced | strict
 
 [verify]
 timeout_seconds = 120          # per runner invocation, never longer than the time left in the deadline
-stop_deadline_seconds = 240    # one overall budget for a Stop/gate run; must be < the hook timeout
+stop_deadline_seconds = 240    # one overall budget for a Stop/gate run; max 270 (the Stop hook timeout is 300)
 max_output_chars = 4000        # truncated output fed back to the agent
 max_stop_retries = 3           # self-healing ceiling (K); also applies to the error path
 run_on_stop = "auto"           # auto | all | scoped

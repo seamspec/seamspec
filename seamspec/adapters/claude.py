@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import journal, verifier
-from ..core.config import Config, load_config
+from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
 from ..core.models import Invariant, InvStatus
 from ..core.requests import pending_supersede_ids
@@ -126,7 +126,8 @@ def _start_retries(payload: dict[str, Any], state: SessionState) -> str:
 def stop(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:
     if cfg.mode == "advisory":
         return None
-    deadline = time.monotonic() + cfg.verify.stop_deadline_seconds  # below the hook timeout (§16.1)
+    budget = min(cfg.verify.stop_deadline_seconds, MAX_STOP_DEADLINE)  # belt and braces: config is validated too
+    deadline = time.monotonic() + budget  # always below the hook timeout (§16.1)
     state = SessionState.load(store, str(payload.get("session_id") or "unknown"))
     key = _start_retries(payload, state)
 

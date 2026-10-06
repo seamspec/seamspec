@@ -244,6 +244,7 @@
         },
         "stop_deadline_seconds": {
           "default": 240,
+          "maximum": 270,
           "minimum": 10,
           "title": "Stop Deadline Seconds",
           "type": "integer"
