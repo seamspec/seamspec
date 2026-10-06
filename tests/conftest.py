@@ -20,6 +20,12 @@ def _no_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SEAMSPEC_ROOT", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_claude_config(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Any real `claude plugin ...` a test reaches writes to a throwaway config, never the developer's."""
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path_factory.mktemp("claude-config")))
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A Python repo with SeamSpec initialised."""

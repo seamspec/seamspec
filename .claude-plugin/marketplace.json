@@ -1,0 +1,12 @@
+{
+  "name": "seamspec",
+  "owner": { "name": "SeamSpec" },
+  "metadata": { "description": "SeamSpec: approved behavior becomes a test-backed rule that AI coding agents can't silently break." },
+  "plugins": [
+    {
+      "name": "seamspec",
+      "source": "./seamspec-plugin",
+      "description": "Edit-time constraints, a Stop gate on locked rules, the SeamSpec MCP server and the /seamspec:lock and /seamspec:dead-end skills."
+    }
+  ]
+}

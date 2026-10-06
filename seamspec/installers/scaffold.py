@@ -89,18 +89,20 @@ def _write_if_missing(root: Path, rel: str, text: str, report: InitReport) -> No
     report.add(rel, "created")
 
 
-def _merge_gitignore(root: Path, report: InitReport) -> None:
+def merge_gitignore(
+    root: Path, lines: tuple[str, ...] = GITIGNORE_LINES, header: str = "SeamSpec: machine-local state and caches"
+) -> str:
+    """Add the missing `lines` to `.gitignore`: created | updated | unchanged."""
     path = root / ".gitignore"
     old = path.read_text(encoding="utf-8") if path.is_file() else ""
     present = {ln.strip() for ln in old.splitlines()}
-    missing = [ln for ln in GITIGNORE_LINES if ln not in present]
+    missing = [ln for ln in lines if ln not in present]
     if not missing:
-        report.add(".gitignore", "unchanged")
-        return
+        return "unchanged"
     sep = "" if not old or old.endswith("\n") else "\n"
-    block = "\n# SeamSpec: machine-local state and caches\n" + "\n".join(missing) + "\n"
+    block = f"\n# {header}\n" + "\n".join(missing) + "\n"
     atomic_write(path, old + sep + (block if old else block.lstrip("\n")))
-    report.add(".gitignore", "updated" if old else "created")
+    return "updated" if old else "created"
 
 
 def _record_initial_fingerprints(root: Path, report: InitReport) -> None:
@@ -179,7 +181,7 @@ def init(
                 _write_if_missing(root, rel, _template(RUNNER_CONFIG_TEMPLATES[rel]), report)
 
     _record_initial_fingerprints(root, report)
-    _merge_gitignore(root, report)
+    report.add(".gitignore", merge_gitignore(root))
     if claude_md:
         report.add("CLAUDE.md", directive.install(root))
 
