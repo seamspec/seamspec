@@ -112,8 +112,9 @@ def test_wrappers_never_search_the_current_folder(tmp_path: Path, script: str) -
 
 
 @pytest.mark.skipif(shutil.which("claude") is None, reason="Claude Code CLI not installed")
-def test_claude_plugin_validate() -> None:
-    result = subprocess.run(["claude", "plugin", "validate", str(PLUGIN)], capture_output=True, text=True, timeout=60)
+@pytest.mark.parametrize("target", [PLUGIN, PLUGIN.parent], ids=["plugin", "marketplace"])
+def test_claude_plugin_validate(target: Path) -> None:
+    result = subprocess.run(["claude", "plugin", "validate", str(target)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0 and "Validation passed" in result.stdout + result.stderr, (
         result.stdout + result.stderr
     )

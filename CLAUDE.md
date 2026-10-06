@@ -36,6 +36,6 @@ uv run seamspec --help                    # the CLI
 - **Implemented modules are the source of truth**; SPEC §19 keeps a short contract per module (ADR-20261005-6f2a). If you change a module's behavior, update its §19 contract.
 - `seamspec/schemas/v1/config.json` is generated: after changing `core/config.py`, regenerate it from `config_json_schema()` (a test fails if it's stale).
 - Never run `ruff format` on `docs/` (it's excluded): SPEC code blocks are edited by hand.
-- Plugin skills are generated: after editing `seamspec/templates/commands/`, run `uv run python -m seamspec.core.commands` (a test fails if `seamspec-plugin/skills/` is stale). Try the plugin with `claude --plugin-dir seamspec-plugin`.
+- Plugin skills are generated: after editing `seamspec/templates/commands/`, run `uv run python -m seamspec.core.commands` (a test fails if `seamspec-plugin/skills/` is stale). Try the plugin with `claude --plugin-dir seamspec-plugin`, or install it for a repo with `seamspec init --plugin` (local scope). Tests get a throwaway `CLAUDE_CONFIG_DIR`; never run `claude plugin install` against the owner's real settings without asking.
 
 <!-- From week 3, `seamspec init` adds its own marked directive block below (SPEC §18), when SeamSpec starts governing this repo. -->

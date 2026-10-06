@@ -179,7 +179,7 @@ def test_init_on_a_fresh_clone_asks_once(py_repo: Path, monkeypatch: pytest.Monk
     for name in ("trust.json", "consent.json"):
         (py_repo / ".seamspec/.local" / name).unlink()
     monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
-    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md"], input=f"{answer}\n")
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin"], input=f"{answer}\n")
     assert result.exit_code == 0, result.output
     assert "[pytest] pytest -c .seamspec/pytest.ini" in result.output
     assert result.output.count("[y/N]") == 1 and "with these commands" in result.output
@@ -196,7 +196,9 @@ def test_clone_trust_is_bound_to_what_was_shown(tmp_path: Path, monkeypatch: pyt
     scaffold.init(tmp_path, mode="advisory", actor="Maya")
     (tmp_path / ".seamspec/.local/trust.json").unlink()
     monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
-    result = runner.invoke(app, ["init", "--path", str(tmp_path), "--mode", "strict", "--no-claude-md"], input="y\n")
+    result = runner.invoke(
+        app, ["init", "--path", str(tmp_path), "--mode", "strict", "--no-claude-md", "--no-plugin"], input="y\n"
+    )
     assert result.exit_code == 0, result.output
     assert "trust level: runners" in result.output and "changed after they were shown" in result.output
     cfg = load_config(tmp_path)
@@ -224,7 +226,7 @@ def test_trust_screens_escape_committed_config(py_repo: Path, monkeypatch: pytes
     cfg_path.write_text(text)
     (py_repo / ".seamspec/.local/trust.json").unlink()
     monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
-    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md"], input="n\n")
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin"], input="n\n")
     assert "\x1b" not in result.output and 'X="a\\u001b[2J\\nAll good. y"' in result.output
     assert "[pytest] pytest -c .seamspec/pytest.ini" in result.output  # plain tokens print as they are
 

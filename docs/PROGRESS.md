@@ -8,7 +8,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
-| 2026-10-05 | **Setup friction, part 1** (PR `week-3/onboarding-runners`): test runs find the project's `.venv` / `venv` / `node_modules/.bin` tools without activation (an activated virtualenv wins); the plugin wrappers and pre-commit hook also look in `~/.local/bin` (desktop app, GUI git clients); a fresh clone's `init` asks one question covering consent and trust | ADR-20261005-9b8f |
+| 2026-10-05 | **Setup friction, part 2** (PR `week-3/plugin-install`): this repo is also a plugin marketplace (`.claude-plugin/marketplace.json`); `seamspec init` shows the two `claude plugin` commands, asks, and installs the plugin at **local** scope (only `.claude/settings.local.json`, which it git-ignores); `--plugin` / `--no-plugin` for scripts. Checked against the real Claude Code CLI in a throwaway config | ADR-20261005-428a |
+| 2026-10-05 | **Setup friction, part 1** (#19): test runs find the project's `.venv` / `venv` / `node_modules/.bin` tools without activation (an activated virtualenv wins); the plugin wrappers and pre-commit hook also look in `~/.local/bin` (desktop app, GUI git clients); a fresh clone's `init` asks one question covering consent and trust | ADR-20261005-9b8f |
 | 2026-10-05 | **Week 3 · plugin** (PR `week-3/plugin`): `seamspec-plugin/` (hooks, MCP server, skills `/seamspec:lock` and `/seamspec:dead-end` generated from templates, wrappers in `scripts/`); `claude plugin validate` passes. **Verified in 3 real Claude Code sessions** (~$0.17 total): edit-time context reaches the model, the Stop gate blocked a regression 3× and the agent reverted, lock and dead-end skills work end to end. Try it: `claude --plugin-dir <repo>/seamspec-plugin` | ADR-20261005-5675 |
 | 2026-10-05 | **Week 3 · MCP server** (PR `week-3/mcp`): `seamspec mcp` with 5 tools (`get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`) and 2 resources, on the MCP SDK 2.x; tested in-process and over stdio; ≈ 1,000 tokens of tool definitions | ADR-20261005-cc29 |
 | 2026-10-05 | **Week 3 · hooks** (PR `week-3/hooks`): `seamspec hook claude pre-tool-use|stop` (`adapters/claude.py`, `core/session.py`, `tree_fingerprint`): ledger protection, edit-time context via `additionalContext`, Stop gate with deadline, per-prompt retries, supersede escape and journal check. Aligned with the current Claude Code hooks reference (no `stop_hook_active` any more). 246 tests | ADR-20261005-5009 |
@@ -30,7 +31,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 3**, slice by slice: hooks (#16) → MCP server (#17) → plugin + skills (#18) → **setup friction** (the owner moved this ahead of dogfooding after hands-on testing): part 1 runners and clones (PR `week-3/onboarding-runners`), part 2 plugin install from `init`, part 3 approvals in chat → dogfooding → enable the plugin for this repo in the owner's app (with their OK) → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
+- **Week 3**, slice by slice: hooks (#16) → MCP server (#17) → plugin + skills (#18) → **setup friction** (the owner moved this ahead of dogfooding after hands-on testing): part 1 runners and clones (#19), part 2 plugin install from `init` (PR `week-3/plugin-install`), part 3 approvals in chat → dogfooding → enable the plugin for this repo in the owner's app (with their OK) → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
 
 ## Next (Week 3, issue #3)
 
@@ -38,7 +39,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] Edit-time context + ledger protection (§7.2). Merged in #16; confirmed in a real session (PR `week-3/plugin`)
 - [x] MCP server: 5 tools + 2 resources (§14). Merged in #17
 - [x] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1). Merged in #18
-- [ ] Setup friction: project tools without activation, one question on a clone (PR `week-3/onboarding-runners`); plugin install from `init`; approvals in chat
+- [ ] Setup friction: project tools without activation, one question on a clone (#19); plugin install from `init` (PR `week-3/plugin-install`); approvals in chat
 - [ ] Dogfood: `seamspec init` on this repo; `docs/adr/` → `.seamspec/adrs/`
 - [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR
 

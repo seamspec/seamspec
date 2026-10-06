@@ -20,7 +20,7 @@ from .core.models import DeadEnd, Invariant, InvStatus
 from .core.root import RootNotFound, find_root
 from .core.scope import matches
 from .core.store import RecordError, Store
-from .installers import scaffold
+from .installers import claude_plugin, scaffold
 from .installers.directive import DirectiveError
 
 app = typer.Typer(
@@ -70,6 +70,12 @@ Secrets are stripped from the environment, but files on disk are readable.
 """
 
 
+PLUGIN_SCREEN = """\
+Claude Code plugin: shows the agent the locked rules as it edits, runs them before it
+finishes (Stop hook), and adds the SeamSpec MCP tools and /seamspec:lock, /seamspec:dead-end.
+SeamSpec will run:"""
+
+
 def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
@@ -115,6 +121,13 @@ def init(
     claude_md: Annotated[
         bool, typer.Option("--claude-md/--no-claude-md", help="Write the SeamSpec block into CLAUDE.md.")
     ] = True,
+    plugin: Annotated[
+        bool | None,
+        typer.Option(
+            "--plugin/--no-plugin",
+            help="Install and enable the SeamSpec Claude Code plugin for this repository only. Asks when omitted.",
+        ),
+    ] = None,
     accept_auto_run: Annotated[
         bool,
         typer.Option(
@@ -181,7 +194,35 @@ def init(
         typer.echo("This clone isn't trusted yet: run `seamspec trust` to review its runner commands.")
     if not (root / ".git").exists():
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
-    typer.echo("The Claude Code plugin and CI workflow are installed by later versions of `init` (v0.1 in progress).")
+    _init_plugin(root, plugin)
+    typer.echo("The CI workflow is installed by a later version of `init` (v0.1 in progress).")
+
+
+def _init_plugin(root: Path, wanted: bool | None) -> None:
+    """Offer the Claude Code plugin (SPEC §16.1). Changing Claude Code's settings needs a yes."""
+    if wanted is False:
+        return
+    if wanted is None and not _interactive():
+        typer.echo("Claude Code plugin: not checked (no terminal). Run `seamspec init --plugin` to install it.")
+        return
+    result = claude_plugin.precheck(root)
+    if result is None:
+        source = claude_plugin.marketplace_source()
+        assert source is not None  # precheck() checked it
+        if wanted is None:
+            typer.echo(PLUGIN_SCREEN)
+            for args in claude_plugin.commands(source):
+                typer.echo(f"  claude plugin {' '.join(args)}")
+            typer.echo(f"This changes only {claude_plugin.SETTINGS_LOCAL} here: just you, just this repository.")
+            if not typer.confirm("Install the SeamSpec plugin for Claude Code in this repository?", default=True):
+                typer.echo("Claude Code plugin: not installed. Run `seamspec init --plugin` any time.")
+                return
+        result = claude_plugin.enable(root)
+    typer.echo(f"Claude Code plugin: {result.status} ({result.message})")
+    if result.gitignore in ("created", "updated"):
+        typer.echo(f"  {result.gitignore:<9} .gitignore ({claude_plugin.SETTINGS_LOCAL})")
+    if result.status == "installed":
+        typer.echo("  Start a new Claude Code session (or run /reload-plugins) to load it.")
 
 
 def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
