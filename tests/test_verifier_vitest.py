@@ -108,3 +108,32 @@ def test_pre_commit_blocks_a_typescript_regression(ts_repo: Path, monkeypatch: p
     (root / "src/queue.ts").write_text("export const backoffDelay = (n: number) => 0.1 * 2 ** n;\n")
     blocked = commit("remove the cap")
     assert blocked.returncode != 0 and f"[FAIL] {out['id']} (vitest)" in blocked.stderr, blocked.stderr
+
+
+def test_red_green_in_a_typescript_repo(ts_repo: Path) -> None:
+    """The HEAD worktree has no node_modules of its own; red-green links the project's in (§11.4)."""
+    from seamspec.core import lifecycle, redgreen
+    from seamspec.core.store import Store
+
+    from .conftest import git
+
+    (ts_repo / ".gitignore").write_text((ts_repo / ".gitignore").read_text() + "node_modules\n")
+    git(ts_repo, "init", "-q", "-b", "main")
+    git(ts_repo, "add", "-A")
+    git(ts_repo, "commit", "-q", "-m", "init")
+    (ts_repo / "src/queue.ts").write_text(
+        "export const backoffDelay = (n: number) => Math.min(0.1 * 2 ** n, 30);\n"
+        "export const jitter = (x: number) => x / 2;\n"
+    )
+    jitter = 'import { test, expect } from "vitest";\nimport { jitter } from "../../src/queue";\ntest("halves", () => { expect(jitter(10)).toBe(5); });\n'  # noqa: E501
+    store, cfg = Store(ts_repo), load_config(ts_repo)
+    common = {"scope_paths": ["src/**"], "runner": "vitest", "origin_text": "x"}
+    new = lifecycle.propose_invariant(
+        store, cfg, title="Jitter halves", assertion="Jitter halves the delay.", harness_code=jitter, **common
+    )
+    old = lifecycle.propose_invariant(
+        store, cfg, title="Cap", assertion="Retry delay never exceeds 30 seconds.", harness_code=PASS, **common
+    )
+    assert redgreen.check(store, cfg, store.get(new["id"])).verdict == "yes"
+    assert redgreen.check(store, cfg, store.get(old["id"])).verdict == "no"
+    assert git(ts_repo, "worktree", "list").count("\n") == 1

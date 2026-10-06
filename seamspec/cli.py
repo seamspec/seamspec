@@ -11,6 +11,7 @@ from typing import Annotated, Any
 import typer
 
 from . import __version__
+from . import review as review_mod
 from .core import journal, lifecycle, requests, tree, trust, verifier
 from .core.config import ConfigError, load_config
 from .core.context import constraints_for
@@ -273,18 +274,7 @@ def _human_only() -> None:
         raise _fail(str(exc)) from None
 
 
-def _show_invariant(store: Store, inv: Invariant) -> None:
-    typer.echo(f"{inv.id} [{inv.status.value}] {inv.title}")
-    typer.echo(f"  rule:   {inv.assertion}")
-    typer.echo(f"  scope:  {', '.join(inv.scope.paths)}")
-    typer.echo(f"  origin: {inv.origin.type}: {inv.origin.text[:300]}")
-    typer.echo(f"  test:   {inv.verification.harness_path} (runner: {inv.verification.runner})")
-    harness = store.root / inv.verification.harness_path
-    if harness.is_file():
-        typer.echo("  " + "-" * 60)
-        for line in harness.read_text(encoding="utf-8").splitlines():
-            typer.echo(f"  | {line}")
-        typer.echo("  " + "-" * 60)
+_show_invariant = review_mod.show_invariant
 
 
 def _get_invariant(store: Store, inv_id: str) -> Invariant:
@@ -304,10 +294,17 @@ def approve(inv_id: Annotated[str, typer.Argument(help="PROPOSED invariant to lo
     _root_dir, cfg, store = _open()
     inv = _get_invariant(store, inv_id)
     _show_invariant(store, inv)
+    confirm_config = False
+    if verifier.check_fingerprints(store.root, cfg):
+        typer.echo("Runner config changed since it was last confirmed (approving also confirms it):")
+        review_mod.show_config_changes(store, cfg)
+        if not typer.confirm("Confirm these runner config changes too?", default=False):
+            raise _fail("not approved: runner config changes not confirmed (see `seamspec review`)")
+        confirm_config = True
     if not typer.confirm(f"Run this test and lock {inv_id}?", default=False):
         raise _fail("not approved", code=1)
     try:
-        result = lifecycle.approve(store, cfg, inv_id)
+        result = lifecycle.approve(store, cfg, inv_id, confirm_config=confirm_config)
     except lifecycle.LifecycleError as exc:
         raise _fail(str(exc)) from None
     typer.echo(f"LOCKED {inv_id} (test: {result.invariant.verification.harness_path})")
@@ -377,6 +374,18 @@ def retire_dead_end(
     except (lifecycle.LifecycleError, KeyError) as exc:
         raise _fail(str(exc)) from None
     typer.echo(f"RETIRED {de_id}")
+
+
+@app.command()
+def review() -> None:
+    """Review everything waiting for you: runner config changes, new dead ends, supersede requests,
+    and proposed rules (each with its full test and a red-green check). Human only."""
+    _human_only()
+    _root_dir, cfg, store = _open()
+    try:
+        review_mod.run(store, cfg)
+    except (RecordError, lifecycle.LifecycleError) as exc:
+        raise _fail(str(exc)) from None
 
 
 # --- trust and verify (SPEC §12.4.6, §16.4) -------------------------------------------------------

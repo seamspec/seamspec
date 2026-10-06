@@ -135,7 +135,7 @@ def test_failing_test_is_not_approved_and_nothing_changes(py_repo: Path, human: 
     ini.write_text(ini.read_text() + "# reviewed tweak\n")
     store = Store(py_repo)
     with pytest.raises(lifecycle.ApprovalError, match="not passing"):
-        lifecycle.approve(store, load_config(py_repo), out["id"])
+        lifecycle.approve(store, load_config(py_repo), out["id"], confirm_config=True)
     assert store.get(out["id"]).status == InvStatus.PROPOSED
     assert (py_repo / out["harness_path"]).is_file()
     assert not (py_repo / f".seamspec/tests/test_{out['id']}.py").exists()
@@ -143,12 +143,15 @@ def test_failing_test_is_not_approved_and_nothing_changes(py_repo: Path, human: 
     assert journal.entries(store) == []
 
 
-def test_approve_confirms_changed_runner_config_on_success(py_repo: Path, human: None) -> None:
+def test_changed_runner_config_needs_explicit_confirmation(py_repo: Path, human: None) -> None:
     ini = py_repo / ".seamspec/pytest.ini"
     ini.write_text(ini.read_text() + "# reviewed tweak\n")
     assert verifier.check_fingerprints(py_repo, load_config(py_repo))
     out = propose(py_repo)
-    lifecycle.approve(Store(py_repo), load_config(py_repo), out["id"])
+    with pytest.raises(lifecycle.ApprovalError, match="runner config changed"):
+        lifecycle.approve(Store(py_repo), load_config(py_repo), out["id"])
+    assert Store(py_repo).get(out["id"]).status == InvStatus.PROPOSED
+    lifecycle.approve(Store(py_repo), load_config(py_repo), out["id"], confirm_config=True)
     assert verifier.check_fingerprints(py_repo, load_config(py_repo)) == []
 
 
