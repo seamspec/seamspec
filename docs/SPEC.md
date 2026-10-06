@@ -303,7 +303,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 
 1. Agent is about to edit (or has just read) a file governed by locked invariants or active dead ends.
 2. Hook checks session state for key `(session_id, file, ledger_revision)`.
-3. **First time:** add the constraints to the agent's context. Record the key. *(Claude Code: `PreToolUse` returning only `hookSpecificOutput.additionalContext`, or `PostToolUse` on `Read`, since Edit requires a prior Read. Pick one after a hands-on test. Never return `permissionDecision: "allow"`, which would bypass the user's own permission prompts.)*
+3. **First time:** add the constraints to the agent's context. Record the key. *(Claude Code: `PreToolUse` returning only `hookSpecificOutput.additionalContext`, which the hooks reference confirms reaches the model. Never return `permissionDecision: "allow"`, which would bypass the user's own permission prompts (ADR-20261005-5009).)*
 4. Later edits in the same session pass silently.
 5. If the ledger changes (`ledger_revision` differs), it re-arms.
 
@@ -340,7 +340,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 |---|---|---|---|---|
 | MCP tools + resources | ✅ | ✅ | ✅ | ✅ |
 | CLI fallback via shell | ✅ | ✅ | ✅ | ✅ |
-| Edit-time context (§7.2) | ✅ `PreToolUse` `additionalContext` or `PostToolUse` on `Read` *(pick after hands-on test)* | ✅ `PreToolUse` (deny-once fallback: `permissionDecision: "deny"`) | ✅ `preToolUse` (deny-once fallback: `permission: "deny"`) | ❌ |
+| Edit-time context (§7.2) | ✅ `PreToolUse` `additionalContext` | ✅ `PreToolUse` (deny-once fallback: `permissionDecision: "deny"`) | ✅ `preToolUse` (deny-once fallback: `permission: "deny"`) | ❌ |
 | Ledger protection | ✅ | ✅ | ✅ | ❌ |
 | Completion gate | ✅ `Stop` + `decision: block` | ✅ `Stop` + `decision: block` | ✅ `stop` + `followup_message` (auto-continue, capped by `loop_limit`) | ❌ |
 | Session-start nudge (§13.9) *(v0.2)* | ✅ `SessionStart` | ✅ `SessionStart` | ✅ `sessionStart` (local agents) | Directive fallback |
@@ -1737,7 +1737,7 @@ exec seamspec mcp "$@"
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^(Edit|Write|NotebookEdit)$",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/seamspec-hook hook claude pre-tool-use", "timeout": 15 }]
       }
     ],
@@ -1756,7 +1756,7 @@ exec seamspec mcp "$@"
 }
 ```
 
-- The matcher is **anchored**: Claude Code tests matchers as a regex anywhere in the tool name, so `Edit` alone would also match `NotebookEdit` by accident. `MultiEdit` is not in the current built-in tool list (checked 2026-10-05).
+- The matcher is a plain list of tool names. Per the hooks reference (checked 2026-10-05), a matcher made only of letters, digits and `|` is an **exact list**, not a regex, so `Edit` doesn't also match `NotebookEdit`. `MultiEdit` is kept for older Claude Code versions (ADR-20261005-5009).
 - `SessionStart` (the braindump nudge, §13.9) ships with BRAINDUMP in v0.2.
 - The Stop hook's `timeout` (300s) is deliberately larger than `verify.stop_deadline_seconds` (240s): Claude Code **discards the output of a timed-out hook**, so a hook that times out would let the agent stop with no warning. SeamSpec must always finish and decide before that happens.
 
@@ -1793,12 +1793,12 @@ Never blocks, never runs tests; any error → exit 0 with no output.
 ```
 
    - Brand-new file inside a governed path, or `gate_mode = "deny_once"`: **deny once** with the same text in `permissionDecisionReason` and *"Re-attempt the edit once your change respects these constraints."*
-   - *(Hands-on check before release: confirm `additionalContext` on `PreToolUse` reaches the model for Edit/Write. If not, switch to `PostToolUse` on `Read`, which the docs confirm supports `additionalContext`.)*
+   - *(Hands-on check with the plugin slice: confirm in a real session that the context appears before the edit. If it doesn't, fall back to `gate_mode = "deny_once"`, which carries the same text in the denial reason. `PostToolUse` isn't used: the hooks reference describes its context as replacing the tool's result (ADR-20261005-5009).)*
 
 **`Stop` behavior** (`seamspec hook claude stop`):
 
-1. Read stdin JSON (inside the error handler): `session_id`, `stop_hook_active`.
-2. If `stop_hook_active` is `false`, reset this session's retry counter (fresh stop).
+1. Read stdin JSON (inside the error handler): `session_id`, `prompt_id`, `cwd`.
+2. Retries are counted **per user prompt** (`prompt_id`), so a new user message gets a fresh budget. Current Claude Code no longer sends `stop_hook_active`; if an older version does, a stop with `stop_hook_active: false` resets the count (ADR-20261005-5009).
 3. If auto-run consent is missing or the clone is not trusted (§12.4) → allow, with a warning; **no tests run**.
 4. **Journal check** (§11.1, including records absent at `HEAD` and deleted LOCKED records): any invariant whose status differs from `HEAD` without a matching journal entry counts as a failure: *"inv_1a2b3c4d was changed to SUPERSEDED outside the SeamSpec CLI. Revert it, or ask the user to run `seamspec review`."*
 5. If the tree fingerprint (git-visible files only, §12.2) equals the last **green** verify and step 4 found nothing → allow.
@@ -2225,181 +2225,17 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
     return items
 ```
 
-### 19.10 `seamspec/adapters/claude.py`
+### 19.10 `seamspec/adapters/claude.py`, `core/session.py` — implemented (week 3)
 
-```python
-from __future__ import annotations
+[`claude.py`](../seamspec/adapters/claude.py), [`session.py`](../seamspec/core/session.py), [`tree.py`](../seamspec/core/tree.py). Behavior is §7.2 and §16.1; the contract:
 
-import json
-import sys
-import time
-from pathlib import Path
-
-from ..core import verifier
-from ..core.config import Config, load_config
-from ..core.context import constraints_for
-from ..core.journal import unjournaled_changes  # status differs from HEAD with no journal entry (§11.1)
-from ..core.models import InvStatus
-from ..core.root import find_root, to_rel
-from ..core.scope import effective_protected_paths, matches
-from ..core.session import SessionState  # small JSON-backed state in .local/sessions/
-from ..core.store import Store
-from ..core.requests import pending_supersede_ids
-from ..core.tree import changed_files, tree_fingerprint  # git-visible files only (§12.2)
-from ..core.trust import execution_permitted  # auto-run consent + repo trust (§12.4)
-
-SUPERSEDE_HINT = ("Fix the regression. If this behavior change is intentional, call "
-                  "request_supersede(invariant_id, reason, replacement_id) and tell the user.")
-
-
-def _pre_tool(**fields: str) -> dict:
-    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", **fields}}
-
-
-def _deny(reason: str) -> dict:
-    return _pre_tool(permissionDecision="deny", permissionDecisionReason=reason)
-
-
-def _context(text: str) -> dict:
-    # No permissionDecision at all: the user's own permission settings still apply (§7.2).
-    return _pre_tool(additionalContext=text)
-
-
-def pre_tool_use(payload: dict, store: Store, cfg: Config) -> dict | None:
-    if cfg.mode == "advisory":
-        return None
-    tool_input = payload.get("tool_input") or {}
-    file_path = tool_input.get("file_path") or tool_input.get("notebook_path")  # NotebookEdit
-    if not file_path:
-        return None
-    rel = to_rel(store.root, file_path)
-    if rel is None:
-        return None
-    # Ledger protection (§7.1 layer 3) is independent of gate_mode.
-    if matches(effective_protected_paths(cfg), rel):
-        return _deny("Direct edits to SeamSpec records, harnesses and runner config are blocked. "
-                     "Use SeamSpec tools (propose_invariant, log_dead_end, request_supersede) "
-                     "or the seamspec CLI.")
-    if cfg.hooks.gate_mode == "off":
-        return None
-
-    cs = constraints_for(store, [rel])
-    if cs.empty:
-        return None
-
-    state = SessionState.load(store, payload["session_id"])
-    key = f"{rel}:{store.revision()}"
-    if key in state.acknowledged:
-        return None
-    state.acknowledged.add(key)
-    state.save()
-    text = f"SeamSpec: {rel} is governed by:\n{cs.render()}"
-    if cfg.hooks.gate_mode == "deny_once" or not (store.root / rel).exists():  # brand-new file
-        return _deny(text + "\nRe-attempt the edit once your change respects these constraints.")
-    return _context(text + "\nMake sure this edit respects the locked rules.")
-
-
-def _block(state: SessionState, cfg: Config, details: str) -> dict:
-    """Block finishing, capped by max_stop_retries so the agent can never be trapped in a Stop loop."""
-    if state.stop_retries >= cfg.verify.max_stop_retries:
-        state.save()
-        return {"systemMessage": f"SeamSpec: still failing after {state.stop_retries} attempts. "
-                                 "Pre-commit and CI will block this change.\n" + details[:500]}
-    state.stop_retries += 1
-    state.save()
-    return {"decision": "block",
-            "reason": f"{details}\nAttempt {state.stop_retries} of {cfg.verify.max_stop_retries}."}
-
-
-def stop(payload: dict, store: Store, cfg: Config) -> dict | None:
-    if cfg.mode == "advisory":
-        return None
-    deadline = time.monotonic() + cfg.verify.stop_deadline_seconds  # below the hook timeout (§16.1)
-    state = SessionState.load(store, payload["session_id"])
-    if not payload.get("stop_hook_active"):
-        state.stop_retries = 0
-
-    if not execution_permitted(store, cfg):
-        return {"systemMessage": "SeamSpec: tests were not run because this clone is not trusted "
-                                 "or auto-run consent is missing. Run `seamspec trust`."}
-
-    journal_problems = unjournaled_changes(store)  # e.g. inv_x set to SUPERSEDED with Bash
-    fingerprint = tree_fingerprint(store.root)
-    if not journal_problems and fingerprint == state.last_green_fingerprint:
-        return None
-
-    locked = [i for i in store.load_all("inv") if i.status == InvStatus.LOCKED]
-    selection = cfg.verify.run_on_stop
-    if selection == "auto":
-        selection = "all" if len(locked) < cfg.verify.stop_all_threshold else "scoped"
-    if selection == "scoped":  # pre-commit and CI still run all
-        changed = changed_files(store.root)
-        locked = [i for i in locked if any(matches(i.scope.paths, f) for f in changed)]
-    report = verifier.run(store.root, cfg, locked, deadline=deadline)
-
-    if report.passed and not journal_problems:
-        state.last_green_fingerprint = fingerprint
-        state.stop_retries = 0
-        state.save()
-        return None
-
-    failing = set(report.failing_ids)
-    other = journal_problems + report.config_failures
-    if report.incomplete and not failing and not other and not cfg.hooks.fail_closed:
-        state.save()
-        return {"systemMessage": "SeamSpec: time ran out before every locked rule was checked. "
-                                 "Pre-commit will run the full set."}
-
-    if failing and failing <= pending_supersede_ids(store) and not other:
-        state.save()
-        return {"systemMessage": "SeamSpec: supersede requested for "
-                                 f"{', '.join(sorted(failing))}. Run `seamspec review` to approve."}
-
-    lines = other + report.integrity_failures + [
-        f"[FAIL] {', '.join(r.failed_ids or r.invariant_ids)} ({r.runner})\n{r.output}"
-        for r in report.results if not r.passed and not r.incomplete
-    ]
-    if report.incomplete:
-        lines.append("[INCOMPLETE] time ran out before every locked rule was checked.")
-    return _block(state, cfg, "SeamSpec: locked invariant check failed.\n"
-                  + "\n".join(lines) + "\n" + SUPERSEDE_HINT)
-
-
-def _on_error(event: str, payload: dict, store: Store | None, cfg: Config | None, exc: Exception) -> dict | None:
-    """Fail open by default. With fail_closed, Stop blocks through the same retry counter
-    (§16.1 step 10). PreToolUse always fails open: it is an early-warning layer, and denying
-    every edit on a broken record would trap the agent. If config itself can't load, we
-    can't know fail_closed, so we fail open; `seamspec doctor --ci` catches a broken config."""
-    msg = f"SeamSpec hook error: {exc}"
-    if event == "stop" and store is not None and cfg is not None and cfg.hooks.fail_closed:
-        state = SessionState.load(store, payload.get("session_id", "unknown"))
-        if not payload.get("stop_hook_active"):
-            state.stop_retries = 0
-        return _block(state, cfg, msg + "\nAsk the user to run `seamspec doctor`.")
-    return {"systemMessage": msg} if event == "stop" else None
-
-
-def main(event: str) -> int:
-    handler = {"pre-tool-use": pre_tool_use, "stop": stop}[event]
-    payload: dict = {}
-    store: Store | None = None
-    cfg: Config | None = None
-    try:  # reading stdin and loading the ledger are inside the handler too
-        payload = json.load(sys.stdin)
-        root = find_root(Path(payload.get("cwd") or "."))
-        store = Store(root)
-        cfg = load_config(root)
-        out = handler(payload, store, cfg)
-    except Exception as exc:
-        print(f"seamspec hook error: {exc}", file=sys.stderr)
-        out = _on_error(event, payload, store, cfg, exc)
-    if out:
-        print(json.dumps(out))
-    return 0  # decisions travel in the JSON, never in the exit code
-```
-
-> [!NOTE]
-> Output fields (`additionalContext` on `PreToolUse`, `decision: "block"` on `Stop`, `systemMessage`) were checked against the Claude Code hook docs on 2026-10-05, but must be re-verified hands-on before each release (§8). If `additionalContext` on `PreToolUse` does not reach the model, the context path moves to `PostToolUse` on `Read` (§7.2).
+- `seamspec hook claude pre-tool-use|stop` reads the payload on stdin and prints the decision JSON, or nothing. **The exit code is always 0**, so a SeamSpec crash can never be read as a block (exit 2). A `cwd` outside any SeamSpec project produces no output.
+- `pre_tool_use`: only `Edit` / `Write` / `MultiEdit` / `NotebookEdit` (path from `file_path` or `notebook_path`, relative paths resolved against `cwd`). The order of checks: ledger protection (`deny`, in every gate mode) → constraints → once per `(file, ledger revision)` per session → `additionalContext` **without** a permission decision, or `deny` once for a brand-new file or `gate_mode = "deny_once"`.
+- `stop`: auto-run consent + trust (`execution_permitted`) → journal check → skip when the tree fingerprint equals the last green one → run LOCKED rules within `verify.stop_deadline_seconds` (and save `last_verify.json`) → green allows; `incomplete` allows with a warning unless `fail_closed`; failures covered by pending supersede requests allow with a message; anything else blocks, up to `max_stop_retries` per user prompt, then allows with a warning.
+- Errors fail open (`systemMessage` on Stop, nothing on PreToolUse). With `fail_closed`, Stop errors block through the same retry cap.
+- `SessionState` (`.seamspec/.local/sessions/<session>.json`) holds the acknowledged context keys, the retry counts per prompt and the last green fingerprint.
+- `tree.tree_fingerprint(root)`: `HEAD` plus the content of every changed or untracked, non-ignored file; `None` outside git, in which case runs are never skipped.
+- Tests: `tests/test_claude_adapter.py` feeds payloads in the documented shape and runs real pytest underneath. It's mutation-checked: returning `allow` with context, or removing the retry cap, fails it.
 
 ### 19.11 `seamspec/mcp_server.py` — implemented (week 3)
 
@@ -2712,7 +2548,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 
 1. Does each target host's MCP client declare elicitation support today? This decides how often `auto` resolves to `ask` *(verify before v0.2)*.
 2. Is 100 the right `stop_all_threshold`? Tune it with Stop-hook timing data from the benchmark (§23).
-3. Edit-time context: does `additionalContext` on `PreToolUse` reach the model, or should it use `PostToolUse` on `Read`? *(hands-on test in week 3)*.
+3. Edit-time context: the hooks reference (checked 2026-10-05) confirms `additionalContext` on `PreToolUse` reaches the model as a system reminder, so `PostToolUse` on `Read` isn't needed. A hands-on check in a real session is still due with the plugin slice (ADR-20261005-5009).
 
 ---
 

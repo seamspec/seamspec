@@ -523,5 +523,24 @@ def mcp_cmd() -> None:
     run()
 
 
+@app.command(hidden=True)
+def hook(
+    host: Annotated[str, typer.Argument(help="Host adapter: claude")],
+    event: Annotated[str, typer.Argument(help="Hook event: pre-tool-use | stop")],
+) -> None:
+    """Internal: host hook entry point. Reads the hook payload on stdin; always exits 0."""
+    if host != "claude":
+        typer.echo(f"seamspec hook: unknown host {host!r} (v0.1 supports claude)", err=True)
+        return
+    from .adapters import claude
+
+    if event not in claude.HANDLERS:
+        typer.echo(f"seamspec hook: unknown event {event!r}", err=True)
+        return
+    out = claude.main(event)
+    if out:
+        typer.echo(out)
+
+
 def main() -> None:
     app()
