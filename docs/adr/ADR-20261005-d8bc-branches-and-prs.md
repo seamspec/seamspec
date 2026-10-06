@@ -14,7 +14,7 @@ superseded_by: null
 ## Context
 Up to week 1, every change was pushed straight to `main`. That means no reviewer ever sees a change before it lands: neither Copilot code review nor an agent review against the spec. CI only reports after the fact. From week 4, SeamSpec's own CI gate must block a regression on a real PR, so the repo needs a PR workflow anyway.
 
-The org is on the free plan, so branch rulesets (required checks, required reviews, automatic Copilot review) aren't enforced on this private repo (GitHub Team is needed). Copilot review still runs through the owner's **personal** automatic review setting, which covers every PR the owner opens, including PRs an agent opens with the owner's `gh` login.
+The org is on the free plan, so branch rulesets (required checks, required reviews, automatic Copilot review) aren't enforced on this private repo (GitHub Team is needed). It was expected that Copilot review would still run through the owner's **personal** automatic review setting. In practice no PR received an automatic request, so the agent requests the review on every PR instead (see ADR-20261005-c076).
 
 ## Decision
 This amends ADR-20261005-ae6e and ADR-20261005-2565; the rest of them stands.

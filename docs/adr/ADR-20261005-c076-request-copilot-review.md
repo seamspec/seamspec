@@ -35,5 +35,5 @@ This amends ADR-20261005-d8bc point 5.
 None (process decision).
 
 ## Consequences
-* Every PR gets an AI review before merge without a paid plan; each one costs a few minutes of waiting.
+* Every PR gets a Copilot review **requested** without a paid plan, and normally receives it before merge. The exception is decision 3: if no review arrives, the owner may merge without one. Each review costs a few minutes of waiting.
 * `CLAUDE.md` and the PR template list the step, so any agent picking up the work follows it.
