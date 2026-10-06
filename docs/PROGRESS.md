@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-05 · **Current:** v0.1 · Week 2 (due 2026-10-18): verifier, lifecycle, review, pre-commit · [Week 2 issue](https://github.com/seamspec/seamspec/issues/2)
+**Last updated:** 2026-10-05 · **Current:** v0.1 · Week 3 (due 2026-10-25): Claude Code plugin, core loop end to end, rough benchmark · [Week 3 issue](https://github.com/seamspec/seamspec/issues/3)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-05 | **Week 3 · hooks** (PR `week-3/hooks`): `seamspec hook claude pre-tool-use|stop` (`adapters/claude.py`, `core/session.py`, `tree_fingerprint`): ledger protection, edit-time context via `additionalContext`, Stop gate with deadline, per-prompt retries, supersede escape and journal check. Aligned with the current Claude Code hooks reference (no `stop_hook_active` any more). 246 tests | ADR-20261005-5009 |
 | 2026-10-05 | The agent requests a Copilot review on every PR and addresses the findings before merge (automatic requests need GitHub Team) | ADR-20261005-c076 |
 | 2026-10-05 | **Week 2 · review** (PR `week-2/review`): `seamspec review` (runner config changes → new dead ends → supersede requests → proposals with full test + red-green), `core/redgreen.py` (HEAD in a temporary git worktree, `.venv`/`node_modules` linked). Fix: approving no longer silently confirms changed runner config. **Completes Week 2.** 216 tests | ADR-20261005-b7e2 |
 | 2026-10-05 | Fixes from hands-on testing: files SeamSpec writes get normal permissions (were owner-only, finding #5); `init` ignores `.seamspec/**/__pycache__/` so bytecode no longer lands in the ledger (finding #6) | #13 |
@@ -26,9 +27,18 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 2 is complete** (`seamspec review` merged in #14). The owner keeps hand-testing Weeks 1–2; Week 3 (Claude Code plugin + rough benchmark) starts when the owner says go.
+- **Week 3**, slice by slice: hooks (PR `week-3/hooks`, in review) → MCP server → plugin + skills (with a hands-on check in a real Claude Code session) → dogfooding → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
 
-## Next (Week 2, issue #2)
+## Next (Week 3, issue #3)
+
+- [x] Stop gate: deadline, retries, supersede escape, journal check (§16.1). In review
+- [x] Edit-time context + ledger protection (§7.2). In review; hands-on check with the plugin slice
+- [ ] MCP server: 5 tools + 2 resources (§14)
+- [ ] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1)
+- [ ] Dogfood: `seamspec init` on this repo; `docs/adr/` → `.seamspec/adrs/`
+- [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR
+
+## Done in Week 2 (issue #2, closed)
 
 - [x] `verifier` for pytest + vitest (§12.2, §19.7). Merged in #9
 - [x] `lifecycle`: propose / approve / reject / supersede, journal, git identity (§11, §19.8). Merged in #10
