@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
 
 from mcp.server.mcpserver import MCPServer
+from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
 from .core import adr, lifecycle, tree, verifier
 from .core.config import Config, ConfigError, load_config
@@ -62,23 +63,47 @@ def _with_services(fn) -> dict[str, Any]:
         return {"error": "invalid", "message": str(exc)}
 
 
+IMPORT_HINTS = {
+    "pytest": "Import project code from the repo root, e.g. `from src.queue import backoff_delay`; "
+    "SeamSpec's own pytest.ini puts the root on sys.path and ignores conftest.py files.",
+    "vitest": "Import project code with paths relative to tests/seamspec/, e.g. `../../src/queue`; "
+    "SeamSpec's own vitest config applies, not the project's setupFiles or aliases.",
+}
+
+
 def _runner_hints(svc: Services, rels: list[str]) -> list[dict[str, str]]:
-    """Which runner to use for these files, and where its tests live (§12A.6)."""
+    """Which runner to use for these files, where its tests live, and how they import the project (§12A.6)."""
     hints = []
     for name, runner in sorted(svc.cfg.runners.items()):
         if not runner.paths or any(matches(runner.paths, r) for r in rels):
-            hints.append({"runner": name, "test_location": runner.harness_path("<id>")})
+            hint = {"runner": name, "test_location": runner.harness_path("<id>")}
+            if name in IMPORT_HINTS:
+                hint["import_hint"] = IMPORT_HINTS[name]
+            hints.append(hint)
     return hints
+
+
+def _adr_summaries(svc: Services, rels: list[str], linked: set[str]) -> list[dict[str, str]]:
+    """Decision records for these files: scoped to them, or linked from a matching rule (§14.1)."""
+    out = []
+    for record in adr.load_all(svc.store):
+        if record.status in ("REJECTED", "SUPERSEDED"):
+            continue
+        if record.id in linked or (record.scopes and any(matches(record.scopes, r) for r in rels)):
+            out.append({"id": record.id, "title": record.title, "status": record.status})
+    return out
 
 
 @mcp.tool()
 def get_constraints(files: list[str]) -> dict[str, Any]:
-    """Locked rules, proposed rules and failed approaches that apply to these files. Call before editing."""
+    """Locked rules, proposed rules, failed approaches and decisions that apply to these files. Call before editing."""
 
     def run(svc: Services) -> dict[str, Any]:
         cs = constraints_for(svc.store, [str(svc.root / f) if not Path(f).is_absolute() else f for f in files])
         out = cs.to_dict()
         out["summary"] = cs.render() or "No SeamSpec rules or dead ends apply to these files."
+        linked = {i.adr_id for i in cs.locked + cs.proposed if i.adr_id}
+        out["adrs"] = _adr_summaries(svc, cs.files, linked)
         out["runners"] = _runner_hints(svc, cs.files)
         return out
 

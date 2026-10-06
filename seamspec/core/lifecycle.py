@@ -16,9 +16,10 @@ import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
 
 from pydantic import ValidationError
+from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
 from . import adr, journal, requests, verifier
 from .config import Config

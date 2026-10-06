@@ -18,12 +18,13 @@ classifiers = [
 dependencies = [
     "filelock>=3.13",
     "jsonschema>=4.21",
-    "mcp>=1.10",
+    "mcp>=2,<3",
     "pathspec>=0.12",
     "pydantic>=2.6",
     "rfc3339-validator>=0.1.4",
     "rich>=13.7",
     "typer>=0.12",
+    "typing-extensions>=4.12",
 ]
 
 [project.urls]

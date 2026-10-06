@@ -71,7 +71,9 @@ def test_get_constraints(project: Path) -> None:
     out = call("get_constraints", {"files": ["src/queue.py"]})
     assert [i["id"] for i in out["locked"]] == [inv_id]
     assert f"[LOCKED] {inv_id}" in out["summary"] and "Previously tried and failed" in out["summary"]
-    assert out["runners"] == [{"runner": "pytest", "test_location": ".seamspec/tests/test_<id>.py"}]
+    assert out["runners"][0]["runner"] == "pytest"
+    assert out["runners"][0]["test_location"] == ".seamspec/tests/test_<id>.py"
+    assert "from src.queue import" in out["runners"][0]["import_hint"]
     assert call("get_constraints", {"files": ["README.md"]})["summary"].startswith("No SeamSpec rules")
 
 
@@ -149,3 +151,14 @@ def test_seamspec_mcp_over_stdio(project: Path) -> None:
 
     names, result = anyio.run(go)
     assert names == TOOLS and not result.is_error
+
+
+def test_get_constraints_includes_decisions(project: Path) -> None:
+    """Copilot on #17: ADR summaries for the files (§14.1): linked from a rule, or scoped to the files."""
+    from seamspec.core import adr as adr_mod
+
+    linked = propose(project, adr_draft={"context": "c", "decision": "Cap at 30s.", "consequences": []})["adr_id"]
+    scoped = adr_mod.create(Store(project), "Queue uses Redis", "c", "d", [], scopes=["src/queue*"]).id
+    elsewhere = adr_mod.create(Store(project), "Auth uses JWT", "c", "d", [], scopes=["src/auth/**"]).id
+    ids = {a["id"] for a in call("get_constraints", {"files": ["src/queue.py"]})["adrs"]}
+    assert linked in ids and scoped in ids and elsewhere not in ids
