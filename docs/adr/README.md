@@ -43,3 +43,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261005-5675](ADR-20261005-5675-claude-code-plugin.md) | Claude Code plugin, verified in real sessions | ACCEPTED |
 | [ADR-20261005-9b8f](ADR-20261005-9b8f-setup-friction-runners-and-clones.md) | Less setup friction: project tools without activation, one question on a fresh clone | ACCEPTED |
 | [ADR-20261005-428a](ADR-20261005-428a-plugin-install-from-init.md) | seamspec init installs the Claude Code plugin at local scope, after asking | ACCEPTED |
+| [ADR-20261006-c300](ADR-20261006-c300-chat-approvals-design.md) | Approvals in chat through an MCP form dialog, with hook guards (design) | PROPOSED |
