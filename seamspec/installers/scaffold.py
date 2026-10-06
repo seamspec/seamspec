@@ -26,7 +26,10 @@ from . import directive, git_hooks
 Mode = Literal["advisory", "enforced", "strict"]
 
 LEDGER_DIRS = ("invariants", "dead_ends", "adrs", "proposed", "retired", ".local")
-GITIGNORE_LINES = (".seamspec/.local/",)
+GITIGNORE_LINES = (
+    ".seamspec/.local/",
+    ".seamspec/**/__pycache__/",  # bytecode from SeamSpec's own pytest runs never belongs in the ledger
+)
 RUNNER_CONFIG_TEMPLATES = {
     ".seamspec/pytest.ini": "pytest.ini",
     ".seamspec/vitest.config.mjs": "vitest.config.mjs",
@@ -95,7 +98,7 @@ def _merge_gitignore(root: Path, report: InitReport) -> None:
         report.add(".gitignore", "unchanged")
         return
     sep = "" if not old or old.endswith("\n") else "\n"
-    block = "\n# SeamSpec machine-local state\n" + "\n".join(missing) + "\n"
+    block = "\n# SeamSpec: machine-local state and caches\n" + "\n".join(missing) + "\n"
     atomic_write(path, old + sep + (block if old else block.lstrip("\n")))
     report.add(".gitignore", "updated" if old else "created")
 
