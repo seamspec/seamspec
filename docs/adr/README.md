@@ -36,4 +36,5 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261005-9c1a](ADR-20261005-9c1a-lifecycle-and-journal.md) | Lifecycle implementation; journal flags moves back to PROPOSED | ACCEPTED |
 | [ADR-20261005-8e80](ADR-20261005-8e80-verify-trust-pre-commit.md) | verify CLI, consent and trust, pre-commit gate | ACCEPTED |
 | [ADR-20261005-3adc](ADR-20261005-3adc-publishing-needs-owner-go.md) | Publishing to PyPI or npm needs the owner's explicit go-ahead | ACCEPTED |
+| [ADR-20261005-b7e2](ADR-20261005-b7e2-review-and-red-green.md) | seamspec review, red-green check, and explicit runner-config confirmation | ACCEPTED |
 | [ADR-20261005-c076](ADR-20261005-c076-request-copilot-review.md) | The agent requests a Copilot review on every PR it opens | ACCEPTED |

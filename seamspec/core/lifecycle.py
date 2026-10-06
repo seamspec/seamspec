@@ -279,8 +279,19 @@ class ApprovalResult:
     report: verifier.VerifyReport
 
 
-def approve(store: Store, cfg: Config, inv_id: str, actor: str | None = None) -> ApprovalResult:
-    """PROPOSED → LOCKED. The caller has shown the human the full harness (§12.4.3 rule 4)."""
+def approve(
+    store: Store,
+    cfg: Config,
+    inv_id: str,
+    actor: str | None = None,
+    confirm_config: dict[str, str] | None = None,
+) -> ApprovalResult:
+    """PROPOSED → LOCKED. The caller has shown the human the full harness (§12.4.3 rule 4).
+
+    Approval writes the runner config fingerprints. If the runner config changed since it was last
+    confirmed, the caller must pass `confirm_config`: the fingerprints of exactly the bytes it showed
+    the human (`review.show_config_changes`). If the files changed again after that, approval is
+    refused, so an unseen version can never be confirmed."""
     require_interactive()
     inv = _get_inv(store, inv_id)
     if inv.status != InvStatus.PROPOSED:
@@ -289,8 +300,17 @@ def approve(store: Store, cfg: Config, inv_id: str, actor: str | None = None) ->
     if runner is None:
         raise ApprovalError(f"{inv_id} uses unknown runner {inv.verification.runner!r}")
 
-    # Fingerprints are checked against what the human saw, but written only on success.
+    changed = verifier.check_fingerprints(store.root, cfg)
     prints = verifier.current_fingerprints(store.root, cfg)
+    if changed:
+        if confirm_config is None:
+            raise ApprovalError(
+                "runner config changed since it was last confirmed:\n  "
+                + "\n  ".join(changed)
+                + "\nReview it first (`seamspec review`), or confirm it when approving."
+            )
+        if prints != confirm_config:
+            raise ApprovalError("runner config changed again after it was shown to you; review it again.")
     proposed = store.root / inv.verification.harness_path
     final_rel = runner.harness_path(inv.id)
     final = store.root / final_rel

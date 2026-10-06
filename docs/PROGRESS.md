@@ -9,7 +9,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 | Date | What | Where |
 |---|---|---|
 | 2026-10-05 | The agent requests a Copilot review on every PR and addresses the findings before merge (automatic requests need GitHub Team) | ADR-20261005-c076 |
-| 2026-10-05 | Fixes from hands-on testing: files SeamSpec writes get normal permissions (were owner-only, finding #5); `init` ignores `.seamspec/**/__pycache__/` so bytecode no longer lands in the ledger (finding #6) | PR `fix/file-modes-pycache` |
+| 2026-10-05 | **Week 2 · review** (PR `week-2/review`): `seamspec review` (runner config changes → new dead ends → supersede requests → proposals with full test + red-green), `core/redgreen.py` (HEAD in a temporary git worktree, `.venv`/`node_modules` linked). Fix: approving no longer silently confirms changed runner config. **Completes Week 2.** 216 tests | ADR-20261005-b7e2 |
+| 2026-10-05 | Fixes from hands-on testing: files SeamSpec writes get normal permissions (were owner-only, finding #5); `init` ignores `.seamspec/**/__pycache__/` so bytecode no longer lands in the ledger (finding #6) | #13 |
 | 2026-10-05 | Publishing gated: nothing goes to PyPI or npm without the owner's explicit go-ahead; no early pre-release | ADR-20261005-3adc |
 | 2026-10-05 | **Week 2 · verify + gate** (PR `week-2/verify-gate`): `core/trust.py` (consent + trust incl. `harness` level), `core/tree.py`, `installers/git_hooks.py`; CLI `verify` (`--all`/`--changed`/`--proposed`/`--gate`/`--ci`/`--json`), `trust`, consent screen in `init` (`--accept-auto-run`). **Week 2 exit criteria pass end to end** with real `git commit` in Python and TypeScript repos. Fix: re-running `init` with consent now leaves advisory mode. 201 tests | ADR-20261005-8e80 |
 | 2026-10-05 | **Week 2 · lifecycle** (PR `week-2/lifecycle`): `core/lifecycle.py` (propose / approve / reject / supersede / retire, `proposed/` → `harness_dir` → `retired/`, git-identity approver), `core/journal.py` (unjournaled-change check against git HEAD), `core/requests.py`, `core/adr.py`, `core/redact.py`; CLI `propose`, `dead-end`, `approve`, `reject`, `supersede` (`--request` for agents), `retire-dead-end`. Fix: the journal now flags `LOCKED → PROPOSED`. 177 tests | ADR-20261005-9c1a |
@@ -25,14 +26,14 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Owner is testing Weeks 1–2 hands-on** (verify, trust, pre-commit merged in #11). The last Week 2 slice, the `seamspec review` TUI with the red-green check, starts when the owner says go.
+- **Week 2 is complete** (`seamspec review` merged in #14). The owner keeps hand-testing Weeks 1–2; Week 3 (Claude Code plugin + rough benchmark) starts when the owner says go.
 
 ## Next (Week 2, issue #2)
 
 - [x] `verifier` for pytest + vitest (§12.2, §19.7). Merged in #9
 - [x] `lifecycle`: propose / approve / reject / supersede, journal, git identity (§11, §19.8). Merged in #10
 - [x] `adr` module. Merged in #10
-- [ ] `review` TUI with harness, red-green info and recent dead ends first (§11.4, §15)
+- [x] `review` with full test, red-green info and recent dead ends first (§11.4, §15). Merged in #14
 - [x] `seamspec verify` CLI (`--all`, `--changed`, `--proposed`, `--gate`, `--ci`, `--json`). Merged in #11
 - [x] Execution consent: `init` consent screen, `seamspec trust` (§12.4). Merged in #11
 - [x] Pre-commit installer; `verify --gate` (§16.4). Merged in #11
@@ -40,7 +41,6 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 ## Open questions (owner's call)
 
 - **Publishing to PyPI / npm:** waits for the owner's explicit go-ahead after thorough testing; no early pre-release (ADR-20261005-3adc). Try it meanwhile with `uv tool install --force --editable <path-to-repo>`.
-- Move the red-green check (SPEC §11.4) from week 2 to week 4? Week 2 is the heaviest week.
 - Before the repo goes public: remove references to the unpublished `Idea.md` from SPEC.md.
 
 ## How to pick up this work

@@ -46,6 +46,7 @@ class RunnerResult:
     timed_out: bool = False
     incomplete: bool = False  # not run, or cut off, because the overall deadline was reached
     failed_ids: list[str] | None = None  # None = not attributed; the whole group counts as failing
+    could_not_run: bool = False  # missing runner executable or unknown runner: no test ran at all
 
 
 @dataclass
@@ -203,7 +204,12 @@ def _invoke(
         )
     except FileNotFoundError:
         return RunnerResult(
-            name, ids, False, f"Runner executable '{argv[0]}' not found. Install it or fix config.toml.", 0.0
+            name,
+            ids,
+            False,
+            f"Runner executable '{argv[0]}' not found. Install it or fix config.toml.",
+            0.0,
+            could_not_run=True,
         )
     try:
         stdout, stderr = proc.communicate(timeout=budget)
@@ -270,7 +276,14 @@ def run(
         runner = cfg.runners.get(name)
         if runner is None:
             report.results.append(
-                RunnerResult(name, [i.id for i in invs], False, f"Unknown runner '{name}' in config.toml", 0.0)
+                RunnerResult(
+                    name,
+                    [i.id for i in invs],
+                    False,
+                    f"Unknown runner '{name}' in config.toml",
+                    0.0,
+                    could_not_run=True,
+                )
             )
             continue
 
