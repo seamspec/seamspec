@@ -197,3 +197,73 @@ def test_cli_approve_asks_about_changed_config(in_repo: Path) -> None:
     assert accepted.exit_code == 0 and Store(in_repo).get(inv_id).status == InvStatus.LOCKED
     prints = json.loads((in_repo / ".seamspec/fingerprints.json").read_text())
     assert prints  # confirmed together with the approval
+
+
+# --- regressions from Copilot's review of #14 -------------------------------------------------------
+
+
+def test_red_green_real_failure_mentioning_not_found_is_yes(git_repo: Path) -> None:
+    """Finding 3: a real assertion failure whose output says "not found" is not "couldn't run"."""
+    (git_repo / "src/queue.py").write_text(JITTER_CODE + "\n\ndef lookup(k):\n    return 'found'\n")
+    code = (
+        "from src import queue\n\n\ndef test_lookup():\n"
+        "    assert getattr(queue, 'lookup', lambda k: 'not found')('x') == 'found'\n"
+    )
+    inv_id = propose(git_repo, code=code, assertion="Lookup finds existing keys.")["id"]
+    assert check(git_repo, inv_id).verdict == "yes"
+
+
+def test_red_green_filesystem_error_is_not_applicable(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finding 4: preparing the HEAD copy can fail (e.g. no symlinks on Windows); review must go on."""
+
+    def boom(*args, **kwargs):
+        raise PermissionError("symlinks not allowed")
+
+    monkeypatch.setattr(redgreen, "_prepare", boom)
+    inv_id = propose(git_repo)["id"]
+    result = check(git_repo, inv_id)
+    assert result.verdict == "n/a" and "couldn't prepare the HEAD copy" in result.detail
+    assert worktrees(git_repo) == 1
+
+
+def test_supersede_requests_oldest_first(in_repo: Path) -> None:
+    """Finding 5: requests are shown by request time, not by (random) id."""
+    store, cfg = Store(in_repo), load_config(in_repo)
+    a, b = sorted((propose(in_repo)["id"], propose(in_repo)["id"]))
+    lifecycle.approve(store, cfg, a)
+    lifecycle.approve(store, cfg, b)
+    requests.save(store, requests.SupersedeRequest(b, "older request", None, "2026-10-01T00:00:00Z"))
+    requests.save(store, requests.SupersedeRequest(a, "newer request", None, "2026-10-02T00:00:00Z"))
+    out = runner.invoke(app, ["review"], input="s\nq\n")
+    assert out.output.index("older request") < out.output.index("newer request")
+
+
+def test_quitting_keeps_unreviewed_dead_ends_new(in_repo: Path) -> None:
+    """Finding 6: `q` must leave the dead ends you didn't reach in the next review."""
+    store, cfg = Store(in_repo), load_config(in_repo)
+    first = lifecycle.log_dead_end(store, cfg, scope_paths=["src/**"], approach="first approach", failure_symptom="x")
+    second = lifecycle.log_dead_end(store, cfg, scope_paths=["src/**"], approach="second approach", failure_symptom="y")
+    order = sorted((store.get(i["id"]) for i in (first, second)), key=lambda d: (d.created_at, d.id))
+    runner.invoke(app, ["review"], input="k\nq\n")  # answer the first, quit on the second
+    again = runner.invoke(app, ["review"], input="k\n")
+    assert order[1].approach in again.output and order[0].approach not in again.output
+
+
+def test_config_changed_while_being_reviewed_is_not_confirmed(in_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Findings 1-2: confirmation is bound to the bytes that were displayed."""
+    from seamspec import review as review_mod
+
+    ini = in_repo / ".seamspec/pytest.ini"
+    ini.write_text(ini.read_text() + "# shown tweak\n")
+    original = review_mod.show_config_changes
+
+    def show_then_tamper(store, cfg):
+        shown = original(store, cfg)
+        ini.write_text(ini.read_text() + "# sneaky edit after display\n")
+        return shown
+
+    monkeypatch.setattr(review_mod, "show_config_changes", show_then_tamper)
+    propose(in_repo)
+    out = runner.invoke(app, ["review"], input="y\nn\na\n")
+    assert "changed again while you were reviewing" in out.output
+    assert "can't approve while runner config changes are unconfirmed" in out.output

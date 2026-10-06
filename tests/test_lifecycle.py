@@ -22,6 +22,11 @@ def human(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", "1")
 
 
+def shown(root: Path) -> dict[str, str]:
+    """Fingerprints of the runner config as a reviewer would be shown it right now."""
+    return verifier.current_fingerprints(root, load_config(root))
+
+
 def propose(root: Path, code: str = PASS, **kw) -> dict:
     fields = dict(
         title="Retry delay is capped",
@@ -135,7 +140,7 @@ def test_failing_test_is_not_approved_and_nothing_changes(py_repo: Path, human: 
     ini.write_text(ini.read_text() + "# reviewed tweak\n")
     store = Store(py_repo)
     with pytest.raises(lifecycle.ApprovalError, match="not passing"):
-        lifecycle.approve(store, load_config(py_repo), out["id"], confirm_config=True)
+        lifecycle.approve(store, load_config(py_repo), out["id"], confirm_config=shown(py_repo))
     assert store.get(out["id"]).status == InvStatus.PROPOSED
     assert (py_repo / out["harness_path"]).is_file()
     assert not (py_repo / f".seamspec/tests/test_{out['id']}.py").exists()
@@ -151,7 +156,11 @@ def test_changed_runner_config_needs_explicit_confirmation(py_repo: Path, human:
     with pytest.raises(lifecycle.ApprovalError, match="runner config changed"):
         lifecycle.approve(Store(py_repo), load_config(py_repo), out["id"])
     assert Store(py_repo).get(out["id"]).status == InvStatus.PROPOSED
-    lifecycle.approve(Store(py_repo), load_config(py_repo), out["id"], confirm_config=True)
+    stale = shown(py_repo)
+    ini.write_text(ini.read_text() + "# changed again after being shown\n")
+    with pytest.raises(lifecycle.ApprovalError, match="changed again after it was shown"):
+        lifecycle.approve(Store(py_repo), load_config(py_repo), out["id"], confirm_config=stale)
+    lifecycle.approve(Store(py_repo), load_config(py_repo), out["id"], confirm_config=shown(py_repo))
     assert verifier.check_fingerprints(py_repo, load_config(py_repo)) == []
 
 

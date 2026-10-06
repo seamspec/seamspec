@@ -294,13 +294,13 @@ def approve(inv_id: Annotated[str, typer.Argument(help="PROPOSED invariant to lo
     _root_dir, cfg, store = _open()
     inv = _get_invariant(store, inv_id)
     _show_invariant(store, inv)
-    confirm_config = False
+    confirm_config: dict[str, str] | None = None
     if verifier.check_fingerprints(store.root, cfg):
         typer.echo("Runner config changed since it was last confirmed (approving also confirms it):")
-        review_mod.show_config_changes(store, cfg)
+        shown = review_mod.show_config_changes(store, cfg)
         if not typer.confirm("Confirm these runner config changes too?", default=False):
             raise _fail("not approved: runner config changes not confirmed (see `seamspec review`)")
-        confirm_config = True
+        confirm_config = shown
     if not typer.confirm(f"Run this test and lock {inv_id}?", default=False):
         raise _fail("not approved", code=1)
     try:

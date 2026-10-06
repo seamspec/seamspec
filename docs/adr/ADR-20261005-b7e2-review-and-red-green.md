@@ -16,12 +16,16 @@ The last Week 2 slice is `seamspec review` with the red-green check (SPEC §11.3
 
 ## Decision
 
-1. **Approving a rule no longer silently confirms changed runner config.** Before, `approve` wrote the current runner config fingerprints on success, so an edited `.seamspec/pytest.ini` was accepted along with any approval, without anyone seeing it. `lifecycle.approve` now refuses on a fingerprint mismatch unless called with `confirm_config=True`. `seamspec review` asks about config changes first (until they're confirmed, approvals are blocked); `seamspec approve` shows the changed files and asks.
+1. **Approving a rule no longer silently confirms changed runner config.** Before, `approve` wrote the current runner config fingerprints on success, so an edited `.seamspec/pytest.ini` was accepted along with any approval, without anyone seeing it. Now a confirmation is **bound to exactly the bytes the human was shown**: `review.show_config_changes()` hashes the files as it displays them, `lifecycle.approve(..., confirm_config=<those hashes>)` refuses if the files changed again after display, and review's own confirmation step checks the same before writing `fingerprints.json`. (The first version took a boolean; Copilot's review of #14 pointed out that a file could change between display and "yes".)
 2. **The red-green check runs only after the reviewer has seen the test and said yes** ("Run it now to check it fails without your change? [Y/n]", default yes). The test is agent-written code, and §12.4.3 rule 4 asks that the human sees it before it runs.
 3. **Red-green mechanics:** run on the working tree first (`n/a` if it fails there), then in a detached `git worktree` of `HEAD`. The worktree gets SeamSpec's *current* `config.toml` and runner config files (so both runs use the same runner, even if `.seamspec/` isn't committed yet) and links to `.venv` / `venv` / `node_modules`. It works when `.seamspec/` is in a subfolder, and the worktree is always removed.
 4. **Review order:** runner config changes, then dead ends recorded since the last review (`.local/review.json`), then supersede requests (approve / decline / skip; declining deletes the request), then proposals oldest first. `q` stops at any point; undecided items stay waiting.
 5. **Prompt-driven, not full-screen.** One-letter answers, re-asked on invalid input. This works in any terminal and in end-to-end tests; a full-screen TUI can come later if reviews get long.
-6. **Lists are ordered by creation time, ties broken by id.** Random ids alone made the order unpredictable, which made one test flaky. The same unpredictability would have confused reviewers.
+6. **Lists are ordered by creation time, ties broken by id:** proposals and dead ends by `created_at`, supersede requests by `requested_at`. Random ids alone made the order unpredictable, which made one test flaky, and it would have confused reviewers.
+7. **Quitting never loses dead ends.** The "new since last review" cursor is the review's *start* time; if you quit inside the dead-end list, it only advances past the ones you answered.
+8. **Red-green decides "couldn't run" from a structured flag** (`RunnerResult.could_not_run`), not by searching test output (an assertion mentioning "not found" was misread), and reports filesystem errors in the HEAD copy as `n/a` instead of aborting the review.
+
+Items 1 (binding), 6 (requests), 7 and 8 came from Copilot's review of PR #14; each has a regression test.
 
 **Alternatives considered:**
 - *Keep silent config confirmation on approve:* rejected; it let a changed runner config through without anyone seeing it.

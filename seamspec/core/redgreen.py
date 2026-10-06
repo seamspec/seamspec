@@ -50,7 +50,7 @@ def _ran_tests(report: verifier.VerifyReport) -> bool:
     """False when the run couldn't really happen (deadline, missing runner, config mismatch)."""
     if report.config_failures or report.integrity_failures or report.incomplete:
         return False
-    return not any("not found" in r.output and not r.passed for r in report.results)
+    return not any(r.could_not_run for r in report.results)
 
 
 def check(store: Store, cfg: Config, inv: Invariant) -> RedGreen:
@@ -83,13 +83,19 @@ def check(store: Store, cfg: Config, inv: Invariant) -> RedGreen:
         if added is None or added.returncode != 0:
             return RedGreen("n/a", "couldn't create a temporary worktree of HEAD")
         wt_root = wt / prefix.stdout.strip()
-        wt_root.mkdir(parents=True, exist_ok=True)
-        _prepare(root, wt_root, cfg, inv)
+        try:
+            wt_root.mkdir(parents=True, exist_ok=True)
+            _prepare(root, wt_root, cfg, inv)
+        except OSError as exc:  # e.g. symlinks not allowed (Windows), permissions
+            return RedGreen("n/a", f"couldn't prepare the HEAD copy: {exc}")
         runner = cfg.runners[inv.verification.runner]
         staged_head = inv.model_copy(
             update={"verification": inv.verification.model_copy(update={"harness_path": runner.harness_path(inv.id)})}
         )
-        before = verifier.run(wt_root, cfg, [staged_head], fingerprints=prints)
+        try:
+            before = verifier.run(wt_root, cfg, [staged_head], fingerprints=prints)
+        except OSError as exc:
+            return RedGreen("n/a", f"couldn't run the test against HEAD: {exc}")
     finally:
         _git(root, "worktree", "remove", "--force", str(wt))
         shutil.rmtree(tmp, ignore_errors=True)

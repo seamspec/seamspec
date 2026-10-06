@@ -15,6 +15,7 @@ import typer
 
 from .core import lifecycle, redgreen, requests, verifier
 from .core.config import Config
+from .core.hashing import sha256_bytes
 from .core.models import DeadEnd, Invariant, InvStatus, utcnow
 from .core.store import Store, atomic_write
 
@@ -60,17 +61,24 @@ def show_invariant(store: Store, inv: Invariant) -> None:
         typer.echo("  " + "-" * 60)
 
 
-def show_config_changes(store: Store, cfg: Config) -> list[str]:
-    """Print changed runner config files in full; returns the problems (empty = nothing changed)."""
-    problems = verifier.check_fingerprints(store.root, cfg)
-    for problem in problems:
-        rel = problem.split(":", 1)[0]
-        typer.echo(f"  {problem}")
-        path = store.root / rel
-        if path.is_file():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                typer.echo(f"    | {line}")
-    return problems
+def show_config_changes(store: Store, cfg: Config) -> dict[str, str]:
+    """Print changed runner config files in full. Returns the fingerprints of exactly the bytes
+    that were read for display, so a confirmation can be bound to what the human saw."""
+    confirmed = verifier.read_fingerprints(store.root)
+    shown: dict[str, str] = {}
+    for runner in cfg.runners.values():
+        for rel in runner.config_files:
+            path = store.root / rel
+            if not path.is_file():
+                typer.echo(f"  {rel}: runner config file is missing")
+                continue
+            data = path.read_bytes()
+            shown[rel] = sha256_bytes(data)
+            if shown[rel] != confirmed.get(rel):
+                typer.echo(f"  {rel}: changed since it was last confirmed")
+                for line in data.decode("utf-8", errors="replace").splitlines():
+                    typer.echo(f"    | {line}")
+    return shown
 
 
 def _last_review(store: Store) -> datetime | None:
@@ -81,8 +89,9 @@ def _last_review(store: Store) -> datetime | None:
         return None
 
 
-def _save_review(store: Store) -> None:
-    atomic_write(store.local / STATE, json.dumps({"last_review_at": utcnow().isoformat()}) + "\n")
+def _save_review(store: Store, cursor: datetime) -> None:
+    """`cursor`: dead ends created after it count as new next time."""
+    atomic_write(store.local / STATE, json.dumps({"last_review_at": cursor.isoformat()}) + "\n")
 
 
 def pending(store: Store) -> tuple[list[DeadEnd], list[requests.SupersedeRequest], list[Invariant]]:
@@ -96,7 +105,10 @@ def pending(store: Store) -> tuple[list[DeadEnd], list[requests.SupersedeRequest
         key=lambda d: (d.created_at, d.id),  # oldest first, like proposals
     )
     live = requests.pending_supersede_ids(store)
-    reqs = [r for r in requests.load_all(store) if r.invariant_id in live]
+    reqs = sorted(
+        (r for r in requests.load_all(store) if r.invariant_id in live),
+        key=lambda r: (r.requested_at, r.invariant_id),  # oldest first, like everything else
+    )
     proposals = sorted(
         (i for i in store.load_all("inv") if isinstance(i, Invariant) and i.status == InvStatus.PROPOSED),
         key=lambda i: (i.created_at, i.id),
@@ -106,40 +118,49 @@ def pending(store: Store) -> tuple[list[DeadEnd], list[requests.SupersedeRequest
 
 def run(store: Store, cfg: Config) -> Tally:
     tally = Tally()
+    started = utcnow()  # dead ends created while reviewing still count as new next time
+    previous = _last_review(store)
     dead_ends, reqs, proposals = pending(store)
     config_changed = bool(verifier.check_fingerprints(store.root, cfg))
     if not (config_changed or dead_ends or reqs or proposals):
         typer.echo("Nothing to review.")
-        _save_review(store)
+        _save_review(store, started)
         return tally
     typer.echo(
         f"To review: {len(proposals)} proposed rule(s), {len(reqs)} supersede request(s), "
         f"{len(dead_ends)} new dead end(s)" + (", runner config changes" if config_changed else "") + "."
     )
+    seen: list[DeadEnd] = []  # dead ends actually shown and answered
+    cursor = started
     try:
         config_ok = _review_config(store, cfg) if config_changed else True
-        _review_dead_ends(store, dead_ends, tally)
+        _review_dead_ends(store, dead_ends, tally, seen)
         _review_requests(store, cfg, reqs, tally)
         _review_proposals(store, cfg, proposals, config_ok, tally)
     except Quit:
         typer.echo("Stopped. Anything not decided stays waiting.")
-    _save_review(store)
+        if len(seen) < len(dead_ends):  # quit inside the dead-end list: keep the rest "new"
+            cursor = seen[-1].created_at if seen else (previous or datetime.min.replace(tzinfo=started.tzinfo))
+    _save_review(store, cursor)
     _summary(tally)
     return tally
 
 
 def _review_config(store: Store, cfg: Config) -> bool:
     typer.echo("\n== Runner config changes (these control how every locked test runs)")
-    show_config_changes(store, cfg)
+    shown = show_config_changes(store, cfg)
     if typer.confirm("Confirm these runner config changes?", default=False):
-        verifier.confirm_fingerprints(store.root, verifier.current_fingerprints(store.root, cfg))
+        if verifier.current_fingerprints(store.root, cfg) != shown:
+            typer.echo("  the files changed again while you were reviewing them: not confirmed. Run review again.")
+            return False
+        verifier.confirm_fingerprints(store.root, shown)
         typer.echo("  confirmed.")
         return True
     typer.echo("  not confirmed: approvals are blocked, and every locked rule fails verification until you do.")
     return False
 
 
-def _review_dead_ends(store: Store, dead_ends: list[DeadEnd], tally: Tally) -> None:
+def _review_dead_ends(store: Store, dead_ends: list[DeadEnd], tally: Tally, seen: list[DeadEnd]) -> None:
     if dead_ends:
         typer.echo("\n== Dead ends recorded since your last review (they steer the agent; retire wrong ones)")
     for de in dead_ends:
@@ -150,6 +171,7 @@ def _review_dead_ends(store: Store, dead_ends: list[DeadEnd], tally: Tally) -> N
             reason = typer.prompt("  Why is it wrong?", default="marked wrong in review")
             lifecycle.retire_dead_end(store, de.id, reason)
             tally.retired.append(de.id)
+        seen.append(de)
 
 
 def _review_requests(store: Store, cfg: Config, reqs: list[requests.SupersedeRequest], tally: Tally) -> None:
