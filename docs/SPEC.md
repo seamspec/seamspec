@@ -783,10 +783,13 @@ Dead ends skip approval, but they still steer the agent, so a wrong one could ke
 
 An agent grading its own work is the core weakness of agent-written tests, and rubber-stamping in review is the biggest risk after test quality. So `seamspec review` shows, for each proposal, whether its test **fails without the change**:
 
-- SeamSpec runs the proposed harness against `HEAD` in a temporary `git worktree` (with the project's `.venv` / `node_modules` linked in, since a fresh worktree has neither), then against the working tree.
-- Review shows `fails without your change: yes | no | n/a` (n/a when the behavior already existed at `HEAD`, or the check couldn't run).
-- It is **information, not a gate.** Characterization tests that lock behavior which already existed *should* pass on `HEAD`. A "no" on a brand-new feature is a strong hint the test checks nothing.
-- It runs only as part of `review`, which is already a consented path (§12.4.2). v0.1 supports pytest and vitest.
+- **When:** only inside `seamspec review`, which is already a consented path (§12.4.2), and only **after** the reviewer has seen the full test and answered *"Run it now to check it fails without your change? [Y/n]"* (ADR-20261005-b7e2).
+- **How:** the proposed test runs on the **working tree first**, then against **`HEAD`** in a temporary detached `git worktree`. That worktree gets SeamSpec's *current* `config.toml` and runner config files (so both runs use the same runner) and links to the project's `.venv` / `venv` / `node_modules`, since a fresh worktree has none. It works when `.seamspec/` sits in a subfolder of the git repo, and the worktree is always removed.
+- **Result:** `fails without your change: yes | no | n/a`, with one line of explanation:
+  - `yes`: passes on the working tree and fails on `HEAD`.
+  - `no`: passes on both. That's fine for a characterization test of behavior that already existed; on a brand-new feature it's a strong hint the test checks nothing.
+  - `n/a`: the check couldn't give an answer: the test fails on the working tree (approval would be refused anyway), there's no git repo or no commit yet, the runner is missing, or the HEAD copy couldn't be prepared.
+- It is **information, not a gate.** v0.1 supports pytest and vitest.
 
 ---
 
@@ -811,7 +814,7 @@ An agent grading its own work is the core weakness of agent-written tests, and r
 | Timeouts | Per runner invocation; timeout = failure with clear message |
 | Missing runner binary | Failure with actionable message (`pytest not found; install or fix config`) |
 | Integrity | Before running, compare `harness_sha256` and `assertion_sha256` of each `LOCKED` invariant; mismatch = **integrity failure** |
-| Runner config fingerprints | Each runner's `config_files` (e.g. `.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) are hashed into `.seamspec/fingerprints.json` (committed) by `seamspec init` (for the files it writes, when no fingerprints exist yet) and whenever a human approves or runs `seamspec review` (ADR-20261005-4b1e). A missing config file is also a failure. A mismatch is an **integrity failure**, treated like a test change: shown in review, failed in CI. Runners are invoked with SeamSpec's own config so project-level test config (root `conftest.py`, `addopts`, `setupFiles`, `moduleNameMapper`) can't swap real code for stubs (§12.3) |
+| Runner config fingerprints | Each runner's `config_files` (e.g. `.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) are hashed into `.seamspec/fingerprints.json` (committed) by `seamspec init` (for the files it writes, when no fingerprints exist yet) and whenever a human confirms them in `seamspec review` or explicitly while approving (ADR-20261005-4b1e, ADR-20261005-b7e2). Approving a rule never confirms changed runner config silently. A missing config file is also a failure. A mismatch is an **integrity failure**, treated like a test change: shown in review, failed in CI. Runners are invoked with SeamSpec's own config so project-level test config (root `conftest.py`, `addopts`, `setupFiles`, `moduleNameMapper`) can't swap real code for stubs (§12.3) |
 | Empty or skipped tests | A harness **passes only if it ran ≥ 1 test and passed ≥ 1**. Zero tests collected, all tests skipped, or a Go package with "no test files" = **failure** (read from the JUnit / `go test -json` counts) |
 | Output | Head (1,000 chars) + tail (3,000 chars) kept; tail usually contains the failure |
 | Caching | Results + tree fingerprint saved to `.local/last_verify.json`; Stop hook skips re-running if the tree is unchanged since the last green run. The fingerprint covers **git-visible files only** (tracked + untracked-not-ignored), so caches and reports the tests write don't invalidate it |
@@ -1299,8 +1302,8 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec init [--mode advisory\|enforced\|strict] [--hosts auto\|claude,vscode,cursor] [--ci\|--no-ci] [--accept-auto-run]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install, pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
 | `seamspec status [--json]` | Counts by status, pending reviews, new braindump notes, last verify result, detected host tiers |
 | `seamspec context <files...>` | Human/agent-readable constraints for files (MCP-free fallback) |
-| `seamspec review` | Interactive batch review: proposed invariants (each with its **red-green result**, §11.4), decisions, supersede requests, runner config changes, recent dead ends first. Each proposal's full test code is shown **before** the approve prompt (§12.4.3). Keys: `a`pprove `r`eject `s`kip `q`uit. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"* |
-| `seamspec approve <id>` / `reject <id> --reason [--dead-end]` | Non-batch equivalents (TTY required for approve) |
+| `seamspec review` | Interactive pass over everything waiting for a human, in this order (ADR-20261005-b7e2): **runner config changes** (shown in full; until confirmed, approvals are blocked), **dead ends recorded since the last review** (`k`eep / `w`rong, retire it), **supersede requests** (`a`pprove / `d`ecline / `s`kip), **proposed invariants** oldest first: full test code, then the optional red-green check (§11.4), then `a`pprove / `r`eject / `s`kip. `q` stops at any point; undecided items stay waiting. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"*. Proposed ADRs without invariants arrive with `propose_decision` in v0.2 |
+| `seamspec approve <id>` / `reject <id> --reason [--dead-end]` | Non-batch equivalents (human only). `approve` shows the full test; if runner config changed, it shows the changed files and asks to confirm them too, otherwise it refuses (ADR-20261005-b7e2) |
 | `seamspec supersede <id> --reason [--replacement <id>]` | Human-initiated supersede, or approve a pending request |
 | `seamspec retire-dead-end <id> --reason` | Retire a dead end |
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
@@ -2088,6 +2091,7 @@ Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`
 - **Attribution** (`reports.junit`, `reports.go_test_json`): each returns `(failed, empty)`. `empty` = harnesses that passed no test (nothing collected, every test skipped, or absent from the report), and **empty counts as a failure**. If no report is usable and the group failed, harnesses are rerun one at a time (up to `isolate_on_failure`, within the deadline).
 - **Environment:** `build_env()` keeps only `BASE_ENV_KEYS`, `LC_*` and `execution.env_passthrough`, and adds **nothing**: no "under verification" flag.
 - **Fingerprints:** `current_fingerprints()` / `read_fingerprints()` / `check_fingerprints(confirmed=None)`. A missing runner config file is a failure. `approve` passes the hashes it is confirming (§19.8).
+- `RunnerResult.could_not_run` marks results where no test ran at all (missing runner executable, unknown runner), so callers never have to parse output.
 - `save_last(root, report)` writes `.seamspec/.local/last_verify.json` (`at`, `passed`, `failing_ids`, `incomplete`, results) for `status` and the Stop hook.
 - Tested against **real pytest and vitest runs** (`tests/test_verifier.py`, `tests/test_verifier_vitest.py`): attribution, collection errors, empty and all-skipped harnesses, planted conftests, project `setupFiles`, scrubbed env, process-group kill, deadline, isolated reruns (ADR-20261005-4b1e).
 
@@ -2117,6 +2121,14 @@ Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`
 - `tree.changed_files(root)`: changed vs `HEAD` (staged and unstaged) plus untracked, non-ignored files, relative to the SeamSpec root; `None` outside git, in which case `--changed` runs everything.
 - `git_hooks.install_pre_commit(root)` → `created | updated | unchanged | manual | skipped`, per §16.4.
 - **Tested end to end with real `git commit` and the installed hook** (`tests/test_trust_gate.py`, `tests/test_verifier_vitest.py`): a regression is blocked with the rule named in pytest and vitest repos, a silent retirement is blocked, and an untrusted clone runs nothing.
+
+### 19.8b `seamspec/core/redgreen.py`, `seamspec/review.py` — implemented (week 2)
+
+[`redgreen.py`](../seamspec/core/redgreen.py), [`review.py`](../seamspec/review.py)
+
+- `redgreen.check(store, cfg, inv) -> RedGreen(verdict: "yes" | "no" | "n/a", detail)`, per §11.4. It never writes to the ledger; the proposed test is placed temporarily and removed. "Couldn't run" is decided by `RunnerResult.could_not_run` (missing runner executable or unknown runner), never by matching test output; filesystem errors while preparing the `HEAD` copy give `n/a`.
+- `review.run(store, cfg)`: the flow in §15. It is prompt-driven (one-letter answers, re-asked on anything else) rather than a full-screen TUI, so it works in any terminal and can be tested end to end. Items appear oldest first (proposals and dead ends by `created_at`, supersede requests by `requested_at`; ties broken by id). It records `.seamspec/.local/review.json` (`last_review_at`), which decides which dead ends count as new. The cursor is the time the review **started**, so dead ends created during the review stay new. If you quit part-way through the dead-end list, it only advances past the ones you actually answered.
+- `lifecycle.approve(..., confirm_config=None)` refuses when runner config fingerprints don't match. To confirm, a caller passes the fingerprints of **exactly the bytes it showed the human** (`review.show_config_changes()` returns them); if the files changed again after display, approval is refused. `review`'s own confirmation step applies the same check before writing `fingerprints.json`.
 
 ### 19.9 `seamspec/core/braindump.py`
 
@@ -2543,6 +2555,7 @@ seamspec/
 ├── seamspec/
 │   ├── __init__.py
 │   ├── cli.py                      # typer app: init, status, context, review, verify, doctor, mcp, hook, trust (drain, commands: v0.2)
+│   ├── review.py                   # `seamspec review` flow (§15)
 │   ├── mcp_server.py               # thin FastMCP wrapper
 │   ├── services.py                 # wires core components for CLI/MCP/adapters
 │   ├── schemas/v1/
@@ -2618,6 +2631,7 @@ seamspec/
     ├── test_journal_adr.py         # journal vs real git history; ADR files
     ├── test_cli_lifecycle.py
     ├── test_trust_gate.py          # consent, trust, verify CLI, pre-commit end to end with real git
+    ├── test_review.py              # review flow via the CLI; red-green against real git worktrees
     ├── fixtures/ts_repo/           # pinned vitest install: npm ci --prefix tests/fixtures/ts_repo
     ├── test_braindump.py           # v0.2
     ├── test_claude_adapter.py      # feed recorded hook payloads, assert outputs
