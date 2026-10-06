@@ -29,7 +29,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 3**, slice by slice: hooks (#16) → MCP server (#17) → plugin + skills (PR `week-3/plugin`, in review; verified in real sessions) → plugin + skills (with a hands-on check in a real Claude Code session) → dogfooding → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
+- **Week 3**, slice by slice: hooks (#16) → MCP server (#17) → plugin + skills (PR `week-3/plugin`, in review; verified in real sessions) → dogfooding → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
 
 ## Next (Week 3, issue #3)
 

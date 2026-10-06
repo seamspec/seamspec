@@ -75,7 +75,11 @@ def test_mcp_wrapper_explains_a_missing_cli(tmp_path: Path) -> None:
         ["/bin/sh", str(PLUGIN / "scripts/seamspec-mcp")],
         capture_output=True, text=True, env={"PATH": _path_without_seamspec(tmp_path)},
     )  # fmt: skip
-    assert result.returncode == 1 and "uv tool install seamspec" in result.stderr
+    assert (
+        result.returncode == 1
+        and "uv tool install --force --editable" in result.stderr
+        and "uv tool install seamspec" in result.stderr
+    )
 
 
 @pytest.mark.skipif(shutil.which("claude") is None, reason="Claude Code CLI not installed")

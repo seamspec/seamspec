@@ -443,7 +443,7 @@ mode = "enforced"              # advisory | enforced | strict
 
 [verify]
 timeout_seconds = 120          # per runner invocation, never longer than the time left in the deadline
-stop_deadline_seconds = 240    # ONE overall budget for a Stop/gate run (groups + isolated reruns); must be < the hook timeout
+stop_deadline_seconds = 240    # ONE overall budget for a Stop/gate run (groups + isolated reruns); max 270, below the 300 s Stop hook timeout (ADR-20261005-5675)
 max_output_chars = 4000        # truncated output fed back to the agent
 max_stop_retries = 3           # self-healing ceiling (K); also applies to the error path (§16.1)
 run_on_stop = "auto"           # auto | all | scoped (only invariants matching changed files)
@@ -1362,7 +1362,7 @@ The signature commands are **`/seamspec:lock`** and **`/seamspec:checkpoint`**: 
 
 ### 15A.3 Canonical Templates
 
-Templates live in `seamspec/templates/commands/<name>.md`. Frontmatter is SeamSpec's own format; the renderer translates it per host (§15A.4).
+Templates live in `seamspec/templates/commands/<name>.md`. **In v0.1 the frontmatter is Claude Code's own** (`name`, `description`, `argument-hint`) and is passed through unchanged; host-neutral frontmatter with per-host translation arrives with the Cursor and Copilot renderers in v0.2 (ADR-20261005-5675). The renderer replaces `{{args}}`, adds a generated-file header and appends the footer.
 
 **Template placeholders:**
 
@@ -1729,7 +1729,9 @@ exec seamspec "$@"
 #!/bin/sh
 # Explain a missing CLI instead of failing silently.
 if ! command -v seamspec >/dev/null 2>&1; then
-  echo "SeamSpec CLI not found on PATH. Install it with: uv tool install seamspec" >&2
+  echo "SeamSpec CLI not found on PATH. Before the release, install your checkout:" >&2
+  echo "  uv tool install --force --editable <path-to-seamspec-repo>" >&2
+  echo "After the release: uv tool install seamspec" >&2
   exit 1
 fi
 exec seamspec mcp "$@"
@@ -2135,6 +2137,14 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - `redgreen.check(store, cfg, inv) -> RedGreen(verdict: "yes" | "no" | "n/a", detail)`, per §11.4. It never writes to the ledger; the proposed test is placed temporarily and removed. "Couldn't run" is decided by `RunnerResult.could_not_run` (missing runner executable or unknown runner), never by matching test output; filesystem errors while preparing the `HEAD` copy give `n/a`.
 - `review.run(store, cfg)`: the flow in §15. It is prompt-driven (one-letter answers, re-asked on anything else) rather than a full-screen TUI, so it works in any terminal and can be tested end to end. Items appear oldest first (proposals and dead ends by `created_at`, supersede requests by `requested_at`; ties broken by id). It records `.seamspec/.local/review.json` (`last_review_at`), which decides which dead ends count as new. The cursor is the time the review **started**, so dead ends created during the review stay new. If you quit part-way through the dead-end list, it only advances past the ones you actually answered.
 - `lifecycle.approve(..., confirm_config=None)` refuses when runner config fingerprints don't match. To confirm, a caller passes the fingerprints of **exactly the bytes it showed the human** (`review.show_config_changes()` returns them); if the files changed again after display, approval is refused. `review`'s own confirmation step applies the same check before writing `fingerprints.json`.
+
+### 19.8c `seamspec/core/commands.py` — implemented (week 3)
+
+[`commands.py`](../seamspec/core/commands.py)
+
+- `V01_COMMANDS = ("lock", "dead-end")`. The other workflow commands (§15A.2) arrive in week 4 (`supersede`, `checkpoint`, `context`, `status`) and v0.2 (`drain`).
+- `render(name, host="claude")` returns the full `SKILL.md`: the template's frontmatter (Claude Code keys in v0.1), a generated-file header, the body with `{{args}}` → `$ARGUMENTS`, and the shared `_footer.md`. Other hosts raise until v0.2.
+- `write_plugin_skills(plugin_dir)` writes `skills/<name>/SKILL.md`; `uv run python -m seamspec.core.commands` regenerates the committed plugin skills. `tests/test_plugin.py` fails if they drift from the templates.
 
 ### 19.9 `seamspec/core/braindump.py`
 

@@ -96,3 +96,24 @@ def test_generated_config_validates_against_json_schema() -> None:
     assert validation_errors("config", data) == []
     assert validation_errors("config", {"bogus": 1})
     assert Config.model_validate(data).runners["pytest"].report == "junit"
+
+
+def test_stop_deadline_must_stay_below_the_hook_timeout() -> None:
+    """Copilot on #18: a deadline at or above the 300 s hook timeout would let Claude Code kill the hook
+    and discard its decision, a silent fail-open."""
+    from seamspec.core.config import HOOK_TIMEOUT_SECONDS, MAX_STOP_DEADLINE
+
+    assert MAX_STOP_DEADLINE < HOOK_TIMEOUT_SECONDS
+    assert parse_config(f"[verify]\nstop_deadline_seconds = {MAX_STOP_DEADLINE}\n").verify.stop_deadline_seconds == 270
+    with pytest.raises(ConfigError, match="stop_deadline_seconds"):
+        parse_config("[verify]\nstop_deadline_seconds = 300\n")
+
+
+def test_plugin_stop_timeout_matches_the_config_cap() -> None:
+    import json
+    from pathlib import Path
+
+    from seamspec.core.config import HOOK_TIMEOUT_SECONDS
+
+    hooks = json.loads((Path(__file__).resolve().parents[1] / "seamspec-plugin/hooks/hooks.json").read_text())
+    assert hooks["hooks"]["Stop"][0]["hooks"][0]["timeout"] == HOOK_TIMEOUT_SECONDS

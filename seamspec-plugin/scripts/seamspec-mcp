@@ -1,7 +1,9 @@
 #!/bin/sh
 # SeamSpec MCP wrapper (SPEC §16.1): explain a missing CLI instead of failing silently.
 if ! command -v seamspec >/dev/null 2>&1; then
-  echo "SeamSpec CLI not found on PATH. Install it with: uv tool install seamspec" >&2
+  echo "SeamSpec CLI not found on PATH. Before the release, install your checkout:" >&2
+  echo "  uv tool install --force --editable <path-to-seamspec-repo>" >&2
+  echo "After the release: uv tool install seamspec" >&2
   exit 1
 fi
 exec seamspec mcp "$@"

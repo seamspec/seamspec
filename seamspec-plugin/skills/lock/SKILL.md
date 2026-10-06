@@ -12,11 +12,14 @@ Protect this behavior as a SeamSpec invariant: $ARGUMENTS
 2. Write ONE focused, behavior-level test: inputs → outputs, or a property over a range.
    Do not test private helpers or internal structure. Use the runner, test location and
    import style that `get_constraints` returns under `runners`.
-3. Call `propose_invariant` with:
-   - a precise one-sentence `assertion`
-   - the narrowest `scope_paths` globs that cover the behavior
-   - `origin_text` = the user's original request for this behavior, quoted
-   - `adr` (`context`, `decision`, `consequences`) if a design choice was made
+3. Call `propose_invariant` with every required field:
+   - `title`: a short name for the rule
+   - `assertion`: the rule as one precise sentence
+   - `scope_paths`: the narrowest globs that cover the behavior
+   - `runner`: the runner `get_constraints` suggests (e.g. `pytest`)
+   - `harness_code`: the full test file you wrote in step 2
+   - `origin_text`: the user's original request for this behavior, quoted
+   - optionally `adr` (`context`, `decision`, `consequences`) if a design choice was made
 4. `propose_invariant` does not run the test. Run it with your shell tool:
    `seamspec verify --proposed <id>` (the user may be asked to allow this).
 5. If the test fails: fix the test only if the test is wrong; if the code is wrong, report

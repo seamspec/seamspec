@@ -20,7 +20,13 @@ Week 3's third slice packages the hooks (#16) and the MCP server (#17) as a Clau
 2. **Wrappers go in `scripts/`, not `bin/`.** Per the plugin reference, a plugin's `bin/` is added to the agent's Bash `PATH`, and plugins containing `bin/` aren't installed on claude.ai or Cowork.
 3. **The MCP server gets `SEAMSPEC_ROOT=${CLAUDE_PROJECT_DIR}`,** so it resolves the project even though plugin MCP servers don't receive `CLAUDE_PROJECT_DIR` in their environment.
 4. **Skills are generated from `seamspec/templates/commands/`** by `python -m seamspec.core.commands`; a test fails if the committed `SKILL.md` drifts from its template. The skill text tells the agent to use the runner hints from `get_constraints` (no `{{runners}}` placeholder: the plugin is project-independent).
-5. **Until release, try it with `claude --plugin-dir <repo>/seamspec-plugin`.** Marketplace install and an `init` hint come with weeks 4–6 (publishing stays gated, ADR-20261005-3adc).
+5. **`verify.stop_deadline_seconds` is capped at 270** (`le=` in the config model, plus a clamp in the hook). The plugin's Stop hook timeout is 300 s, and a hook that Claude Code kills has its decision discarded, which would silently let the agent stop. A test ties the cap to the timeout in `hooks.json`.
+6. **v0.1 command templates use Claude Code's frontmatter directly** (`name`, `description`, `argument-hint`). Host-neutral frontmatter with per-host translation (§15A.3) waits for the v0.2 Cursor and Copilot renderers.
+7. **The `/seamspec:lock` skill lists every required `propose_invariant` field** (`title`, `assertion`, `scope_paths`, `runner`, `harness_code`, `origin_text`).
+8. **The MCP wrapper's missing-CLI message points to the checkout install** before the release, and to `uv tool install seamspec` after it (publishing is gated).
+9. **Until release, try it with `claude --plugin-dir <repo>/seamspec-plugin`.** Marketplace install and an `init` hint come with weeks 4–6 (publishing stays gated, ADR-20261005-3adc).
+
+Decisions 5–8 came from Copilot's review of PR #18.
 
 ## Hands-on results (claude 2.1.278, Haiku 4.5, `claude -p`, throwaway repo with one LOCKED rule "retry delay never exceeds 30 seconds")
 
