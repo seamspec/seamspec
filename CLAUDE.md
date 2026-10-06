@@ -17,6 +17,7 @@ SeamSpec is an open-source governance layer for AI coding agents: when something
 - **Log progress in the PR:** update `docs/PROGRESS.md` in the same PR as the code; tick the week's issue checklist once the PR is merged.
 - **Clean room:** never read, copy or look at competitors' code. Public descriptions (READMEs, websites, docs) may inform positioning only.
 - **Model-free core:** SeamSpec itself never calls an LLM (SPEC §3).
+- **Never publish** to PyPI or npm (`uv publish`, `twine upload`, `npm publish`, version bumps meant for release) without the owner's explicit go-ahead for that specific release (ADR-20261005-3adc). To try SeamSpec, install the checkout: `uv tool install --force --editable .`
 - `notes/` is git-ignored private material. Nothing in it is needed to continue the build.
 
 ## Tech

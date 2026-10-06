@@ -2640,12 +2640,15 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 | **3** | **Claude Code plugin**: Stop gate (deadline, retries, supersede escape, journal check), edit-time context, ledger protection, MCP server (5 tools, 2 resources), skills `/seamspec:lock` and `/seamspec:dead-end`; hands-on check of hook outputs (§16.1). **Rough benchmark A/B/C/D** on 2–3 tasks (§23) | Core loop works end to end in Claude Code on the sample repo; first A/B/C/D numbers and the kill/pivot check (§4.4) |
 | **4** | CI workflow, installed by `init` in enforced (offered) and strict (always) mode (§7.3) (`doctor --ci` forward-only checks, `verify --all --ci`, **retirement summary**); `doctor`; remaining skills (`supersede`, `checkpoint`, `context`, `status`); `--mode` handling; **dogfood** on SeamSpec itself and real projects | CI blocks a regression and lists retirements on a test PR; `doctor` is clean on the fixtures |
 | **5** | Benchmark proper (§23); README with Python and TypeScript quickstarts; docs site; MCP token-budget check in CI | Benchmark reproducible from published scripts |
-| **6** | 45–60s demo recording; technical write-up; launch | Public repo; PyPI release (`uv tool install seamspec`); plugin installs in one command |
+| **6** | 45–60s demo recording; technical write-up; launch preparation | Public repo; release **ready** to publish (`uv tool install seamspec`), published to PyPI only after the owner's explicit go-ahead (ADR-20261005-3adc); plugin installs in one command |
 
 > [!IMPORTANT]
 > If the week-3 rough benchmark shows (C) no better than (D), weeks 4–5 shift toward what plain tests can't do (capture, approval, dead ends, §4.4) before launch.
 
 **How progress is tracked** (ADR-20261005-ae6e, ADR-20261005-2565): one GitHub milestone per week above, each with a tracking issue that mirrors its deliverables and exit criteria, plus a committed [`docs/PROGRESS.md`](PROGRESS.md) (done / in progress / next), updated in the same commit as the code. `CLAUDE.md` at the repo root is the entry point for agents picking up the work. From week 2, every change lands through a branch and a pull request (ADR-20261005-d8bc). This spec is kept current as the code evolves; anything that changes or adds to it gets an ADR in `docs/adr/` (moving to `.seamspec/adrs/` when SeamSpec starts governing its own repo in week 3).
+
+> [!IMPORTANT]
+> **Publishing is gated** (ADR-20261005-3adc): nothing goes to PyPI or npm (real releases, pre-releases, placeholder bumps, the v0.2 `npx` wrapper) until the owner explicitly confirms that release. No early pre-release is planned. Until then, try SeamSpec with `uv tool install --force --editable <path-to-repo>`.
 
 ### v0.2 — soon after v0.1
 

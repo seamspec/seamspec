@@ -35,3 +35,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261005-4b1e](ADR-20261005-4b1e-verifier-findings.md) | Verifier fixes found by running real pytest and vitest | ACCEPTED |
 | [ADR-20261005-9c1a](ADR-20261005-9c1a-lifecycle-and-journal.md) | Lifecycle implementation; journal flags moves back to PROPOSED | ACCEPTED |
 | [ADR-20261005-8e80](ADR-20261005-8e80-verify-trust-pre-commit.md) | verify CLI, consent and trust, pre-commit gate | ACCEPTED |
+| [ADR-20261005-3adc](ADR-20261005-3adc-publishing-needs-owner-go.md) | Publishing to PyPI or npm needs the owner's explicit go-ahead | ACCEPTED |
