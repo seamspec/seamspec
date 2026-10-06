@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-05 | **Week 3 · MCP server** (PR `week-3/mcp`): `seamspec mcp` with 5 tools (`get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`) and 2 resources, on the MCP SDK 2.x; tested in-process and over stdio; ≈ 1,000 tokens of tool definitions | ADR-20261005-cc29 |
 | 2026-10-05 | **Week 3 · hooks** (PR `week-3/hooks`): `seamspec hook claude pre-tool-use|stop` (`adapters/claude.py`, `core/session.py`, `tree_fingerprint`): ledger protection, edit-time context via `additionalContext`, Stop gate with deadline, per-prompt retries, supersede escape and journal check. Aligned with the current Claude Code hooks reference (no `stop_hook_active` any more). 246 tests | ADR-20261005-5009 |
 | 2026-10-05 | The agent requests a Copilot review on every PR and addresses the findings before merge (automatic requests need GitHub Team) | ADR-20261005-c076 |
 | 2026-10-05 | **Week 2 · review** (PR `week-2/review`): `seamspec review` (runner config changes → new dead ends → supersede requests → proposals with full test + red-green), `core/redgreen.py` (HEAD in a temporary git worktree, `.venv`/`node_modules` linked). Fix: approving no longer silently confirms changed runner config. **Completes Week 2.** 216 tests | ADR-20261005-b7e2 |
@@ -27,13 +28,13 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 3**, slice by slice: hooks (PR `week-3/hooks`, in review) → MCP server → plugin + skills (with a hands-on check in a real Claude Code session) → dogfooding → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
+- **Week 3**, slice by slice: hooks (merged in #16) → MCP server (PR `week-3/mcp`, in review) → plugin + skills (with a hands-on check in a real Claude Code session) → dogfooding → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
 
 ## Next (Week 3, issue #3)
 
-- [x] Stop gate: deadline, retries, supersede escape, journal check (§16.1). In review
-- [x] Edit-time context + ledger protection (§7.2). In review; hands-on check with the plugin slice
-- [ ] MCP server: 5 tools + 2 resources (§14)
+- [x] Stop gate: deadline, retries, supersede escape, journal check (§16.1). Merged in #16
+- [x] Edit-time context + ledger protection (§7.2). Merged in #16; hands-on check with the plugin slice
+- [x] MCP server: 5 tools + 2 resources (§14). In review
 - [ ] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1)
 - [ ] Dogfood: `seamspec init` on this repo; `docs/adr/` → `.seamspec/adrs/`
 - [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR

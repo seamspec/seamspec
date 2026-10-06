@@ -515,6 +515,14 @@ def verify(
         raise typer.Exit(1)
 
 
+@app.command("mcp")
+def mcp_cmd() -> None:
+    """Run the SeamSpec MCP server on stdio (started by the Claude Code plugin or another MCP client)."""
+    from .mcp_server import run
+
+    run()
+
+
 @app.command(hidden=True)
 def hook(
     host: Annotated[str, typer.Argument(help="Host adapter: claude")],
