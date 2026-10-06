@@ -30,6 +30,18 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 | 2026-10-05 | Design spec written, peer-reviewed, scope cut to Claude Code + pytest/vitest for v0.1 | `docs/SPEC.md` §22, §26 |
 | 2026-10-05 | Names claimed (PyPI, npm, GitHub org); landing page live at seamspec.github.io; GitHub milestones + tracking issues #1–#7 created | GitHub |
 
+## Where we stand (2026-10-06, end of day)
+
+- **Works:** the core loop. A rule plus its test, human approval, then hooks, pre-commit and CI block regressions. Verified in real Claude Code sessions: the agent sees the rule as it edits, gets stopped when it breaks one, and asks for a supersede instead of editing the test.
+- **Easier to set up** (#19, #20): no venv activation needed, one question on a teammate's clone, and `seamspec init` installs the plugin (local scope, asks first).
+- **Designed, not built:** approvals in chat (ADR-20261006-c300, PROPOSED, PR #21). The hook risk is measured, and the `ConfigChange` guard works.
+- **Not proven yet:** that agents break fewer things *with* SeamSpec than without, at an acceptable cost. Only the benchmark answers that, and it decides whether this becomes a product.
+- **Suggested order** (the owner decides next session):
+  1. Merge PR #21 as a design only. Building chat approvals waits for the owner's four answers and verification 2.
+  2. **Dogfood** SeamSpec on this repo.
+  3. **Rough benchmark**, with the pass bar written in an ADR *before* running (cost estimate and approval first).
+  4. Then onboarding polish, and chat approvals if the benchmark is good.
+
 ## In progress
 
 - **Week 3**, slice by slice: hooks (#16) → MCP server (#17) → plugin + skills (#18) → **setup friction** (the owner moved this ahead of dogfooding after hands-on testing): part 1 runners and clones (#19), part 2 plugin install from `init` (#20), part 3 approvals in chat (design in review, ADR-20261006-c300) → dogfooding → enable the plugin for this repo in the owner's app (with their OK) → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
@@ -40,7 +52,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] Edit-time context + ledger protection (§7.2). Merged in #16; confirmed in a real session (PR `week-3/plugin`)
 - [x] MCP server: 5 tools + 2 resources (§14). Merged in #17
 - [x] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1). Merged in #18
-- [ ] Setup friction: project tools without activation, one question on a clone (#19); plugin install from `init` (#20); approvals in chat (design: ADR-20261006-c300, PROPOSED)
+- [ ] Setup friction: project tools without activation, one question on a clone (#19, merged); plugin install from `init` (#20, merged); approvals in chat (design: ADR-20261006-c300, PROPOSED, PR #21; build deferred until after the benchmark unless the owner says otherwise)
 - [ ] Dogfood: `seamspec init` on this repo; `docs/adr/` → `.seamspec/adrs/`
 - [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR
 
