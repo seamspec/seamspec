@@ -2048,7 +2048,7 @@ Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`
 
 [`seamspec/core/store.py`](../seamspec/core/store.py)
 
-- One JSON file per record under `.seamspec/invariants/` and `.seamspec/dead_ends/` (§9.2), written with `atomic_write` (temp file + fsync + `os.replace`) under a `FileLock` at `.seamspec/.local/store.lock`.
+- One JSON file per record under `.seamspec/invariants/` and `.seamspec/dead_ends/` (§9.2), written with `atomic_write` (temp file + fsync + `os.replace`) under a `FileLock` at `.seamspec/.local/store.lock`. New files get the normal `0666 & ~umask` mode (not the temp file's owner-only `0600`); existing files keep their mode.
 - `create(record)` refuses to overwrite an existing id (`DuplicateRecord`); `save(record)` creates or replaces. `new_id(prefix)` returns a random, unused `inv_` / `de_` id.
 - Record ids are validated before any path is built, so a crafted id can't reach outside the ledger.
 - `load_all(prefix)` / `get(id)` raise `RecordError` **naming the bad file**, so `status` (and later `doctor` and the hooks' error path, §16.1 step 10) can say which record is broken.
@@ -2076,7 +2076,7 @@ Python ≥ 3.11. Dependencies: `mcp`, `pydantic>=2`, `typer`, `rich`, `pathspec`
 
 - [`schemas.py`](../seamspec/core/schemas.py): loads the packaged schemas (§9.4); `validation_errors(name, data)` checks with Draft 2020-12 and a format checker. `doctor` (week 4) builds on it.
 - [`runners.py`](../seamspec/core/runners.py): v0.1 presets live as commented TOML in `templates/runners/{pytest,vitest}.toml`, used both to write `config.toml` and to build `RunnerCfg`s. `detect(root)` implements §12A.7; jest, go and cargo are detected and reported as *"support arrives in v0.2"*.
-- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` to `.gitignore`, and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. Plugin, pre-commit, CI and the consent screen arrive in weeks 2–4.
+- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. Plugin, pre-commit, CI and the consent screen arrive in weeks 2–4.
 - [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`.
 
 ### 19.7 `seamspec/core/verifier.py` and `reports.py` — implemented (week 2)

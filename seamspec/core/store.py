@@ -35,14 +35,30 @@ class DuplicateRecord(RuntimeError):
     pass
 
 
+def _current_umask() -> int:
+    # os.umask can only be read by setting it; restore immediately.
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
 def atomic_write(path: Path, text: str) -> None:
-    """Write via temp file + fsync + os.replace so readers never see partial files."""
+    """Write via temp file + fsync + os.replace so readers never see partial files.
+
+    mkstemp creates owner-only (0600) files, so the final mode is set explicitly: an existing
+    file keeps its mode, a new one gets the usual 0666 minus the umask (typically 0644)."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode = path.stat().st_mode & 0o7777
+    except FileNotFoundError:
+        mode = 0o666 & ~_current_umask()
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
             f.flush()
+            if hasattr(os, "fchmod"):  # POSIX; Windows has no Unix modes
+                os.fchmod(f.fileno(), mode)
             os.fsync(f.fileno())
         os.replace(tmp, path)
     except BaseException:

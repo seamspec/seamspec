@@ -62,7 +62,7 @@ def test_gitignore_merge_keeps_existing(tmp_path: Path) -> None:
     (tmp_path / ".gitignore").write_text("node_modules/")  # no trailing newline
     scaffold.init(tmp_path)
     text = (tmp_path / ".gitignore").read_text()
-    assert text.startswith("node_modules/\n") and text.endswith(".seamspec/.local/\n")
+    assert text.startswith("node_modules/\n") and text.endswith(".seamspec/.local/\n.seamspec/**/__pycache__/\n")
 
 
 @pytest.mark.parametrize(
@@ -160,3 +160,17 @@ def test_consent_later_turns_automatic_runs_on(tmp_path: Path) -> None:
     cfg = load_config(tmp_path)
     assert cfg.hooks.fail_closed is True and cfg.execution.trust_level == "harness"  # strict defaults restored
     assert "[runners.pytest]" in after and after.count("\n") == before.count("\n")  # nothing else moved
+
+
+def test_gitignore_keeps_bytecode_out_of_the_ledger(tmp_path: Path) -> None:
+    """Finding #6: pytest runs of rule tests write __pycache__ into .seamspec/tests/."""
+    import subprocess
+
+    scaffold.init(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    cache = tmp_path / ".seamspec/tests/__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "test_inv_00000001.cpython-312-pytest-9.1.1.pyc").write_bytes(b"x")
+    out = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=tmp_path,
+                         capture_output=True, text=True).stdout  # fmt: skip
+    assert "__pycache__" not in out

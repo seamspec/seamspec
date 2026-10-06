@@ -93,3 +93,22 @@ def test_concurrent_creates(store: Store) -> None:
         t.join()
     assert errors == []
     assert len(store.load_all("inv")) == 20
+
+
+def test_new_files_follow_umask_and_existing_files_keep_their_mode(tmp_path, monkeypatch) -> None:
+    """Finding #5: mkstemp's owner-only mode must not leak into files people commit."""
+    import os
+    import stat
+
+    from seamspec.core.store import atomic_write
+
+    old = os.umask(0o022)
+    try:
+        new = tmp_path / "CLAUDE.md"
+        atomic_write(new, "x\n")
+        assert stat.S_IMODE(new.stat().st_mode) == 0o644
+        new.chmod(0o640)
+        atomic_write(new, "y\n")
+        assert stat.S_IMODE(new.stat().st_mode) == 0o640 and new.read_text() == "y\n"
+    finally:
+        os.umask(old)
