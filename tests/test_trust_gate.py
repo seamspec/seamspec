@@ -173,12 +173,37 @@ def test_trust_cli(py_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok.exit_code == 0 and "[pytest] pytest -c .seamspec/pytest.ini" in ok.output and "Trusted." in ok.output
 
 
+@pytest.mark.parametrize("answer", ["y", "n"])
+def test_init_on_a_fresh_clone_asks_once(py_repo: Path, monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
+    """A teammate's clone: one question covers auto-run consent and trust in the committed runners."""
+    for name in ("trust.json", "consent.json"):
+        (py_repo / ".seamspec/.local" / name).unlink()
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md"], input=f"{answer}\n")
+    assert result.exit_code == 0, result.output
+    assert "[pytest] pytest -c .seamspec/pytest.ini" in result.output
+    assert result.output.count("[y/N]") == 1 and "with these commands" in result.output
+    store, cfg = Store(py_repo), load_config(py_repo)
+    assert trust.state(store, cfg).trusted is (answer == "y")
+    assert trust.execution_permitted(store, cfg)[0] is (answer == "y")
+    assert ("run `seamspec trust`" in result.output) is (answer == "n")
+
+
+def test_scripted_init_never_trusts_a_clone(py_repo: Path) -> None:
+    """--accept-auto-run is consent only: trusting committed commands needs a human at a terminal."""
+    (py_repo / ".seamspec/.local/trust.json").unlink()
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--accept-auto-run"])
+    assert result.exit_code == 0 and "run `seamspec trust`" in result.output
+    assert not trust.state(Store(py_repo), load_config(py_repo)).trusted
+
+
 # --- pre-commit installer ----------------------------------------------------------------------------
 
 
 def test_hook_is_installed_and_idempotent(gated_repo: Path) -> None:
     hook = gated_repo / ".git/hooks/pre-commit"
     assert os.access(hook, os.X_OK) and "seamspec verify --all --gate" in hook.read_text()
+    assert 'PATH="$PATH:$HOME/.local/bin"' in hook.read_text()  # GUI git clients (SPEC §16.4)
     assert git_hooks.install_pre_commit(gated_repo).status == "unchanged"
 
 

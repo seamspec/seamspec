@@ -140,12 +140,15 @@ def init(
     claude_md: bool = True,
     auto_run: bool = False,
     actor: str | None = None,
+    trust_existing: bool = False,
 ) -> InitReport:
     """Set up SeamSpec in `root`.
 
     `auto_run` is the human's answer to the consent screen (§12.4.5); the CLI asks, this function
     never does. Without consent, `enforced` and `strict` fall back to `advisory`, and no pre-commit
-    hook is installed. Whoever creates the config with `init` also trusts this clone for it (§12.4.6).
+    hook is installed. Whoever creates the config with `init` also trusts this clone for it
+    (§12.4.6); on a clone, `trust_existing` is the human's yes to the combined consent-and-trust
+    screen, which showed the existing runner commands.
     """
     root = root.resolve()
     found = detect(root)
@@ -183,8 +186,8 @@ def init(
     who = actor or approver_identity(store)
     trust.record_consent(store, auto_run, who)
     report.consent = auto_run
-    if created_config:
-        trust.grant(store, cfg, who)  # they just wrote these runner commands themselves
+    if created_config or (trust_existing and auto_run):
+        trust.grant(store, cfg, who)  # they just wrote, or were just shown, these runner commands
     report.trusted = trust.state(store, cfg).trusted
     if auto_run and cfg.mode != "advisory":
         report.hook = git_hooks.install_pre_commit(root)

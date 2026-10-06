@@ -73,6 +73,25 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def _untrusted_config(root: Path) -> Any:
+    """The existing config of a clone this machine hasn't trusted yet, else None."""
+    if not (root / ".seamspec/config.toml").is_file():
+        return None
+    try:
+        cfg = load_config(root)
+    except ConfigError:
+        return None  # init reports it
+    return None if trust.state(Store(root), cfg).trusted else cfg
+
+
+def _echo_runners(cfg: Any) -> None:
+    for name, r in sorted(cfg.runners.items()):
+        typer.echo(f"  [{name}] {' '.join(r.cmd)}")
+        if r.env:
+            typer.echo(f"          env: {', '.join(f'{k}={v}' for k, v in r.env.items())}")
+    typer.echo(f"Env passthrough: {', '.join(cfg.execution.env_passthrough) or 'none'}")
+
+
 @app.command()
 def init(
     mode: Annotated[scaffold.Mode, typer.Option(help="advisory | enforced | strict (SPEC §7.3)")] = "enforced",
@@ -93,17 +112,26 @@ def init(
     if not root.is_dir():
         raise _fail(f"{root} is not a directory")
 
-    auto_run = False
+    auto_run = trust_existing = False
     if mode != "advisory":
         if accept_auto_run:
             auto_run = True
         elif _interactive():
             typer.echo(CONSENT_SCREEN)
-            auto_run = typer.confirm("Allow automatic test runs in this repository?", default=False)
+            # A fresh clone: its committed runner commands need trust too. One question covers both.
+            untrusted = _untrusted_config(root)
+            if untrusted is not None:
+                typer.echo("This clone's .seamspec/config.toml would run:")
+                _echo_runners(untrusted)
+                locked = trust.locked_harnesses(Store(root))
+                typer.echo(f"Locked tests: {len(locked)} (trust level: {untrusted.execution.trust_level})")
+            question = "Allow automatic test runs" + (" with these commands" if untrusted else "")
+            auto_run = typer.confirm(f"{question} in this repository?", default=False)
+            trust_existing = auto_run and untrusted is not None
         else:
             typer.echo("Not a terminal and no --accept-auto-run: setting up in advisory mode (no automatic runs).")
     try:
-        report = scaffold.init(root, mode=mode, claude_md=claude_md, auto_run=auto_run)
+        report = scaffold.init(root, mode=mode, claude_md=claude_md, auto_run=auto_run, trust_existing=trust_existing)
     except (DirectiveError, ConfigError) as exc:
         raise _fail(str(exc)) from None
 
@@ -404,11 +432,7 @@ def trust_cmd(
     if show:
         return
     typer.echo("Runner commands that will run:")
-    for name, r in sorted(cfg.runners.items()):
-        typer.echo(f"  [{name}] {' '.join(r.cmd)}")
-        if r.env:
-            typer.echo(f"          env: {', '.join(f'{k}={v}' for k, v in r.env.items())}")
-    typer.echo(f"Env passthrough: {', '.join(cfg.execution.env_passthrough) or 'none'}")
+    _echo_runners(cfg)
     locked = trust.locked_harnesses(store)
     typer.echo(f"Locked tests: {len(locked)} (trust level: {cfg.execution.trust_level})")
     for inv_id in st.new_or_changed_tests:
