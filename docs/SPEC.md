@@ -905,7 +905,8 @@ Allow automatic test runs in this repository? [y/N]
 - Scripted setups must pass the explicit `--accept-auto-run` flag; a generic `--yes` does not imply consent.
 - Not a terminal and no `--accept-auto-run`: the answer is **No** (advisory mode), with a note saying how to turn runs on.
 - **Changing your mind later:** re-running `seamspec init` with consent switches an advisory config to the requested mode, rewriting only the `mode` line. For `strict` it also restores the strict values of the `fail_closed` / `trust_level` lines that `init` itself wrote; values a human edited are left alone (ADR-20261005-8e80).
-- `init` also **trusts the clone** when it creates `config.toml` (whoever runs it just wrote those runner commands). An existing config, e.g. from a clone, is not trusted automatically: run `seamspec trust`.
+- `init` also **trusts the clone** when it creates `config.toml` (whoever runs it just wrote those runner commands).
+- **A fresh clone gets one question** (ADR-20261005-9b8f). When `config.toml` already exists and this machine hasn't trusted it, the consent screen also lists the runner commands, env passthrough and number of locked tests (what `seamspec trust` shows) and asks *"Allow automatic test runs with these commands in this repository?"*. Yes records consent and trust; no records neither. The trust is **bound to what was shown**: if the runner settings on disk no longer hash the same when it is granted (e.g. `--mode strict` switched `trust_level`, or an edit while the prompt was open), nothing is trusted and `init` says to run `seamspec trust`. Committed config values are printed **escaped** on both trust screens (anything beyond plain characters is JSON-quoted), so a clone's config can't hide or repaint text with newlines or terminal escapes. `--accept-auto-run` is consent only: a scripted setup never trusts someone else's committed commands, so run `seamspec trust` at a terminal.
 
 #### 12.4.6 Repo Trust (Trust-on-First-Use)
 
@@ -929,6 +930,8 @@ A cloned repository can arrive with committed hooks, tests, and runner commands 
 #### 12.4.7 Environment Scrubbing
 
 Tests run with a minimal environment: `PATH`, `HOME`, `USER`, `LANG`, `LC_*`, `TERM`, `TMPDIR`, `SHELL`, `VIRTUAL_ENV`, `PYTHONPATH`, `NODE_PATH`, plus anything listed in `execution.env_passthrough`. Everything else is removed: `AWS_*`, `GITHUB_TOKEN`, `*_API_KEY`, `PYTEST_ADDOPTS`, and so on.
+
+**The project's own tools come first** (ADR-20261005-9b8f). Hooks, the desktop app and GUI git clients start with a bare `PATH`, so the project's existing tool folders among `.venv/bin`, `.venv/Scripts`, `venv/bin`, `venv/Scripts` and `node_modules/.bin` are put ahead of `PATH`, and the runner executable is looked up there. No activation is needed and `config.toml` stays portable. An activated virtualenv wins: with `VIRTUAL_ENV` set, `.venv` / `venv` are not added.
 
 **No "under verification" flag.** SeamSpec deliberately sets **no** variable such as `SEAMSPEC_VERIFY`. A flag like that would let project code (on purpose or by accident) behave differently under test, a "defeat device" that makes locked tests pass against code that is broken in real use.
 
@@ -1713,12 +1716,14 @@ seamspec-plugin/
 - **Wrappers live in `scripts/`, not `bin/`:** a plugin's `bin/` folder is put on the agent's Bash `PATH`, and plugins with `bin/` aren't installable on claude.ai or Cowork (ADR-20261005-5675).
 - **Install:** until the release (week 6, after the owner's go-ahead), try it with `claude --plugin-dir <repo>/seamspec-plugin`. A marketplace entry and `seamspec init` printing the install command follow in week 4–6.
 - **Directive:** a plugin can't write `CLAUDE.md`, so `seamspec init` writes the directive (§18) into it (ADR-20261005-c41d).
-- **Two wrappers** (ADR-20261005-c41d), because a missing CLI should be silent for hooks but explained for MCP:
+- **Two wrappers** (ADR-20261005-c41d), because a missing CLI should be silent for hooks but explained for MCP. Both append `$HOME/.local/bin` (where `uv tool` installs) to `PATH` first, since apps started from the Dock often lack it; a `seamspec` already on `PATH` still wins (ADR-20261005-9b8f):
   - Every hook goes through `scripts/seamspec-hook`, which **exits 0 silently** when `seamspec` isn't on `PATH`, so a teammate who has the plugin enabled but not the CLI installed never sees hook errors:
 
 ```sh
 #!/bin/sh
 # Exit quietly if the SeamSpec CLI isn't installed on this machine.
+# Apps started from the Dock and GUI git clients often lack ~/.local/bin, where `uv tool` installs.
+PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder)
 command -v seamspec >/dev/null 2>&1 || exit 0
 exec seamspec "$@"
 ```
@@ -1728,6 +1733,8 @@ exec seamspec "$@"
 ```sh
 #!/bin/sh
 # Explain a missing CLI instead of failing silently.
+# Apps started from the Dock and GUI git clients often lack ~/.local/bin, where `uv tool` installs.
+PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder)
 if ! command -v seamspec >/dev/null 2>&1; then
   echo "SeamSpec CLI not found on PATH. Before the release, install your checkout:" >&2
   echo "  uv tool install --force --editable <path-to-seamspec-repo>" >&2
@@ -1884,6 +1891,8 @@ Installed by `init` (only with auto-run consent) into the repo's hooks directory
 #!/bin/sh
 # Installed by seamspec init. Remove this file to uninstall.
 # Runs every LOCKED SeamSpec invariant before each commit (SPEC §16.4).
+# GUI git clients often lack ~/.local/bin, where `uv tool` installs.
+PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder)
 if ! command -v seamspec >/dev/null 2>&1; then
   echo "SeamSpec: the seamspec CLI is not installed (uv tool install seamspec)." >&2
   echo "SeamSpec: install it, or delete this hook to stop checking." >&2
@@ -2087,7 +2096,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 - [`schemas.py`](../seamspec/core/schemas.py): loads the packaged schemas (§9.4); `validation_errors(name, data)` checks with Draft 2020-12 and a format checker. `doctor` (week 4) builds on it.
 - [`runners.py`](../seamspec/core/runners.py): v0.1 presets live as commented TOML in `templates/runners/{pytest,vitest}.toml`, used both to write `config.toml` and to build `RunnerCfg`s. `detect(root)` implements §12A.7; jest, go and cargo are detected and reported as *"support arrives in v0.2"*.
-- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. Plugin, pre-commit, CI and the consent screen arrive in weeks 2–4.
+- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. `init(..., auto_run, trust_shown)` grants trust when it creates the config, or, with consent, when `trust_shown` (the trust hash of what the human said yes to on a clone's combined consent-and-trust screen, §12.4.5) still matches the config on disk. Plugin, pre-commit, CI and the consent screen arrive in weeks 2–4.
 - [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`.
 
 ### 19.7 `seamspec/core/verifier.py` and `reports.py` — implemented (week 2)
@@ -2097,7 +2106,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - `run(root, cfg, invariants, deadline=None, fingerprints=None) -> VerifyReport`. Checks runner config fingerprints (`config_failures`) and, for `LOCKED` invariants, harness and assertion hashes (`integrity_failures`; those harnesses don't run). Then one invocation per runner with every harness (`{each}`).
 - **Process control:** `Popen(argv, shell=False, start_new_session=True)`; on timeout the whole process group gets `SIGKILL` (Windows: best effort). Each runner gets `min(timeout_seconds, time left before deadline)`. A cut by the deadline is `incomplete`: neither a pass nor a failure (`failing_ids` excludes it, `passed` is false).
 - **Attribution** (`reports.junit`, `reports.go_test_json`): each returns `(failed, empty)`. `empty` = harnesses that passed no test (nothing collected, every test skipped, or absent from the report), and **empty counts as a failure**. If no report is usable and the group failed, harnesses are rerun one at a time (up to `isolate_on_failure`, within the deadline).
-- **Environment:** `build_env()` keeps only `BASE_ENV_KEYS`, `LC_*` and `execution.env_passthrough`, and adds **nothing**: no "under verification" flag.
+- **Environment:** `build_env(cfg, environ=None, root=None, overrides=None)` keeps only `BASE_ENV_KEYS`, `LC_*` and `execution.env_passthrough`, applies `overrides` (the runner's `env`), and adds **no** "under verification" flag. With `root`, `local_bin_dirs()` (the existing `LOCAL_BIN_DIRS`, minus `.venv` / `venv` when `VIRTUAL_ENV` is set) then go ahead of the resulting `PATH`, including a runner's own `PATH`; `argv[0]` is resolved against that `PATH` (§12.4.7).
 - **Fingerprints:** `current_fingerprints()` / `read_fingerprints()` / `check_fingerprints(confirmed=None)`. A missing runner config file is a failure. `approve` passes the hashes it is confirming (§19.8).
 - `RunnerResult.could_not_run` marks results where no test ran at all (missing runner executable, unknown runner), so callers never have to parse output.
 - `save_last(root, report)` writes `.seamspec/.local/last_verify.json` (`at`, `passed`, `failing_ids`, `incomplete`, results) for `status` and the Stop hook.

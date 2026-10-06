@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -73,6 +74,40 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def _untrusted_config(root: Path) -> Any:
+    """The existing config of a clone this machine hasn't trusted yet, else None."""
+    if not (root / ".seamspec/config.toml").is_file():
+        return None
+    try:
+        cfg = load_config(root)
+    except ConfigError:
+        return None  # init reports it
+    return None if trust.state(Store(root), cfg).trusted else cfg
+
+
+_PLAIN_TOKEN = re.compile(r"[\w@%+=:,./{}\[\]-]+", re.ASCII)
+
+
+def _shown(token: str) -> str:
+    """A config value as it is safe to print: committed config may come from someone else, and
+    newlines or terminal escapes in it could repaint a trust screen. Anything not plain is
+    printed JSON-quoted, which also keeps argv token boundaries visible."""
+    return token if _PLAIN_TOKEN.fullmatch(token) else json.dumps(token)
+
+
+def _echo_runners(cfg: Any) -> None:
+    for name, r in sorted(cfg.runners.items()):
+        typer.echo(f"  [{_shown(name)}] {' '.join(_shown(t) for t in r.cmd)}")
+        if r.env:
+            typer.echo(f"          env: {', '.join(f'{_shown(k)}={_shown(v)}' for k, v in r.env.items())}")
+    typer.echo(f"Env passthrough: {', '.join(_shown(k) for k in cfg.execution.env_passthrough) or 'none'}")
+
+
+def _echo_changed_tests(store: Store, ids: list[str]) -> None:
+    for inv_id in ids:
+        typer.echo(f"  new/changed since last trust: {inv_id} {_shown(store.get(inv_id).verification.harness_path)}")
+
+
 @app.command()
 def init(
     mode: Annotated[scaffold.Mode, typer.Option(help="advisory | enforced | strict (SPEC §7.3)")] = "enforced",
@@ -94,16 +129,29 @@ def init(
         raise _fail(f"{root} is not a directory")
 
     auto_run = False
+    trust_shown: str | None = None
     if mode != "advisory":
         if accept_auto_run:
             auto_run = True
         elif _interactive():
             typer.echo(CONSENT_SCREEN)
-            auto_run = typer.confirm("Allow automatic test runs in this repository?", default=False)
+            # A fresh clone: its committed runner commands need trust too. One question covers both.
+            untrusted = _untrusted_config(root)
+            if untrusted is not None:
+                store = Store(root)
+                locked = trust.locked_harnesses(store)
+                typer.echo("This clone's .seamspec/config.toml would run:")
+                _echo_runners(untrusted)
+                typer.echo(f"Locked tests: {len(locked)} (trust level: {untrusted.execution.trust_level})")
+                _echo_changed_tests(store, trust.state(store, untrusted).new_or_changed_tests)
+            question = "Allow automatic test runs" + (" with these commands" if untrusted else "")
+            auto_run = typer.confirm(f"{question} in this repository?", default=False)
+            if auto_run and untrusted is not None:  # bound to exactly what was shown (ADR-20261005-9b8f)
+                trust_shown = trust.trust_hash(untrusted, locked)
         else:
             typer.echo("Not a terminal and no --accept-auto-run: setting up in advisory mode (no automatic runs).")
     try:
-        report = scaffold.init(root, mode=mode, claude_md=claude_md, auto_run=auto_run)
+        report = scaffold.init(root, mode=mode, claude_md=claude_md, auto_run=auto_run, trust_shown=trust_shown)
     except (DirectiveError, ConfigError) as exc:
         raise _fail(str(exc)) from None
 
@@ -126,7 +174,10 @@ def init(
             typer.echo(f"  note: {report.hook.message}")
     if not report.consent and mode != "advisory":
         typer.echo("Automatic test runs are off (advisory mode). Re-run `seamspec init` to turn them on.")
-    if not report.trusted:
+    if not report.trusted and trust_shown is not None:
+        typer.echo("The runner settings changed after they were shown (for example --mode strict switched")
+        typer.echo("trust_level), so this clone isn't trusted yet: run `seamspec trust` to review them.")
+    elif not report.trusted:
         typer.echo("This clone isn't trusted yet: run `seamspec trust` to review its runner commands.")
     if not (root / ".git").exists():
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
@@ -404,16 +455,10 @@ def trust_cmd(
     if show:
         return
     typer.echo("Runner commands that will run:")
-    for name, r in sorted(cfg.runners.items()):
-        typer.echo(f"  [{name}] {' '.join(r.cmd)}")
-        if r.env:
-            typer.echo(f"          env: {', '.join(f'{k}={v}' for k, v in r.env.items())}")
-    typer.echo(f"Env passthrough: {', '.join(cfg.execution.env_passthrough) or 'none'}")
+    _echo_runners(cfg)
     locked = trust.locked_harnesses(store)
     typer.echo(f"Locked tests: {len(locked)} (trust level: {cfg.execution.trust_level})")
-    for inv_id in st.new_or_changed_tests:
-        inv = store.get(inv_id)
-        typer.echo(f"  new/changed since last trust: {inv_id} {inv.verification.harness_path}")
+    _echo_changed_tests(store, st.new_or_changed_tests)
     if st.trusted:
         return
     _human_only()

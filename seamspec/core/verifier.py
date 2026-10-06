@@ -12,10 +12,12 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import signal
 import subprocess
 import time
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -34,6 +36,10 @@ REPORTS_REL = Path(".seamspec") / ".local" / "reports"
 BASE_ENV_KEYS = frozenset(
     {"PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR", "SHELL", "SYSTEMROOT", "VIRTUAL_ENV", "PYTHONPATH", "NODE_PATH"}
 )
+# The project's own tool folders go ahead of PATH, so `pytest` / `npx` resolve to the project's
+# copies without activating anything: hooks, the desktop app and GUI git clients start with a bare
+# PATH (§12.4.7). An activated virtualenv (VIRTUAL_ENV set) wins over .venv / venv.
+LOCAL_BIN_DIRS = (".venv/bin", ".venv/Scripts", "venv/bin", "venv/Scripts", "node_modules/.bin")
 
 
 @dataclass
@@ -134,12 +140,31 @@ def check_fingerprints(root: Path, cfg: Config, confirmed: dict[str, str] | None
     return problems
 
 
-def build_env(cfg: Config, environ: dict[str, str] | None = None) -> dict[str, str]:
+def local_bin_dirs(root: Path, environ: Mapping[str, str]) -> list[str]:
+    """The project's own tool folders that exist, in `LOCAL_BIN_DIRS` order."""
+    skip_venvs = bool(environ.get("VIRTUAL_ENV"))
+    return [
+        str(root / rel)
+        for rel in LOCAL_BIN_DIRS
+        if not (skip_venvs and rel.split("/")[0] in (".venv", "venv")) and (root / rel).is_dir()
+    ]
+
+
+def build_env(
+    cfg: Config,
+    environ: Mapping[str, str] | None = None,
+    root: Path | None = None,
+    overrides: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     """Minimal environment for test runs (§12.4.7). Deliberately NO "under verification" flag:
-    code must not be able to tell it is being checked."""
+    code must not be able to tell it is being checked. `overrides` (a runner's `env`) apply
+    first; with `root`, the project's own tool folders then go ahead of the resulting PATH."""
     source = os.environ if environ is None else environ
     allowed = BASE_ENV_KEYS | set(cfg.execution.env_passthrough)
-    return {k: v for k, v in source.items() if k in allowed or k.startswith("LC_")}
+    env = {k: v for k, v in source.items() if k in allowed or k.startswith("LC_")} | dict(overrides or {})
+    if root is not None and (local := local_bin_dirs(root, env)):
+        env["PATH"] = os.pathsep.join([*local, *([env["PATH"]] if env.get("PATH") else [])])
+    return env
 
 
 def expand_argv(runner: RunnerCfg, invs: list[Invariant], report_path: Path) -> list[str]:
@@ -188,7 +213,11 @@ def _invoke(
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.unlink(missing_ok=True)  # never read a stale report
     argv = expand_argv(runner, invs, report_path)
-    env = build_env(cfg) | {k: v.replace("{report}", str(report_path)) for k, v in runner.env.items()}
+    env = build_env(
+        cfg, root=root, overrides={k: v.replace("{report}", str(report_path)) for k, v in runner.env.items()}
+    )
+    if "/" not in argv[0] and os.sep not in argv[0]:  # look it up on the run's PATH (Windows ignores env PATH)
+        argv[0] = shutil.which(argv[0], path=env.get("PATH", "")) or argv[0]
 
     start = time.monotonic()
     try:
@@ -207,7 +236,8 @@ def _invoke(
             name,
             ids,
             False,
-            f"Runner executable '{argv[0]}' not found. Install it or fix config.toml.",
+            f"Runner executable '{argv[0]}' not found on PATH or in the project's .venv, venv or "
+            "node_modules/.bin. Install it or fix config.toml.",
             0.0,
             could_not_run=True,
         )

@@ -173,12 +173,77 @@ def test_trust_cli(py_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok.exit_code == 0 and "[pytest] pytest -c .seamspec/pytest.ini" in ok.output and "Trusted." in ok.output
 
 
+@pytest.mark.parametrize("answer", ["y", "n"])
+def test_init_on_a_fresh_clone_asks_once(py_repo: Path, monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
+    """A teammate's clone: one question covers auto-run consent and trust in the committed runners."""
+    for name in ("trust.json", "consent.json"):
+        (py_repo / ".seamspec/.local" / name).unlink()
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md"], input=f"{answer}\n")
+    assert result.exit_code == 0, result.output
+    assert "[pytest] pytest -c .seamspec/pytest.ini" in result.output
+    assert result.output.count("[y/N]") == 1 and "with these commands" in result.output
+    store, cfg = Store(py_repo), load_config(py_repo)
+    assert trust.state(store, cfg).trusted is (answer == "y")
+    assert trust.execution_permitted(store, cfg)[0] is (answer == "y")
+    assert ("run `seamspec trust`" in result.output) is (answer == "n")
+
+
+def test_clone_trust_is_bound_to_what_was_shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--mode strict on an advisory clone switches trust_level to "harness" after the screen showed
+    "runners": the yes no longer matches what's on disk, so nothing is trusted."""
+    (tmp_path / "pyproject.toml").write_text("")
+    scaffold.init(tmp_path, mode="advisory", actor="Maya")
+    (tmp_path / ".seamspec/.local/trust.json").unlink()
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    result = runner.invoke(app, ["init", "--path", str(tmp_path), "--mode", "strict", "--no-claude-md"], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert "trust level: runners" in result.output and "changed after they were shown" in result.output
+    cfg = load_config(tmp_path)
+    assert cfg.execution.trust_level == "harness" and not trust.state(Store(tmp_path), cfg).trusted
+
+
+def test_scaffold_grants_only_the_shown_trust_hash(py_repo: Path) -> None:
+    store = Store(py_repo)
+    (py_repo / ".seamspec/.local/trust.json").unlink()
+    shown = trust.trust_hash(load_config(py_repo), trust.locked_harnesses(store))
+    cfg_path = py_repo / ".seamspec/config.toml"
+    cfg_path.write_text(cfg_path.read_text().replace("env_passthrough = []", 'env_passthrough = ["AWS_SECRET"]'))
+    scaffold.init(py_repo, auto_run=True, claude_md=False, trust_shown=shown)  # edited while the prompt was open
+    assert not trust.state(store, load_config(py_repo)).trusted
+    scaffold.init(py_repo, auto_run=True, claude_md=False, trust_shown=trust.trust_hash(load_config(py_repo), {}))
+    assert trust.state(store, load_config(py_repo)).trusted
+
+
+def test_trust_screens_escape_committed_config(py_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Someone else's config must not be able to repaint the screen it is being trusted on."""
+    cfg_path = py_repo / ".seamspec/config.toml"
+    text = cfg_path.read_text().replace(
+        'report = "junit"', 'report = "junit"\nenv = { X = "a\\u001b[2J\\nAll good. y" }', 1
+    )
+    cfg_path.write_text(text)
+    (py_repo / ".seamspec/.local/trust.json").unlink()
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md"], input="n\n")
+    assert "\x1b" not in result.output and 'X="a\\u001b[2J\\nAll good. y"' in result.output
+    assert "[pytest] pytest -c .seamspec/pytest.ini" in result.output  # plain tokens print as they are
+
+
+def test_scripted_init_never_trusts_a_clone(py_repo: Path) -> None:
+    """--accept-auto-run is consent only: trusting committed commands needs a human at a terminal."""
+    (py_repo / ".seamspec/.local/trust.json").unlink()
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--accept-auto-run"])
+    assert result.exit_code == 0 and "run `seamspec trust`" in result.output
+    assert not trust.state(Store(py_repo), load_config(py_repo)).trusted
+
+
 # --- pre-commit installer ----------------------------------------------------------------------------
 
 
 def test_hook_is_installed_and_idempotent(gated_repo: Path) -> None:
     hook = gated_repo / ".git/hooks/pre-commit"
     assert os.access(hook, os.X_OK) and "seamspec verify --all --gate" in hook.read_text()
+    assert 'PATH="${PATH:+$PATH:}$HOME/.local/bin"' in hook.read_text()  # GUI git clients, no empty entry (§16.4)
     assert git_hooks.install_pre_commit(gated_repo).status == "unchanged"
 
 

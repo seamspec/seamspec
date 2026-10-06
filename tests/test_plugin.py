@@ -82,6 +82,35 @@ def test_mcp_wrapper_explains_a_missing_cli(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize(("script", "expected"), [("seamspec-hook", "hook claude stop"), ("seamspec-mcp", "mcp")])
+def test_wrappers_find_a_uv_tool_install_off_path(tmp_path: Path, script: str, expected: str) -> None:
+    """The desktop app and GUI git clients often start without ~/.local/bin on PATH."""
+    home_bin = tmp_path / "home/.local/bin"
+    home_bin.mkdir(parents=True)
+    fake = home_bin / "seamspec"
+    fake.write_text('#!/bin/sh\necho "ran: $*"\n')
+    fake.chmod(0o755)
+    args = ["hook", "claude", "stop"] if script == "seamspec-hook" else []
+    result = subprocess.run(
+        ["/bin/sh", str(PLUGIN / "scripts" / script), *args],
+        capture_output=True, text=True, env={"PATH": _path_without_seamspec(tmp_path), "HOME": str(tmp_path / "home")},
+    )  # fmt: skip
+    assert result.returncode == 0 and result.stdout.strip() == f"ran: {expected}", result.stderr
+
+
+@pytest.mark.parametrize("script", ["seamspec-hook", "seamspec-mcp"])
+def test_wrappers_never_search_the_current_folder(tmp_path: Path, script: str) -> None:
+    """An empty PATH must not become ":~/.local/bin", whose empty entry would run a checkout's ./seamspec."""
+    planted = tmp_path / "seamspec"
+    planted.write_text('#!/bin/sh\necho "planted"\n')
+    planted.chmod(0o755)
+    result = subprocess.run(
+        ["/bin/sh", str(PLUGIN / "scripts" / script), "hook", "claude", "stop"],
+        capture_output=True, text=True, cwd=tmp_path, env={"PATH": "", "HOME": str(tmp_path / "home")},
+    )  # fmt: skip
+    assert "planted" not in result.stdout
+
+
 @pytest.mark.skipif(shutil.which("claude") is None, reason="Claude Code CLI not installed")
 def test_claude_plugin_validate() -> None:
     result = subprocess.run(["claude", "plugin", "validate", str(PLUGIN)], capture_output=True, text=True, timeout=60)

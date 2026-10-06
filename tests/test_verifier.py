@@ -166,6 +166,41 @@ def test_build_env_unit() -> None:
     assert env == {"PATH": "/bin", "DATABASE_URL": "d", "LC_CTYPE": "c"}
 
 
+def test_build_env_puts_project_tools_first(tmp_path: Path) -> None:
+    cfg = parse_config("")
+    for rel in (".venv/bin", "node_modules/.bin"):
+        (tmp_path / rel).mkdir(parents=True)
+    env = verifier.build_env(cfg, {"PATH": "/usr/bin"}, root=tmp_path)
+    assert env["PATH"].split(os.pathsep) == [
+        str(tmp_path / ".venv/bin"),
+        str(tmp_path / "node_modules/.bin"),
+        "/usr/bin",
+    ]
+    # an activated virtualenv is the user's choice: .venv / venv stay out of the way
+    env = verifier.build_env(cfg, {"PATH": "/usr/bin", "VIRTUAL_ENV": "/elsewhere"}, root=tmp_path)
+    assert env["PATH"].split(os.pathsep) == [str(tmp_path / "node_modules/.bin"), "/usr/bin"]
+    assert verifier.build_env(cfg, {}, root=tmp_path / "nothing") == {}
+    # a runner's own PATH still gets the project's tools in front of it
+    env = verifier.build_env(cfg, {"PATH": "/usr/bin"}, root=tmp_path, overrides={"PATH": "/custom/bin"})
+    assert env["PATH"].split(os.pathsep)[-1] == "/custom/bin" and str(tmp_path / ".venv/bin") in env["PATH"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="shell-script stand-in for a venv")
+def test_project_venv_runs_without_activation(py_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hooks and GUI git clients start with a bare PATH: `pytest` still resolves to the project's .venv."""
+    venv_bin = py_repo / ".venv/bin"
+    venv_bin.mkdir(parents=True)
+    script = venv_bin / "pytest"
+    script.write_text(f'#!/bin/sh\ntouch "$0.ran"\nexec "{sys.executable}" -m pytest "$@"\n')
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    inv = write_locked(py_repo, load_config(py_repo), "inv_00000001", PASS)
+    report = run(py_repo, [inv])
+    assert report.passed, report.results[0].output
+    assert (venv_bin / "pytest.ran").exists()
+
+
 # --- runner problems, timeouts and the deadline ------------------------------------------------
 
 
