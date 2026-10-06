@@ -166,7 +166,8 @@ def stop(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] |
             "systemMessage": "SeamSpec: time ran out before every locked rule was checked. "
             "Pre-commit will run the full set."
         }
-    if failing and failing <= pending_supersede_ids(store) and not other:
+    strict_incomplete = report.incomplete and cfg.hooks.fail_closed  # strict: a cut-short run is a failure
+    if failing and failing <= pending_supersede_ids(store) and not other and not strict_incomplete:
         state.save(store)
         return {
             "systemMessage": "SeamSpec: supersede requested for "

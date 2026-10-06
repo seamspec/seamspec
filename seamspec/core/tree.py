@@ -44,8 +44,13 @@ def tree_fingerprint(root: Path) -> str | None:
     for rel in files:
         h.update(b"\0" + rel.encode())
         p = root / rel
+        if not p.is_file():
+            h.update(b"<deleted>")
+            continue
         try:
-            h.update(p.read_bytes() if p.is_file() else b"<deleted>")
+            with p.open("rb") as f:  # chunked: a large untracked file must not exhaust memory
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
         except OSError:
             h.update(b"<unreadable>")
     return h.hexdigest()

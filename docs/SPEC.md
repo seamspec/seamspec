@@ -303,7 +303,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 
 1. Agent is about to edit (or has just read) a file governed by locked invariants or active dead ends.
 2. Hook checks session state for key `(session_id, file, ledger_revision)`.
-3. **First time:** add the constraints to the agent's context. Record the key. *(Claude Code: `PreToolUse` returning only `hookSpecificOutput.additionalContext`, or `PostToolUse` on `Read`, since Edit requires a prior Read. Pick one after a hands-on test. Never return `permissionDecision: "allow"`, which would bypass the user's own permission prompts.)*
+3. **First time:** add the constraints to the agent's context. Record the key. *(Claude Code: `PreToolUse` returning only `hookSpecificOutput.additionalContext`, which the hooks reference confirms reaches the model. Never return `permissionDecision: "allow"`, which would bypass the user's own permission prompts (ADR-20261005-5009).)*
 4. Later edits in the same session pass silently.
 5. If the ledger changes (`ledger_revision` differs), it re-arms.
 
@@ -340,7 +340,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 |---|---|---|---|---|
 | MCP tools + resources | ✅ | ✅ | ✅ | ✅ |
 | CLI fallback via shell | ✅ | ✅ | ✅ | ✅ |
-| Edit-time context (§7.2) | ✅ `PreToolUse` `additionalContext` or `PostToolUse` on `Read` *(pick after hands-on test)* | ✅ `PreToolUse` (deny-once fallback: `permissionDecision: "deny"`) | ✅ `preToolUse` (deny-once fallback: `permission: "deny"`) | ❌ |
+| Edit-time context (§7.2) | ✅ `PreToolUse` `additionalContext` | ✅ `PreToolUse` (deny-once fallback: `permissionDecision: "deny"`) | ✅ `preToolUse` (deny-once fallback: `permission: "deny"`) | ❌ |
 | Ledger protection | ✅ | ✅ | ✅ | ❌ |
 | Completion gate | ✅ `Stop` + `decision: block` | ✅ `Stop` + `decision: block` | ✅ `stop` + `followup_message` (auto-continue, capped by `loop_limit`) | ❌ |
 | Session-start nudge (§13.9) *(v0.2)* | ✅ `SessionStart` | ✅ `SessionStart` | ✅ `sessionStart` (local agents) | Directive fallback |
@@ -1792,7 +1792,7 @@ Never blocks, never runs tests; any error → exit 0 with no output.
 ```
 
    - Brand-new file inside a governed path, or `gate_mode = "deny_once"`: **deny once** with the same text in `permissionDecisionReason` and *"Re-attempt the edit once your change respects these constraints."*
-   - *(Hands-on check before release: confirm `additionalContext` on `PreToolUse` reaches the model for Edit/Write. If not, switch to `PostToolUse` on `Read`, which the docs confirm supports `additionalContext`.)*
+   - *(Hands-on check with the plugin slice: confirm in a real session that the context appears before the edit. If it doesn't, fall back to `gate_mode = "deny_once"`, which carries the same text in the denial reason. `PostToolUse` isn't used: the hooks reference describes its context as replacing the tool's result (ADR-20261005-5009).)*
 
 **`Stop` behavior** (`seamspec hook claude stop`):
 

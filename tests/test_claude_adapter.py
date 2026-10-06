@@ -280,3 +280,29 @@ def test_cli_entry_point_prints_block_and_exits_zero(git_repo: Path, human: None
     assert result.exit_code == 0
     out = json.loads(result.output)
     assert out["decision"] == "block" and inv_id in out["reason"]
+
+
+def test_strict_incomplete_run_is_not_excused_by_a_supersede_request(git_repo: Path, human: None) -> None:
+    """Copilot on #16: with fail_closed, a cut-short run must block even if the failing rule has a request."""
+    inv_id = lock(git_repo)
+    (git_repo / "src/queue.py").write_text(BROKEN_CODE)
+    lifecycle.request_supersede(Store(git_repo), inv_id, "cap is changing")
+    store, cfg = Store(git_repo), load_config(git_repo)
+    strict = cfg.model_copy(update={"hooks": cfg.hooks.model_copy(update={"fail_closed": True})})
+    from seamspec.core import verifier
+
+    real_run = verifier.run
+
+    def cut_short(*args, **kwargs):  # the failing rule ran, then time ran out for the rest
+        report = real_run(*args, **kwargs)
+        report.incomplete = True
+        return report
+
+    payload = {"session_id": "s1", "prompt_id": "p1", "cwd": str(git_repo)}
+    import pytest as _pytest
+
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(verifier, "run", cut_short)
+        out = claude.stop(payload, store, strict)
+    assert out["decision"] == "block" and "[INCOMPLETE]" in out["reason"]
+    assert "supersede requested" in claude.stop(payload, store, cfg)["systemMessage"]  # non-strict: escape applies
