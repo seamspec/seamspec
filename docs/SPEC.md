@@ -1254,17 +1254,20 @@ braindump_pending(dismiss: list[{ item_id: str, as: "todo" | "exploration" }] = 
 
 ### 14.3 MCP Configuration Per Host
 
-**Claude Code (v0.1) — bundled in the plugin**, not a project `.mcp.json`. The plugin's `.mcp.json` (§16.1) starts the server through `bin/seamspec-mcp`:
+**Claude Code (v0.1) — bundled in the plugin**, not a project `.mcp.json`. The plugin's `.mcp.json` (§16.1) starts the server through `scripts/seamspec-mcp` and points it at the project (ADR-20261005-5675):
 
 ```json
 {
   "mcpServers": {
-    "seamspec": { "command": "${CLAUDE_PLUGIN_ROOT}/bin/seamspec-mcp" }
+    "seamspec": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seamspec-mcp",
+      "env": { "SEAMSPEC_ROOT": "${CLAUDE_PROJECT_DIR}" }
+    }
   }
 }
 ```
 
-*(Key names and `${CLAUDE_PLUGIN_ROOT}` expansion in plugin MCP configs to verify against the plugin docs in week 3.)* Users of other MCP clients, or of Claude Code without the plugin, can still register `seamspec mcp` by hand, as below.
+Verified in real sessions (2026-10-05): the server connects as `plugin:seamspec:seamspec`, and the agent sees its tools as `mcp__plugin_seamspec_seamspec__<tool>`. Headless runs (`claude -p`) need them allowed (`--allowedTools mcp__plugin_seamspec_seamspec__get_constraints ...`); interactive sessions ask the user. Users of other MCP clients, or of Claude Code without the plugin, can still register `seamspec mcp` by hand, as below.
 
 **Cursor — `.cursor/mcp.json`** *(v0.2)*:
 
@@ -1692,24 +1695,26 @@ Agent:  SeamSpec · supersede
 
 SeamSpec ships its Claude Code integration as a **Claude Code plugin** that bundles the hooks, the workflow skills (`/seamspec:lock`, §15A.4) and the MCP server. Nothing is merged into a committed `.claude/settings.json` hooks block, so teammates who don't use SeamSpec are never affected by hooks they can't run.
 
-**Plugin layout** (published from the `seamspec/seamspec` repo; exact manifest keys and install commands to verify against the current plugin docs before release):
+**Plugin layout** (in this repo; checked with `claude plugin validate` and in real sessions, ADR-20261005-5675):
 
 ```
 seamspec-plugin/
-├── .claude-plugin/plugin.json      # name: "seamspec"
+├── .claude-plugin/plugin.json      # name: "seamspec" (namespaces /seamspec:<skill>)
 ├── hooks/hooks.json                # hook config below
-├── skills/                         # lock, dead-end, supersede, checkpoint, context, status (drain: v0.2)
-│   └── lock/SKILL.md
-├── .mcp.json                       # starts the MCP server through bin/seamspec-mcp (§14.3)
-└── bin/
+├── skills/                         # generated from seamspec/templates/commands/ (v0.1: lock, dead-end)
+│   ├── lock/SKILL.md
+│   └── dead-end/SKILL.md
+├── .mcp.json                       # starts the MCP server through scripts/seamspec-mcp (§14.3)
+└── scripts/
     ├── seamspec-hook               # hook wrapper: silent when the CLI is missing
     └── seamspec-mcp                # MCP wrapper: clear error when the CLI is missing
 ```
 
-- **Install:** `seamspec init` prints (or runs, with consent) the plugin install command, and can add the plugin to the project's `.claude/settings.json` so teammates are offered it.
+- **Wrappers live in `scripts/`, not `bin/`:** a plugin's `bin/` folder is put on the agent's Bash `PATH`, and plugins with `bin/` aren't installable on claude.ai or Cowork (ADR-20261005-5675).
+- **Install:** until the release (week 6, after the owner's go-ahead), try it with `claude --plugin-dir <repo>/seamspec-plugin`. A marketplace entry and `seamspec init` printing the install command follow in week 4–6.
 - **Directive:** a plugin can't write `CLAUDE.md`, so `seamspec init` writes the directive (§18) into it (ADR-20261005-c41d).
 - **Two wrappers** (ADR-20261005-c41d), because a missing CLI should be silent for hooks but explained for MCP:
-  - Every hook goes through `bin/seamspec-hook`, which **exits 0 silently** when `seamspec` isn't on `PATH`, so a teammate who has the plugin enabled but not the CLI installed never sees hook errors:
+  - Every hook goes through `scripts/seamspec-hook`, which **exits 0 silently** when `seamspec` isn't on `PATH`, so a teammate who has the plugin enabled but not the CLI installed never sees hook errors:
 
 ```sh
 #!/bin/sh
@@ -1718,7 +1723,7 @@ command -v seamspec >/dev/null 2>&1 || exit 0
 exec seamspec "$@"
 ```
 
-  - The MCP server goes through `bin/seamspec-mcp`. Exiting silently would only show up as a vague "MCP server failed to connect", so it prints an actionable message to stderr (shown in the host's MCP logs) and exits 1:
+  - The MCP server goes through `scripts/seamspec-mcp`. Exiting silently would only show up as a vague "MCP server failed to connect", so it prints an actionable message to stderr (shown in the host's MCP logs) and exits 1:
 
 ```sh
 #!/bin/sh
@@ -1738,18 +1743,18 @@ exec seamspec mcp "$@"
     "PreToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/seamspec-hook hook claude pre-tool-use", "timeout": 15 }]
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/seamspec-hook hook claude pre-tool-use", "timeout": 15 }]
       }
     ],
     "Stop": [
       {
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/seamspec-hook hook claude stop", "timeout": 300 }]
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/seamspec-hook hook claude stop", "timeout": 300 }]
       }
     ],
     "SessionStart": [
       {
         "matcher": "startup|clear",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/seamspec-hook hook claude session-start", "timeout": 5 }]
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/seamspec-hook hook claude session-start", "timeout": 5 }]
       }
     ]
   }
@@ -2309,7 +2314,7 @@ seamspec/
 │   ├── hooks/hooks.json
 │   ├── skills/                     # rendered from templates/commands/ (lock, dead-end, ...)
 │   ├── .mcp.json
-│   └── bin/                        # seamspec-hook, seamspec-mcp (§16.1)
+│   └── scripts/                    # seamspec-hook, seamspec-mcp (§16.1)
 ├── seamspec/
 │   ├── __init__.py
 │   ├── cli.py                      # typer app: init, status, context, review, verify, doctor, mcp, hook, trust (drain, commands: v0.2)
@@ -2548,7 +2553,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 
 1. Does each target host's MCP client declare elicitation support today? This decides how often `auto` resolves to `ask` *(verify before v0.2)*.
 2. Is 100 the right `stop_all_threshold`? Tune it with Stop-hook timing data from the benchmark (§23).
-3. Edit-time context: the hooks reference (checked 2026-10-05) confirms `additionalContext` on `PreToolUse` reaches the model as a system reminder, so `PostToolUse` on `Read` isn't needed. A hands-on check in a real session is still due with the plugin slice (ADR-20261005-5009).
+3. ~~Edit-time context: does `additionalContext` on `PreToolUse` reach the model?~~ **Resolved (ADR-20261005-5675):** yes, confirmed in a real session. It arrives together with the first edit of the file (the model learns the rule as it makes that edit), not before it. `gate_mode = "deny_once"` shows the rule strictly before any change.
 
 ---
 

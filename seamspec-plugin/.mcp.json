@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "seamspec": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/seamspec-mcp",
+      "env": { "SEAMSPEC_ROOT": "${CLAUDE_PROJECT_DIR}" }
+    }
+  }
+}

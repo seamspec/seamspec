@@ -1,0 +1,5 @@
+#!/bin/sh
+# SeamSpec hook wrapper (SPEC §16.1): exit quietly if the SeamSpec CLI isn't installed, so a
+# teammate who has the plugin enabled but not the CLI never sees hook errors.
+command -v seamspec >/dev/null 2>&1 || exit 0
+exec seamspec "$@"
