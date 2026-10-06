@@ -180,6 +180,9 @@ def test_build_env_puts_project_tools_first(tmp_path: Path) -> None:
     env = verifier.build_env(cfg, {"PATH": "/usr/bin", "VIRTUAL_ENV": "/elsewhere"}, root=tmp_path)
     assert env["PATH"].split(os.pathsep) == [str(tmp_path / "node_modules/.bin"), "/usr/bin"]
     assert verifier.build_env(cfg, {}, root=tmp_path / "nothing") == {}
+    # a runner's own PATH still gets the project's tools in front of it
+    env = verifier.build_env(cfg, {"PATH": "/usr/bin"}, root=tmp_path, overrides={"PATH": "/custom/bin"})
+    assert env["PATH"].split(os.pathsep)[-1] == "/custom/bin" and str(tmp_path / ".venv/bin") in env["PATH"]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="shell-script stand-in for a venv")

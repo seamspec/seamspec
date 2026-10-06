@@ -40,7 +40,7 @@ def render_hook(prefix: str) -> str:
         f"{MARKER} Remove this file to uninstall.\n"
         "# Runs every LOCKED SeamSpec invariant before each commit (SPEC §16.4).\n"
         "# GUI git clients often lack ~/.local/bin, where `uv tool` installs.\n"
-        'PATH="$PATH:$HOME/.local/bin"\n'
+        'PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder)\n'
         "if ! command -v seamspec >/dev/null 2>&1; then\n"
         '  echo "SeamSpec: the seamspec CLI is not installed (uv tool install seamspec)." >&2\n'
         '  echo "SeamSpec: install it, or delete this hook to stop checking." >&2\n'

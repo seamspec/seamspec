@@ -150,14 +150,19 @@ def local_bin_dirs(root: Path, environ: Mapping[str, str]) -> list[str]:
     ]
 
 
-def build_env(cfg: Config, environ: Mapping[str, str] | None = None, root: Path | None = None) -> dict[str, str]:
+def build_env(
+    cfg: Config,
+    environ: Mapping[str, str] | None = None,
+    root: Path | None = None,
+    overrides: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     """Minimal environment for test runs (§12.4.7). Deliberately NO "under verification" flag:
-    code must not be able to tell it is being checked. With `root`, the project's own tool
-    folders are put ahead of PATH."""
+    code must not be able to tell it is being checked. `overrides` (a runner's `env`) apply
+    first; with `root`, the project's own tool folders then go ahead of the resulting PATH."""
     source = os.environ if environ is None else environ
     allowed = BASE_ENV_KEYS | set(cfg.execution.env_passthrough)
-    env = {k: v for k, v in source.items() if k in allowed or k.startswith("LC_")}
-    if root is not None and (local := local_bin_dirs(root, source)):
+    env = {k: v for k, v in source.items() if k in allowed or k.startswith("LC_")} | dict(overrides or {})
+    if root is not None and (local := local_bin_dirs(root, env)):
         env["PATH"] = os.pathsep.join([*local, *([env["PATH"]] if env.get("PATH") else [])])
     return env
 
@@ -208,7 +213,9 @@ def _invoke(
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.unlink(missing_ok=True)  # never read a stale report
     argv = expand_argv(runner, invs, report_path)
-    env = build_env(cfg, root=root) | {k: v.replace("{report}", str(report_path)) for k, v in runner.env.items()}
+    env = build_env(
+        cfg, root=root, overrides={k: v.replace("{report}", str(report_path)) for k, v in runner.env.items()}
+    )
     if "/" not in argv[0] and os.sep not in argv[0]:  # look it up on the run's PATH (Windows ignores env PATH)
         argv[0] = shutil.which(argv[0], path=env.get("PATH", "")) or argv[0]
 

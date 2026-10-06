@@ -1,7 +1,7 @@
 #!/bin/sh
 # SeamSpec MCP wrapper (SPEC §16.1): explain a missing CLI instead of failing silently.
 # Apps started from the Dock and GUI git clients often lack ~/.local/bin, where `uv tool` installs.
-PATH="$PATH:$HOME/.local/bin"
+PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder)
 if ! command -v seamspec >/dev/null 2>&1; then
   echo "SeamSpec CLI not found on PATH. Before the release, install your checkout:" >&2
   echo "  uv tool install --force --editable <path-to-seamspec-repo>" >&2
