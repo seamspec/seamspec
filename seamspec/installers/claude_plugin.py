@@ -82,6 +82,14 @@ def commands(source: Path) -> list[tuple[str, ...]]:
     return [("marketplace", "add", str(source), "--scope", SCOPE), ("install", PLUGIN_ID, "--scope", SCOPE)]
 
 
+def _ignore_local_settings(root: Path) -> str | None:
+    """`.claude/settings.local.json` holds this machine's checkout path: never commit it. Only when
+    the file exists, so a manual install, or an install that failed halfway, is covered too."""
+    if not (root / SETTINGS_LOCAL).exists():
+        return None
+    return merge_gitignore(root, (SETTINGS_LOCAL,), "SeamSpec: Claude Code plugin enabled on this machine only")
+
+
 def precheck(root: Path) -> PluginResult | None:
     """Why there is nothing to install (skipped / unchanged), or None when `enable()` can run."""
     root = root.resolve()
@@ -95,7 +103,8 @@ def precheck(root: Path) -> PluginResult | None:
             "(`uv tool install --force --editable <path-to-seamspec-repo>`)",
         )
     if enabled_here(root):
-        return PluginResult("unchanged", f"{PLUGIN_ID} is already enabled for this repository")
+        message = f"{PLUGIN_ID} is already enabled for this repository"
+        return PluginResult("unchanged", message, _ignore_local_settings(root))
     return None
 
 
@@ -108,10 +117,10 @@ def enable(root: Path) -> PluginResult:
     for args in commands(source):
         ok, message = _claude(root, *args)
         if not ok:
-            return PluginResult("failed", f"`claude plugin {' '.join(args)}` failed: {message}")
-    # settings.local.json holds this machine's checkout path: never commit it.
-    ignored = merge_gitignore(root, (SETTINGS_LOCAL,), "SeamSpec: Claude Code plugin enabled on this machine only")
-    return PluginResult("installed", f"{PLUGIN_ID} enabled for this repository only, in {SETTINGS_LOCAL}", ignored)
+            failed = f"`claude plugin {' '.join(args)}` failed: {message}"
+            return PluginResult("failed", failed, _ignore_local_settings(root))  # `add` may have written it
+    message = f"{PLUGIN_ID} enabled for this repository only, in {SETTINGS_LOCAL}"
+    return PluginResult("installed", message, _ignore_local_settings(root))
 
 
 def install(root: Path) -> PluginResult:

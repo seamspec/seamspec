@@ -22,7 +22,7 @@ echo "$*" >> "$FAKE_CLAUDE_LOG"
 case "$*" in
   "plugin list --json") cat "$FAKE_CLAUDE_LIST" 2>/dev/null || echo "[]" ;;
   *"$FAKE_CLAUDE_FAIL"*) echo '{"outcome":"error","message":"boom"}'; exit 1 ;;
-  *) echo '{"outcome":"ok","message":"done"}' ;;
+  *) mkdir -p .claude && echo '{}' > .claude/settings.local.json; echo '{"outcome":"ok","message":"done"}' ;;
 esac
 """
 
@@ -91,7 +91,20 @@ def test_a_failing_step_is_reported(fake_claude: Path, project: Path, monkeypatc
     monkeypatch.setenv("FAKE_CLAUDE_FAIL", "plugin install")
     result = claude_plugin.install(project)
     assert result.status == "failed" and "claude plugin install" in result.message and "boom" in result.message
-    assert not (project / ".gitignore").exists()
+    # `marketplace add` already wrote this machine's path into settings.local.json: still ignored
+    assert result.gitignore == "created" and ".claude/settings.local.json" in (project / ".gitignore").read_text()
+
+
+def test_a_manual_install_is_ignored_too(fake_claude: Path, project: Path, tmp_path: Path) -> None:
+    """Installed by hand earlier: init reports unchanged and still keeps the local settings out of git."""
+    (tmp_path / "list.json").write_text(
+        json.dumps([{"id": "seamspec@seamspec", "scope": "local", "enabled": True, "projectPath": str(project)}])
+    )
+    (project / ".claude").mkdir()
+    (project / ".claude/settings.local.json").write_text("{}")
+    result = claude_plugin.install(project)
+    assert result.status == "unchanged" and result.gitignore == "created"
+    assert ".claude/settings.local.json" in (project / ".gitignore").read_text()
 
 
 def test_no_claude_cli_is_skipped(project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -26,7 +26,7 @@ Both accept `--json`, and both are idempotent ("already on disk", "already insta
 2. **`init` uses Claude Code's own CLI, never writes its settings files.** It runs `claude plugin marketplace add <checkout> --scope local`, then `claude plugin install seamspec@seamspec --scope local`.
 3. **`local` scope only, for now.** It touches just this user and just this repository. `project` scope would commit an absolute path to the checkout into `.claude/settings.json`; it waits for a published GitHub marketplace at the release (ADR-20261005-3adc). `user` scope would turn the plugin on for every project; it is not offered.
 4. **Asks first, shows the exact commands.** `--plugin` and `--no-plugin` exist for scripts. Without a terminal and without a flag, `init` calls nothing and prints `seamspec init --plugin`.
-5. **`.claude/settings.local.json` goes into the repo's `.gitignore`.** It holds this machine's checkout path. Claude Code's own global ignore covers it on some machines, but not reliably.
+5. **`.claude/settings.local.json` goes into the repo's `.gitignore` whenever it exists.** It holds this machine's checkout path. Claude Code's own global ignore covers it on some machines, but not reliably. This also covers a plugin installed by hand (`init` reports `unchanged`) and an install that failed after `marketplace add` had already written the file (from Copilot's review of PR #20).
 6. **Skip or no-op cases:**
    - `claude` isn't on `PATH` → skipped, with a note;
    - the CLI isn't running from a checkout → skipped (a wheel install has no marketplace until the release);
