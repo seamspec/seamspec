@@ -16,6 +16,7 @@ Part of #<!-- week tracking issue, e.g. 2 -->
 - [ ] `docs/PROGRESS.md` updated
 - [ ] `uv run pytest`, `uv run ruff check .` and `uv run ruff format --check .` pass locally
 - [ ] CI green (or GitHub outage noted below)
+- [ ] Copilot review requested and every finding addressed or answered (ADR-20261005-c076)
 
 ## Notes for review
 
