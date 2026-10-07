@@ -1908,9 +1908,23 @@ PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder
 cd "$(git rev-parse --show-toplevel)/services/api" || exit 1   # only when .seamspec/ is in a subfolder
 # A branch where SeamSpec was never set up (no config here or in HEAD) has nothing to check.
 # A config that exists in HEAD but is missing here still runs the gate, and fails.
-if [ ! -f .seamspec/config.toml ] && ! git cat-file -e HEAD:./.seamspec/config.toml 2>/dev/null; then
-  echo "SeamSpec: not set up on this branch; nothing to check." >&2
-  exit 0
+# If git can't answer, fail closed: never guess that a branch is ungoverned.
+if [ ! -f .seamspec/config.toml ]; then
+  if ! command -v git >/dev/null 2>&1; then
+    echo "SeamSpec: git not found on PATH, so this branch can't be checked. Not committing." >&2
+    exit 1
+  fi
+  in_head=""
+  if git rev-parse --verify -q HEAD >/dev/null; then
+    in_head=$(git ls-tree --name-only HEAD -- ./.seamspec/config.toml) || {
+      echo "SeamSpec: git failed to read HEAD, so this branch can't be checked. Not committing." >&2
+      exit 1
+    }
+  fi
+  if [ -z "$in_head" ]; then
+    echo "SeamSpec: not set up on this branch; nothing to check." >&2
+    exit 0
+  fi
 fi
 if ! command -v seamspec >/dev/null 2>&1; then
   echo "SeamSpec: the seamspec CLI is not installed (uv tool install seamspec)." >&2
@@ -1920,7 +1934,7 @@ fi
 exec seamspec verify --all --gate
 ```
 
-The hook is installed in `.git/hooks`, so it runs on **every branch** of the clone. A branch where SeamSpec was never set up, with no config in the working tree or in `HEAD`, passes with a note. A config that is in `HEAD` but missing from the working tree still runs the gate, which fails (dogfooding #6, ADR-20261006-0f6e).
+The hook is installed in `.git/hooks`, so it runs on **every branch** of the clone. A branch where SeamSpec was never set up, with no config in the working tree or in `HEAD`, passes with a note. A config that is in `HEAD` but missing from the working tree still runs the gate, which fails. If `git` can't be found or can't read `HEAD`, the hook fails closed instead of guessing (dogfooding #6, ADR-20261006-0f6e; Copilot, PR #22).
 
 `--gate` behavior: exit non-zero if any `LOCKED` invariant fails, an integrity or fingerprint check fails, or an invariant's status changed without a journal entry (§11.1); print `N items awaiting review` as a non-blocking reminder. Pre-commit has **no deadline**: it always runs the full set. In an untrusted clone it fails with "Run `seamspec trust`" instead of running anything (§12.4.6).
 

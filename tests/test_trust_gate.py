@@ -265,6 +265,28 @@ def test_hook_skips_a_branch_without_seamspec_but_not_a_deleted_config(gated_rep
     assert blocked.returncode != 0 and "not set up on this branch" not in blocked.stderr
 
 
+def test_hook_fails_closed_when_git_is_missing(tmp_path: Path) -> None:
+    """Without git the hook can't tell an ungoverned branch from a deleted config: it must block."""
+    hook = tmp_path / "pre-commit"
+    hook.write_text(git_hooks.render_hook(""))
+    no_git = tmp_path / "bin"
+    no_git.mkdir()
+    result = subprocess.run(
+        ["/bin/sh", str(hook)], cwd=tmp_path, capture_output=True, text=True,
+        env={"PATH": str(no_git), "HOME": str(tmp_path / "home")},
+    )  # fmt: skip
+    assert result.returncode == 1 and "git not found" in result.stderr
+
+
+def test_hook_on_a_first_commit_without_seamspec_passes(tmp_path: Path) -> None:
+    """No HEAD yet and no config: nothing to check (not a git failure)."""
+    git(tmp_path, "init", "-q", "-b", "main")
+    hook = tmp_path / "pre-commit"
+    hook.write_text(git_hooks.render_hook(""))
+    result = subprocess.run(["/bin/sh", str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 0 and "not set up on this branch" in result.stderr
+
+
 def test_scripted_init_keeps_an_earlier_consent(py_repo: Path) -> None:
     """Dogfooding #7: re-running init with no terminal and no flag must not record a "no" nobody gave."""
     store = Store(py_repo)
