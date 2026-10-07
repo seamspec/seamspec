@@ -30,3 +30,6 @@ node_modules/
 
 # SeamSpec: Claude Code plugin enabled on this machine only
 .claude/settings.local.json
+
+# Benchmark results and logs stay local; summaries are copied into docs when reported
+bench/results/

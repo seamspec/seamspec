@@ -1,0 +1,9 @@
+{
+  "name": "prices",
+  "private": true,
+  "description": "Order totals for the shop.",
+  "type": "module",
+  "devDependencies": {
+    "vitest": "3.2.7"
+  }
+}
