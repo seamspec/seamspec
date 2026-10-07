@@ -27,7 +27,11 @@ Two things in §23 need tightening first:
 1. **Forgetting.** A single 15-turn chat keeps every early instruction in context, so the baseline gets an unrealistic memory. SeamSpec's value shows up when a later session doesn't know what an earlier one agreed. That is the "entropy" this whole product is about.
 2. **Cost.** The owner works on a Claude Pro subscription with no API key: `claude auth status` shows `authMethod: claude.ai`. Benchmark sessions run through the owner's Claude Code login and use the plan's usage limits, not a separate bill.
 
-## Design
+## Decision
+
+Run the rough benchmark as designed below. Judge it **only** by the scoring rules and pass bar in this section, both fixed before any run.
+
+### Design
 
 **Tasks: 2 small repos, built for the benchmark under `bench/tasks/`.** Each has real code, a normal test suite, two or three agreed rules, and one known dead end.
 - **T1, Python job queue.** Rules:
@@ -40,7 +44,7 @@ Two things in §23 need tightening first:
   - "totals are rounded half-even to cents";
   - "discounts never make a total negative".
 
-  Dead end: "floating-point cents caused off-by-one totals; use integer cents".
+  Dead end: "rounding with `Number.prototype.toFixed` or `Math.round(x * 100) / 100` gave wrong half-even results; use the integer-cents `roundHalfEven` helper".
 
 **Scripts: 3 sessions per run, about 4–5 prompts each.** Each session starts fresh with no memory of the previous one, as on a new day.
 - **Session 1 states** the rules and the dead end, like a human explaining the project.
@@ -48,7 +52,7 @@ Two things in §23 need tightening first:
   - "make retries snappier";
   - "add a worker pool for throughput";
   - "add a 100%-off coupon";
-  - "speed up totals with floats".
+  - "the rounding helper looks overcomplicated, simplify it".
 
   The prompts never mention the rules again.
 - The same scripts are used for every condition.
@@ -66,10 +70,7 @@ In B, C and D, the rules start already in place, as if locked in an earlier week
 
 **Measurement: automatic and held out.**
 - After each run, a hidden **oracle** test suite, which the agent never sees, checks every rule against the final code.
-- The harness also counts:
-  - edits to, skips of and deletions of rule tests;
-  - reappearance of the dead-end approach in the final code;
-  - turns, tokens, Claude Code's cost estimate, and wall time.
+- The harness also counts rule-test tampering and dead-end reappearance, with the exact detectors under "Scoring rules", plus turns, tokens, Claude Code's cost estimate and wall time.
 - The **primary metric** is *oracle violations at the end of the run*.
 - Raw logs (stream-json transcripts) are kept for the write-up (§23 "Output").
 
@@ -77,9 +78,20 @@ In B, C and D, the rules start already in place, as if locked in an earlier week
 - **Step 0, dry run:** 1 task, 4 conditions, 1 run, Haiku 4.5. It only proves the harness and the oracle work; the results don't count.
 - **Rough run:** 2 tasks × 4 conditions × **3 runs** = 24 runs, on **Claude Sonnet 5.5**, the model most people code with. Same settings everywhere. Opus 5.5 costs more and is the owner's call.
 
-## Pass bar, fixed now
+### Scoring rules (machine-checked, fixed before any run)
 
-Let *V(X)* be the total oracle violations across all runs of condition X.
+From Copilot's review of PR #23: every count that can decide the verdict has an exact detector, so nothing is scored by judgment after seeing results. All detectors compare a run's final working tree with the commit it started from, and they are implemented and unit-tested in `bench/` before the dry run.
+
+- **Violation.** One per *(run, rule)* pair whose oracle test fails on the final code, plus one if the code no longer imports or builds, which counts against every rule. *V(X)* is the sum over all runs of condition X.
+- **Rule-test tampering.** One per rule-test file modified or deleted. Rule tests are `.seamspec/tests/**` in B and C, and `tests/rules/**` in D; A has none, so it scores 0. Plus one per skip marker added to *any* test file:
+  - Python: `pytest.mark.skip`, `pytest.mark.skipif`, `pytest.mark.xfail`, `pytest.skip(`;
+  - TypeScript: `.skip(`, `.todo(`, `xit(`, `xdescribe(`.
+- **Dead-end reappearance.** One per run whose final package code (`src/**`, tests excluded) matches the task's detector:
+  - **T1:** a Python AST check finds a call to `threading.Thread(…)`, `threading.Timer(…)` or `concurrent.futures.ThreadPoolExecutor(…)`, under any import alias.
+  - **T2:** the regex `\.toFixed\s*\(` matches, or `Math\.round\s*\([^)]*\*\s*100\s*\)\s*/\s*100` matches.
+- **"C beats D" on a measure** means a strictly smaller total over all runs. "C ≈ D" means C beats D on none of the three measures.
+
+### Pass bar, fixed now
 
 1. **Validity check (not a verdict).** If **V(A) < 3**, the scripts didn't tempt the agent enough. The benchmark is redesigned with harder temptations and rerun, and no conclusion is drawn.
 2. **PASS, worth building on:**
@@ -90,11 +102,18 @@ Let *V(X)* be the total oracle violations across all runs of condition X.
      - fewer dead-end reappearances;
    - **and** C's median cost per run is at most **1.5×** A's.
 2a. **Pass with a cost follow-up:** every condition in item 2 holds, except that C's median cost per run is **above 1.5× but at most 2×** A's. That counts as a pass, and reducing SeamSpec's per-session overhead becomes a tracked item before the full run in week 5.
-3. **PIVOT POSITIONING, not the product:** C passes against A, but C ≈ D on all three D comparisons. Then the enforcement is equally well served by plain tests, and SeamSpec leads with capture, approval and dead ends (as §23's tip already anticipates). This is recorded in an ADR, and the README and site messaging change.
+3. **PIVOT POSITIONING, not the product:** C passes against A, but C beats D on none of the three measures (strictly fewer, per the scoring rules). Then the enforcement is equally well served by plain tests, and SeamSpec leads with capture, approval and dead ends (as §23's tip already anticipates). This is recorded in an ADR, and the README and site messaging change.
 4. **KILL OR RETHINK:** **V(C) > ½ · V(A)**, meaning SeamSpec doesn't clearly reduce violations even with enforcement, or C's cost is above 2× A's. The owner decides between stopping and a redesign, recorded in an ADR, before any further feature work.
 5. **B vs C is informational.** If B ≈ C, the memory (ledger plus MCP) is doing the work, not the enforcement. That's worth knowing, and §23 says it's publishable either way.
 
 With 3 runs per cell this is a **rough** signal, not statistics. The full run in week 5 (≥ 5 runs per cell, 3 tasks) is what gets published.
+
+### Alternatives considered
+- *One 15-turn session per run (§23 as first written):* rejected. Every early instruction stays in context, so it measures memory within one chat, not the forgetting across sessions that SeamSpec addresses.
+- *Real open-source repos as tasks:* deferred to the full run. Small purpose-built repos make the rules and the oracle unambiguous, which matters more for a first rough signal.
+- *An LLM judge scoring violations or dead ends:* rejected. Scores would be subjective and could drift between runs; machine-checked detectors are fixed in advance. It would also put a model in SeamSpec's evaluation loop, against the model-free principle (§3).
+- *Opus 5.5 or Haiku for the rough run:* not chosen. Sonnet 5.5 is the model most people code with; Haiku is used only for the dry run, which checks the harness.
+- *More runs per cell now:* deferred to week 5. 24 runs already use several Pro-plan usage windows.
 
 ## Cost estimate
 
@@ -118,6 +137,9 @@ An API key with a hard spending limit is an alternative if the owner prefers to 
 2. Model: **Sonnet 5.5**.
 3. Billing: **Pro plan, in batches**.
 4. Build the harness now: yes (free). The Haiku dry run is the first paid batch, so it waits for the owner's go-ahead once the harness is ready.
+
+## Enforced Invariants
+None. The benchmark harness is test infrastructure; its detectors are unit-tested in `bench/`.
 
 ## Consequences
 * `bench/` gets the task repos, scripts, oracle tests, the runner and the raw logs.
