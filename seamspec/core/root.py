@@ -24,7 +24,10 @@ def find_root(start: Path | None = None) -> Path:
     for candidate in (current, *current.parents):
         if (candidate / CONFIG_REL).is_file():
             return candidate
-    raise RootNotFound("No .seamspec/config.toml found. Run `seamspec init`.")
+    raise RootNotFound(
+        f"No {CONFIG_REL.as_posix()} found in {current} or any folder above it. "
+        "Run SeamSpec from inside your repository, or run `seamspec init` there."
+    )
 
 
 def to_rel(root: Path, path: str | Path) -> str | None:

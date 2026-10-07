@@ -756,7 +756,7 @@ stateDiagram-v2
 
 The journal explains a change when its entries for that `id` form a **chain** from the `HEAD` status to the current one, e.g. `PROPOSED → LOCKED` then `LOCKED → SUPERSEDED` for a rule approved and superseded before the next commit. That is not tamper-proof, since an agent with shell access could write the journal too, but it turns a silent retirement into a visible warning. CI adds a **retirement summary** listing every rule whose status changed in the PR (§16.5), so a reviewer can't miss it.
 
-**Approver identity.** `approved_by` (and `actor` in the journal) is the git identity `user.name <user.email>`, falling back to the OS user name. It is committed with the record; users who keep their email private should use their forge's noreply address in git config.
+**Approver identity.** `approved_by` (and `actor` in the journal) is the identity git records for commits, `Name <email>`, read with `git var GIT_AUTHOR_IDENT` so git's own rules apply (environment overrides, and the OS full name when `user.name` is unset; dogfooding finding, ADR-20261006-0f6e). It falls back to the OS user name when git can't say. It is committed with the record; users who keep their email private should use their forge's noreply address in git config.
 
 ### 11.2 Supersede Flow (Intentional Breaking Changes)
 
@@ -1314,7 +1314,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec supersede <id> --reason [--replacement <id>]` | Human-initiated supersede, or approve a pending request |
 | `seamspec retire-dead-end <id> --reason` | Retire a dead end |
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
-| `seamspec verify [--changed\|--all\|--proposed <id...>] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
+| `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
 | `seamspec drain [--json] [--tidy]` *(v0.2)* | List pending braindump items; `--tidy` moves processed items below the marker |
 | `seamspec doctor [--ci]` | Validate schemas, hashes, runner config fingerprints, hook installation, host tiers, MCP token budget, `CLAUDE.md` directive drift (§18); `--ci` adds ledger-forward-only checks against the base branch and the retirement summary |
 | `seamspec mcp` | Run the MCP server (stdio) |
@@ -1381,7 +1381,7 @@ Templates live in `seamspec/templates/commands/<name>.md`. **In v0.1 the frontma
 ---
 Rules for every SeamSpec command:
 - Never approve invariants and never edit files under `.seamspec/` directly.
-- `propose_invariant` never runs tests. After proposing, run `seamspec verify --proposed <ids>`
+- `propose_invariant` never runs tests. After proposing, run `seamspec verify --proposed <id>`
   with your shell tool; the user may be asked to allow it. Never try to work around that prompt.
 - If SeamSpec MCP tools are unavailable, use the CLI instead: `seamspec context <files>`,
   `seamspec propose --json -`, `seamspec dead-end --json -`, `seamspec verify --json`, `seamspec drain --json`.
@@ -1721,7 +1721,7 @@ claude plugin marketplace add <seamspec checkout> --scope local
 claude plugin install seamspec@seamspec --scope local
 ```
 
-  - **`local` scope** writes only `<repo>/.claude/settings.local.json`: just this user, just this repository. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it holds this machine's checkout path. The plugin loads in place from the checkout, so plugin edits apply at the next session or `/reload-plugins`.
+  - **`local` scope** enables the plugin in `<repo>/.claude/settings.local.json`: just this user, just this repository. Claude Code also records the marketplace and the install under `~/.claude/plugins/`; that turns nothing on in other projects. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it holds this machine's checkout path. The plugin loads in place from the checkout, so plugin edits apply at the next session or `/reload-plugins`.
   - **Asks first.** In a terminal, `init` shows both commands and asks *"Install the SeamSpec plugin for Claude Code in this repository? [Y/n]"*. `--plugin` installs without asking; `--no-plugin` skips. Without a terminal and without a flag it calls nothing and prints `seamspec init --plugin`.
   - **Skipped** with a note when `claude` isn't on `PATH`, or when the CLI isn't running from a checkout (a wheel install has no marketplace until the release). **Unchanged** when `claude plugin list` already shows it enabled for this repository (or at `user` scope).
   - Until the release (week 6, after the owner's go-ahead) the marketplace is the local checkout. A published GitHub marketplace, and with it `project` scope (committed `.claude/settings.json`, so teammates are prompted), comes with the release.

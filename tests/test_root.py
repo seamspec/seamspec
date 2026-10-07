@@ -14,8 +14,9 @@ def test_find_root_walks_up(repo: Path) -> None:
 
 
 def test_find_root_not_found(tmp_path: Path) -> None:
-    with pytest.raises(RootNotFound, match="seamspec init"):
+    with pytest.raises(RootNotFound, match="seamspec init") as err:
         find_root(tmp_path)
+    assert f"in {tmp_path.resolve()} or any folder above it" in str(err.value)  # says where it looked
 
 
 def test_find_root_env_wins(

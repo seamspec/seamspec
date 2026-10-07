@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-06 | **Dogfooding** (PR `week-3/dogfood`): SeamSpec governs its own repo in **enforced** mode. The owner ran `init` (consent, plugin at local scope) and approved **6 LOCKED rules** in `seamspec review`; every commit now runs them in pre-commit. `docs/adr/` stays until agents have an ADR tool (v0.2). Fixed dogfooding findings: plugin prompt wording, `--proposed` repeatable-flag docs, "not found" error names the folder, approver identity matches git's | ADR-20261006-0f6e |
 | 2026-10-06 | **Setup friction, part 3: design** (PR `docs/chat-approvals-design`): approvals in chat through an MCP form dialog, with guards against hooks that could auto-answer it; a local review page is deferred to v0.2; typed approvals via `UserPromptSubmit` rejected. Hook risk verified in 5 Opus 5.5 sessions ($0.70): another plugin's or a mid-session settings hook can auto-approve; a `ConfigChange` hook blocks the mid-session case. **PROPOSED**: waiting for the owner's answers and verification 2 (dialog rendering) | ADR-20261006-c300 |
 | 2026-10-05 | **Setup friction, part 2** (#20): this repo is also a plugin marketplace (`.claude-plugin/marketplace.json`); `seamspec init` shows the two `claude plugin` commands, asks, and installs the plugin at **local** scope (only `.claude/settings.local.json`, which it git-ignores); `--plugin` / `--no-plugin` for scripts. Checked against the real Claude Code CLI in a throwaway config | ADR-20261005-428a |
 | 2026-10-05 | **Setup friction, part 1** (#19): test runs find the project's `.venv` / `venv` / `node_modules/.bin` tools without activation (an activated virtualenv wins); the plugin wrappers and pre-commit hook also look in `~/.local/bin` (desktop app, GUI git clients); a fresh clone's `init` asks one question covering consent and trust | ADR-20261005-9b8f |
@@ -37,8 +38,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - **Designed, not built:** approvals in chat (ADR-20261006-c300, PROPOSED, PR #21). The hook risk is measured, and the `ConfigChange` guard works.
 - **Not proven yet:** that agents break fewer things *with* SeamSpec than without, at an acceptable cost. Only the benchmark answers that, and it decides whether this becomes a product.
 - **Suggested order** (the owner decides next session):
-  1. Merge PR #21 as a design only. Building chat approvals waits for the owner's four answers and verification 2.
-  2. **Dogfood** SeamSpec on this repo.
+  1. ~~Merge PR #21 as a design only~~ (merged). Building chat approvals waits for the owner's four answers and verification 2.
+  2. ~~**Dogfood** SeamSpec on this repo~~ (PR `week-3/dogfood`).
   3. **Rough benchmark**, with the pass bar written in an ADR *before* running (cost estimate and approval first).
   4. Then onboarding polish, and chat approvals if the benchmark is good.
 
@@ -52,8 +53,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] Edit-time context + ledger protection (§7.2). Merged in #16; confirmed in a real session (PR `week-3/plugin`)
 - [x] MCP server: 5 tools + 2 resources (§14). Merged in #17
 - [x] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1). Merged in #18
-- [ ] Setup friction: project tools without activation, one question on a clone (#19, merged); plugin install from `init` (#20, merged); approvals in chat (design: ADR-20261006-c300, PROPOSED, PR #21; build deferred until after the benchmark unless the owner says otherwise)
-- [ ] Dogfood: `seamspec init` on this repo; `docs/adr/` → `.seamspec/adrs/`
+- [x] Setup friction: project tools without activation, one question on a clone (#19); plugin install from `init` (#20); approvals in chat designed (ADR-20261006-c300, PROPOSED, #21; build deferred until after the benchmark unless the owner says otherwise)
+- [x] Dogfood: `seamspec init` on this repo (enforced, 6 owner-approved rules, plugin enabled). `docs/adr/` stays for now (ADR-20261006-0f6e). PR `week-3/dogfood`
 - [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR
 
 ## Done in Week 2 (issue #2, closed)
