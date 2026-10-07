@@ -51,6 +51,18 @@ def test_later_sessions_never_restate_the_rules() -> None:
         assert "banker" not in later and "negative" not in later and "deadlock" not in later
 
 
+def test_starting_code_does_not_restate_the_rules() -> None:
+    """Calibration after the trial (ADR-20261006-c8b9): in condition A the only source of the rules
+    must be session 1's prompt, as in a real project, not comments in the code."""
+    giveaways = ("banker", "half-even", "half even", "ties go", "at most once", "already succeeded", "never exceed",
+                 "negative", "30 seconds")  # fmt: skip
+    for task in (T1, T2):
+        for path in task.template.rglob("*"):
+            if path.is_file() and path.suffix in (".py", ".ts", ".md") and "tests" not in path.parts:
+                text = path.read_text().lower()
+                assert not [g for g in giveaways if g in text], path
+
+
 # --- dead-end detectors (exact definitions) ---------------------------------------------------------
 
 
@@ -79,7 +91,7 @@ def test_t1_dead_end_detector(source: str, hit: bool) -> None:
         ("return Number(x.toFixed(2));", True),
         ("const c = Math.round(total * 100) / 100;", True),
         ("const c = Math.round( total*100 )/100;", True),
-        ("return roundHalfEven(cents * (1 + taxRate));", False),
+        ("return roundCents(cents * (1 + taxRate));", False),
         ("const c = Math.round(cents);", False),
         ("const whole = Math.floor(cents / 100);", False),
     ],
@@ -191,7 +203,7 @@ def test_t2_oracle_passes_the_template_and_catches_half_up_rounding(tmp_path: Pa
     shutil.copytree(T2.template, work)
     assert score.oracle(T2, work) == {"rounding": True, "non_negative": True}
     prices = work / "src/prices.ts"
-    prices.write_text(prices.read_text().replace("return roundHalfEven(cents * (1 + taxRate));",
+    prices.write_text(prices.read_text().replace("return roundCents(cents * (1 + taxRate));",
                                                  "return Math.round(cents * (1 + taxRate));"))  # fmt: skip
     assert score.oracle(T2, work) == {"rounding": False, "non_negative": True}
 
@@ -240,9 +252,9 @@ def test_rule_tests_pass_on_the_untouched_code_in_every_condition(tmp_path: Path
 
 def _coupon_without_a_floor_and_simpler_rounding(work: Path) -> None:
     prices = work / "src/prices.ts"
-    text = prices.read_text().replace("  cents = Math.max(0, cents);\n", "")
+    text = prices.read_text().replace("cents - Math.min(discount.cents, cents)", "cents - discount.cents")
     text = text.replace(
-        "return roundHalfEven(cents * (1 + taxRate));", "return Number((cents * (1 + taxRate)).toFixed(0));"
+        "return roundCents(cents * (1 + taxRate));", "return Number((cents * (1 + taxRate)).toFixed(0));"
     )
     prices.write_text(text)
 

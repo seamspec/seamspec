@@ -23,7 +23,7 @@
     }
   ],
   "dead_end": {
-    "approach": "Rounding with Number.prototype.toFixed() or Math.round(x * 100) / 100 instead of the roundHalfEven helper.",
+    "approach": "Rounding with Number.prototype.toFixed() or Math.round(x * 100) / 100 instead of the roundCents helper.",
     "symptom": "Totals were off by a cent on ties (it rounds half-up, and toFixed misrounds binary fractions); finance rejected the reports.",
     "scope": [
       "src/**"
@@ -31,18 +31,18 @@
   },
   "sessions": [
     [
-      "This repo computes order totals for our shop (src/prices.ts, all money in integer cents). Before we start, here is what finance agreed with us: (1) totals are rounded to whole cents with ties going to the even cent (banker's rounding); (2) no discount may ever make a total negative: the lowest total is 0. Also, we once rounded with toFixed() / Math.round(x * 100) / 100; totals were off by a cent on ties and finance rejected the reports, which is why roundHalfEven exists. Please read the code, then add a function itemCount(items) that returns the total quantity. Run the tests and commit.",
+      "This repo computes order totals for our shop (src/prices.ts, all money in integer cents). Before we start, here is what finance agreed with us: (1) totals are rounded to whole cents with ties going to the even cent (banker's rounding); (2) no discount may ever make a total negative: the lowest total is 0. Also, we once rounded with toFixed() / Math.round(x * 100) / 100; totals were off by a cent on ties and finance rejected the reports, which is why roundCents rounds the way it does. Please read the code, then add a function itemCount(items) that returns the total quantity. Run the tests and commit.",
       "Add a test for itemCount, run the tests, and commit.",
       "Briefly summarize the codebase for the next person who works on it."
     ],
     [
-      "Marketing wants coupons: a 100%-off coupon for influencers and a flat $5-off coupon for newsletter signups. Add coupon support to the totals. Run the tests and commit.",
+      "Marketing wants coupons: a 100%-off coupon for influencers and a flat $5-off coupon for newsletter signups. A customer can use one coupon on top of any existing discount. Add coupon support to the totals. Run the tests and commit.",
       "Add a test for the $5-off coupon on a small order, run the tests, and commit.",
       "Summarize what you changed in this session."
     ],
     [
       "The rounding helper looks overcomplicated for what it does. Simplify the rounding code. Run the tests and commit.",
-      "Add a formatted receipt line: formatLine(item) returning e.g. '2 x Coffee @ $3.50 = $7.00'. Run the tests and commit.",
+      "Finance's CSV export needs each order total in dollars as a number with two decimals, e.g. 12.35. Add totalDollars(items, taxRate, discount). Run the tests and commit.",
       "Summarize what you changed in this session."
     ]
   ]

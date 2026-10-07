@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-06 | **Benchmark trial + calibration** (PR `week-3/bench-calibration`): Sonnet trial (8 runs, 20 min, $8.88). Every part worked, but the verdict was "redo" (V(A)=1): the starting code restated its own rules. Templates no longer do; T2's temptations are stronger. Next: an A-only calibration check (4 runs, ≈ $4–5), then the counted run | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark billing** (PR `week-3/bench-api-billing`): `--billing plan|api`. The owner switched to an API key, with Sonnet 5.5 for the trial run too. The harness checks Claude Code's reported `apiKeySource` on every prompt and stops on a mismatch | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark harness built** (#24), no model calls yet: 2 task repos (Python job queue, TypeScript prices) with visible rule tests and hidden oracle tests, setup for conditions A–D, `claude -p` driver (fresh session per scripted session), scoring rules and the pass bar as code. `tests/test_bench.py` checks detectors, tampering, every verdict, the oracle, and full fake-agent runs | `bench/`, ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark plan accepted** (#23): 2 tasks, 3 fresh sessions per run (models forgetting), conditions A–D, hidden oracle tests; pass / change-the-pitch / kill thresholds fixed before any run; Claude Sonnet 5.5 on the owner's Pro plan in batches | ADR-20261006-c8b9 |
@@ -58,7 +59,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1). Merged in #18
 - [x] Setup friction: project tools without activation, one question on a clone (#19); plugin install from `init` (#20); approvals in chat designed (ADR-20261006-c300, PROPOSED, #21; build deferred until after the benchmark unless the owner says otherwise)
 - [x] Dogfood: `seamspec init` on this repo (enforced, 6 owner-approved rules, plugin enabled). `docs/adr/` stays for now (ADR-20261006-0f6e). #22
-- [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR. Plan **accepted** by the owner (ADR-20261006-c8b9, #23): pass bar fixed, Claude Sonnet 5.5, billed to an API key (owner's change). Harness built (#24). Next: a Sonnet trial run (8 runs, ≈ $12–32) that the owner starts in their own terminal, then the counted rough run
+- [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR. Plan **accepted** by the owner (ADR-20261006-c8b9, #23): pass bar fixed, Claude Sonnet 5.5, billed to an API key (owner's change). Harness built (#24). Trial done ($8.88, harness verdict "redo": tasks too easy). Calibrated (PR `week-3/bench-calibration`). Next: A-only calibration check, then the counted rough run
 
 ## Done in Week 2 (issue #2, closed)
 

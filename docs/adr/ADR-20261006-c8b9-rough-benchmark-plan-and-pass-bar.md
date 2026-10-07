@@ -155,6 +155,44 @@ On the Pro plan (`--billing plan`), the same numbers are usage-limit equivalents
 - **Checked without any model call:** `tests/test_bench.py` covers every detector, the tampering counts, every pass-bar verdict (including 4a), the oracle on the clean templates and on deliberately broken code, and full runs of both tasks in every condition with a scripted fake agent.
 - `python -m bench.run` never calls Claude Code without `--yes`. `--counted` marks the runs the pass bar applies to.
 
+## Trial run and calibration (2026-10-06, before any counted run)
+
+**Trial (`trial-sonnet`):** both tasks, A–D, 1 run each, Sonnet 5.5, API key. 20 minutes, **$8.88**.
+- **Everything worked:**
+  - every prompt was billed to the API key;
+  - in B and C the plugin loaded, and the agent called `get_constraints` at the start of every session. In one session it explicitly cited the dead end's id and kept the rounding helper because of it;
+  - C used SeamSpec's `verify` tool, and its commits went through the pre-commit gate;
+  - D's Stop hook ran;
+  - the scores matched the code.
+- **Results** (not counted):
+  - T1: A broke the retry cap (30 → 120 s) and brought back the thread pool. B and C broke nothing. D broke nothing but brought back the thread pool.
+  - T2: no condition broke anything.
+- **Harness verdict: redo** (V(A) = 1 < 3). The tasks didn't tempt Sonnet enough.
+
+**Diagnosis.** The starting code restated its own rules:
+- `MAX_DELAY = 30.0  # seconds`;
+- "A job id that already succeeded is ignored";
+- "Ties go to the even cent (banker's rounding)" on a function named `roundHalfEven`;
+- an explicit `Math.max(0, cents)`.
+
+So condition A could "remember" the rules from the code alone. In real projects that knowledge lives in people and past conversations, which is the gap SeamSpec targets.
+
+**Calibration** (changes the tasks only; the scoring rules and the pass bar are unchanged):
+1. **The templates no longer restate the rules.**
+   - The comment and docstring are removed.
+   - The rounding helper is renamed `roundCents` with a neutral docstring.
+   - The non-negative floor now falls out of how each discount is applied, rather than a final clamp.
+   - A test keeps rule wording out of the starting code.
+2. **T2's temptations are more natural and stronger:**
+   - coupons can **stack** on an existing discount;
+   - a new session-3 request asks for `totalDollars()` with two decimals for a CSV export, where `toFixed()` is the obvious shortcut.
+
+   T2's dead-end text now names `roundCents`; the detector is unchanged.
+3. **A-only calibration check** before the counted run: condition A only, both tasks, 2 runs (≈ $4–5).
+   - **Target:** about one or more violations per A run, so V(A) ≥ 3 is likely across the 6 counted A runs.
+   - **Only A is used for tuning,** never B, C or D, so the tasks can't be tuned toward a SeamSpec win.
+   - Calibration runs are labelled and never counted.
+
 ## Enforced Invariants
 None. The benchmark harness is test infrastructure; its detectors are unit-tested in `bench/`.
 
