@@ -2517,6 +2517,7 @@ Competing tools already support several hosts, so v0.2 follows quickly. The adap
 | Conditions | (A) baseline; (B) `advisory` mode (rules + MCP); (C) `enforced` mode (plugin hooks + pre-commit); **(D) plain tests + a Stop hook that runs them**: the same tests as (C), written in `tests/`, with no SeamSpec |
 | Runs | Rough run in **week 3**: 2 tasks × 4 conditions × 3 runs on Claude Sonnet 5.5, after a Haiku dry run that only checks the harness. Full run in week 5: ≥ 5 runs per condition per task, same model and settings |
 | Scoring | A **hidden oracle** test suite, which the agent never sees, checks every rule against the final code. The pass, change-the-pitch and kill thresholds are fixed in ADR-20261006-c8b9 **before** any run |
+| Rough run result (week 3) | **PASS**: V(A)=9, V(B)=1, V(C)=2, V(D)=6. C beat plain tests on violations, tampering and dead ends, at 1.29× the cost. SeamSpec agents surfaced all 12 conflicts with `request_supersede`; with plain tests, the agent rewrote the tests. See ADR-20261006-b270 and `docs/benchmark/rough-1.md` |
 | Metrics | Locked-invariant violations at end; regressions introduced and not fixed; tests edited, skipped or deleted by the agent; dead-end retries; turns to completion; tokens/cost; human interventions |
 | Output | Published scripts, raw logs, and a single chart: *violations per session by condition* |
 
