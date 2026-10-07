@@ -306,3 +306,63 @@ def test_strict_incomplete_run_is_not_excused_by_a_supersede_request(git_repo: P
         out = claude.stop(payload, store, strict)
     assert out["decision"] == "block" and "[INCOMPLETE]" in out["reason"]
     assert "supersede requested" in claude.stop(payload, store, cfg)["systemMessage"]  # non-strict: escape applies
+
+
+# --- SessionStart: the agreements in force (ADR-20261007-ac04) -------------------------------------
+
+
+def session(root: Path, source: str = "startup") -> dict | None:
+    out = claude.main("session-start", json.dumps({"session_id": "s1", "cwd": str(root), "source": source}))
+    return json.loads(out) if out else None
+
+
+def test_session_start_lists_rules_dead_ends_and_pending_reviews(git_repo: Path, human: None) -> None:
+    inv_id = lock(git_repo)
+    Store(git_repo).create(make_dead_end())
+    propose(git_repo)  # one waiting for review
+    out = session(git_repo)
+    assert out is not None and out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    text = out["hookSpecificOutput"]["additionalContext"]
+    assert inv_id in text and "de_9f8e7d6c" in text and "a global retry counter" in text
+    assert "request_supersede" in text and "1 item(s) wait for the user's review" in text
+
+
+def test_session_start_is_silent_with_an_empty_ledger(git_repo: Path) -> None:
+    assert session(git_repo) is None
+
+
+@pytest.mark.parametrize("source", ["resume", "fork"])
+def test_resumed_sessions_already_have_the_context(git_repo: Path, human: None, source: str) -> None:
+    lock(git_repo)
+    assert session(git_repo, source) is None
+    assert session(git_repo, "compact") is not None and session(git_repo, "clear") is not None
+
+
+def test_session_start_runs_in_advisory_mode(git_repo: Path, human: None) -> None:
+    """Context, not enforcement: advisory mode still gets the agreements."""
+    lock(git_repo)
+    set_config(git_repo, 'mode = "enforced"', 'mode = "advisory"')
+    assert session(git_repo) is not None
+
+
+def test_session_summary_stays_within_its_cap(git_repo: Path) -> None:
+    from seamspec.core.models import InvStatus
+
+    from .conftest import make_invariant
+
+    store = Store(git_repo)
+    for i in range(80):
+        store.create(make_invariant(f"inv_{i:08x}", InvStatus.PROPOSED))
+    for inv in store.load_all("inv"):  # mark them LOCKED directly: only the summary is under test
+        inv.status = InvStatus.LOCKED
+        inv.approved_by, inv.approved_at = "Maya", inv.created_at
+        inv.verification.harness_sha256 = inv.verification.assertion_sha256 = "0" * 64
+        store.save(inv)
+    text = claude.session_summary(store)
+    assert text is not None and len(text) <= claude.SESSION_MAX_CHARS
+    assert "more: call `get_constraints`" in text
+
+
+def test_session_start_fails_open(git_repo: Path) -> None:
+    (git_repo / ".seamspec/invariants/inv_deadbeef.json").write_text("{not json")
+    assert claude.main("session-start", json.dumps({"cwd": str(git_repo), "source": "startup"})) == ""

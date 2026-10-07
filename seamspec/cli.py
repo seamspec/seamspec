@@ -721,7 +721,7 @@ def mcp_cmd() -> None:
 @app.command(hidden=True)
 def hook(
     host: Annotated[str, typer.Argument(help="Host adapter: claude")],
-    event: Annotated[str, typer.Argument(help="Hook event: pre-tool-use | stop")],
+    event: Annotated[str, typer.Argument(help="Hook event: pre-tool-use | stop | session-start")],
 ) -> None:
     """Internal: host hook entry point. Reads the hook payload on stdin; always exits 0."""
     if host != "claude":

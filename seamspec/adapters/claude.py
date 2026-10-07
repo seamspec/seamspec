@@ -23,7 +23,7 @@ from typing import Any
 from ..core import journal, verifier
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
-from ..core.models import Invariant, InvStatus
+from ..core.models import DeadEnd, Invariant, InvStatus
 from ..core.requests import pending_supersede_ids
 from ..core.root import find_root, to_rel
 from ..core.scope import effective_protected_paths, matches
@@ -204,7 +204,55 @@ def _on_error(event: str, payload: dict[str, Any], store: Store | None, cfg: Con
     return {"systemMessage": msg} if event == "stop" else None
 
 
-HANDLERS = {"pre-tool-use": pre_tool_use, "stop": stop}
+# --- SessionStart: the agreements in force, before the first prompt (ADR-20261007-ac04) ---------------
+
+SESSION_SOURCES = ("startup", "clear", "compact")  # resume/fork already carry the earlier context
+SESSION_MAX_CHARS = 3000  # the summary stays small however large the ledger grows
+
+
+def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | None:
+    """A short, current summary built from the ledger; None when there is nothing to say."""
+    records = store.load_all("inv") + store.load_all("de")
+    locked = sorted((r for r in records if isinstance(r, Invariant) and r.status == InvStatus.LOCKED),
+                    key=lambda r: r.id)  # fmt: skip
+    dead = sorted((r for r in records if isinstance(r, DeadEnd) and r.status == "ACTIVE"), key=lambda r: r.id)
+    waiting = sum(isinstance(r, Invariant) and r.status == InvStatus.PROPOSED for r in records)
+    waiting += len(pending_supersede_ids(store))
+    if not locked and not dead and not waiting:
+        return None
+    head = ["SeamSpec: agreements in force in this repository. A human approved each one, and each has a test "
+            "that must keep passing."]  # fmt: skip
+    tail = ["If a request conflicts with one of these, don't change it on your own: call `request_supersede` "
+            "and ask the user first. For the full rules on a file: `get_constraints`."]  # fmt: skip
+    if waiting:
+        tail.append(f"{waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
+    body: list[str] = []
+    entries = [f"- {r.id} · {r.title}: {r.assertion} (scope: {', '.join(r.scope.paths)})" for r in locked]
+    if dead:
+        entries.append("Tried before and failed; don't retry unless the reason no longer applies:")
+        entries += [f"- {d.id}: {d.approach} Why it failed: {d.failure_symptom}" for d in dead]
+    budget = max_chars - len("\n".join(head + tail)) - 120
+    for i, entry in enumerate(entries):
+        if len(entry) + 1 > budget:
+            more = sum(not e.endswith(":") for e in entries[i:])
+            body.append(f"…and {more} more: call `get_constraints` for the files you work on.")
+            break
+        body.append(entry)
+        budget -= len(entry) + 1
+    return "\n".join(head + body + tail)
+
+
+def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:
+    """Context, not enforcement: runs in every mode and never runs tests."""
+    if payload.get("source", "startup") not in SESSION_SOURCES:
+        return None
+    text = session_summary(store)
+    if text is None:
+        return None
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+
+
+HANDLERS = {"pre-tool-use": pre_tool_use, "stop": stop, "session-start": session_start}
 
 
 def main(event: str, stdin: str | None = None) -> str:
