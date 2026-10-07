@@ -323,6 +323,15 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 
 `advisory` mode **never runs tests automatically**. `enforced` and `strict` show a one-time auto-run consent screen at `init`, and automatic runs only happen in trusted clones (§12.4).
 
+**Changing the mode later** (ADR-20261007-1b4c) means re-running `seamspec init --mode <mode>`:
+- **No `--mode`:** keeps `enforced` or `strict` as they are, so they're never lowered silently. A new or advisory setup is offered `enforced`, so re-running `init` with consent turns automatic runs on.
+- **Raising the mode** needs automatic runs allowed on this machine (the consent screen). Otherwise the config is kept and `init` says why.
+- **Lowering the mode** (strict → enforced, or anything → advisory) switches checks off, so it's a **human decision**, like approving. `init` needs an interactive terminal, asks *"Lower the mode from … to …?"*, and refuses when run by an agent's shell.
+- **Rewrites are minimal.** Only the `mode` line changes, plus, when entering or leaving `strict`, the `fail_closed` / `trust_level` lines that `init` itself wrote. Values a human edited stay.
+- **Switching to `advisory`** removes SeamSpec's own pre-commit hook, never anyone else's. The `seamspec verify --gate` check also runs nothing in advisory mode.
+- **Switching to `strict`** adds the CI workflow and the CODEOWNERS block.
+- **In review:** `doctor --ci` shows a mode change at the top of the retirement summary, so a PR that lowers enforcement is visible.
+
 ### 7.4 Known Limits (Stated Publicly)
 
 - Agents can modify files via Bash, bypassing `PreToolUse` matchers on Edit/Write. Layers 4–6 catch the *outcome*.
@@ -904,7 +913,7 @@ Allow automatic test runs in this repository? [y/N]
 - Answering **No** installs everything in `advisory` mode.
 - Scripted setups must pass the explicit `--accept-auto-run` flag; a generic `--yes` does not imply consent.
 - Not a terminal and no `--accept-auto-run`: **nobody was asked**. A new setup stays in `advisory` mode and records nothing; an answer recorded earlier on this machine is **kept**, never overwritten with a "no" nobody gave (dogfooding finding #7, ADR-20261006-0f6e).
-- **Changing your mind later:** re-running `seamspec init` with consent switches an advisory config to the requested mode, rewriting only the `mode` line. For `strict` it also restores the strict values of the `fail_closed` / `trust_level` lines that `init` itself wrote; values a human edited are left alone (ADR-20261005-8e80).
+- **Changing your mind later:** re-running `seamspec init` with consent switches an advisory config to `enforced` (or the given `--mode`), rewriting only the `mode` line. Entering or leaving `strict` also sets the `fail_closed` / `trust_level` lines that `init` itself wrote; values a human edited are left alone (ADR-20261005-8e80). Lowering the mode needs a human at a terminal (§7.3, ADR-20261007-1b4c).
 - `init` also **trusts the clone** when it creates `config.toml` (whoever runs it just wrote those runner commands).
 - **A fresh clone gets one question** (ADR-20261005-9b8f). When `config.toml` already exists and this machine hasn't trusted it, the consent screen also lists the runner commands, env passthrough and number of locked tests (what `seamspec trust` shows) and asks *"Allow automatic test runs with these commands in this repository?"*. Yes records consent and trust; no records neither. The trust is **bound to what was shown**: if the runner settings on disk no longer hash the same when it is granted (e.g. `--mode strict` switched `trust_level`, or an edit while the prompt was open), nothing is trusted and `init` says to run `seamspec trust`. Committed config values are printed **escaped** on both trust screens (anything beyond plain characters is JSON-quoted), so a clone's config can't hide or repaint text with newlines or terminal escapes. `--accept-auto-run` is consent only: a scripted setup never trusts someone else's committed commands, so run `seamspec trust` at a terminal.
 
@@ -1958,7 +1967,7 @@ exec seamspec verify --all --gate
 
 The hook is installed in `.git/hooks`, so it runs on **every branch** of the clone. A branch where SeamSpec was never set up, with no config in the working tree or in `HEAD`, passes with a note. A config that is in `HEAD` but missing from the working tree still runs the gate, which fails. If `git` can't be found or can't read `HEAD`, the hook fails closed instead of guessing (dogfooding #6, ADR-20261006-0f6e; Copilot, PR #22).
 
-`--gate` behavior: exit non-zero if any `LOCKED` invariant fails, an integrity or fingerprint check fails, or an invariant's status changed without a journal entry (§11.1); print `N items awaiting review` as a non-blocking reminder. Pre-commit has **no deadline**: it always runs the full set. In an untrusted clone it fails with "Run `seamspec trust`" instead of running anything (§12.4.6).
+`--gate` behavior: exit non-zero if any `LOCKED` invariant fails, an integrity or fingerprint check fails, or an invariant's status changed without a journal entry (§11.1); print `N items awaiting review` as a non-blocking reminder. Pre-commit has **no deadline**: it always runs the full set. In an untrusted clone it fails with "Run `seamspec trust`" instead of running anything (§12.4.6). In `advisory` mode it runs nothing and exits 0. `init` removes SeamSpec's hook when switching to advisory, and `doctor` warns if one is left (ADR-20261007-1b4c).
 
 ### 16.5 CI (enforced: offered at init; strict: always)
 
@@ -2153,7 +2162,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 - [`schemas.py`](../seamspec/core/schemas.py): loads the packaged schemas (§9.4); `validation_errors(name, data)` checks with Draft 2020-12 and a format checker. `doctor` (week 4) builds on it.
 - [`runners.py`](../seamspec/core/runners.py): v0.1 presets live as commented TOML in `templates/runners/{pytest,vitest}.toml`, used both to write `config.toml` and to build `RunnerCfg`s. `detect(root)` implements §12A.7; jest, go and cargo are detected and reported as *"support arrives in v0.2"*.
-- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, writes `.seamspec/.local/.gitignore` (`*`) so machine-local state stays out of git even on a branch whose `.gitignore` predates SeamSpec (dogfooding #8), and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. `init(..., auto_run, trust_shown)` grants trust when it creates the config, or, with consent, when `trust_shown` (the trust hash of what the human said yes to on a clone's combined consent-and-trust screen, §12.4.5) still matches the config on disk. `merge_gitignore(root, lines)` adds missing ignore lines (also used for the plugin's `.claude/settings.local.json`).
+- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, writes `.seamspec/.local/.gitignore` (`*`) so machine-local state stays out of git even on a branch whose `.gitignore` predates SeamSpec (dogfooding #8), and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. `init(root, mode=None, …)`: `mode=None` uses `default_mode(current)`, which keeps enforced or strict and otherwise gives enforced. On an existing config, a different mode is written by `_set_mode` when it lowers the mode, or when it raises it with `auto_run`; otherwise the config is kept. Switching to advisory calls `git_hooks.uninstall_pre_commit` (only SeamSpec's hook). `MODE_RANK` lets the CLI refuse a non-interactive lowering (ADR-20261007-1b4c). `init(..., auto_run, trust_shown)` grants trust when it creates the config, or, with consent, when `trust_shown` (the trust hash of what the human said yes to on a clone's combined consent-and-trust screen, §12.4.5) still matches the config on disk. `merge_gitignore(root, lines)` adds missing ignore lines (also used for the plugin's `.claude/settings.local.json`).
 - [`ci.py`](../seamspec/installers/ci.py): the CI workflow and CODEOWNERS (§7.3, §16.5; ADR-20261006-d16b).
   - `render_workflow(root, cfg)` fills `templates/seamspec.yml` with toolchain steps chosen from the runners and lockfiles.
   - `install_workflow()` returns `created`, or `kept` (an existing file is never overwritten).
@@ -2347,16 +2356,17 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
   - `check_integrity` on LOCKED rules;
   - `check_fingerprints`;
   - LOCKED rules carry `approved_at` and `approved_by`;
-  - warning when a LOCKED or PROPOSED scope matches no tracked file.
+  - warning when a LOCKED or PROPOSED scope matches no tracked file;
+  - strict mode: warnings when the CI workflow or the CODEOWNERS block is missing, or still names `@your-team/leads`.
 - **Local only:**
   - `journal.unjournaled_changes` (skipped with a warning if a record is broken);
   - `directive.drift` (warning);
-  - a pre-commit hook running the gate in enforced and strict mode (warning);
+  - a pre-commit hook running the gate in enforced and strict mode, and no leftover SeamSpec hook in advisory mode (warnings);
   - `.claude/settings*.json` allowing `Bash(seamspec…)` (warning).
 - **`--ci` only:**
   - forward-only against `base_ref` (default `default_base()`): a LOCKED rule at base may become SUPERSEDED, but not be deleted, moved back, or have `title`, `assertion`, `scope`, `verification`, `approved_at` or `approved_by` changed;
   - its test file must equal the base's;
-  - `retirement_summary()` lists status changes, including new dead ends, and runner-config fingerprint changes. It never fails;
+  - `retirement_summary()` lists a mode change first (from `config.toml` at the base), then status changes, including new dead ends, and runner-config fingerprint changes. It never fails;
   - `write_step_summary()` appends it to `$GITHUB_STEP_SUMMARY`.
 - Tested in `tests/test_doctor.py`. This repo's CI runs `seamspec doctor --ci` with `fetch-depth: 0`.
 

@@ -401,3 +401,26 @@ def test_changed_files(git_repo: Path) -> None:
     (git_repo / ".gitignore").write_text((git_repo / ".gitignore").read_text() + "*.log\n")
     assert changed_files(git_repo) == [".gitignore", "src/new.py", "src/queue.py"]
     assert changed_files(git_repo.parent / "not-a-repo-dir-xyz") is None
+
+
+# --- mode changes through the CLI (ADR-20261007-1b4c) ----------------------------------------------
+
+
+def test_lowering_the_mode_needs_a_human(gated_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", raising=False)
+    refused = runner.invoke(app, ["init", "--path", str(gated_repo), "--mode", "advisory", "--no-plugin", "--no-ci"])
+    assert refused.exit_code == 1 and "a human must do it" in refused.output
+    assert load_config(gated_repo).mode == "enforced"
+    monkeypatch.setenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", "1")  # stands in for a person at a terminal
+    ok = runner.invoke(app, ["init", "--path", str(gated_repo), "--mode", "advisory", "--no-plugin", "--no-ci"])
+    assert ok.exit_code == 0 and "enforced → advisory" in ok.output and "removed" in ok.output
+    assert load_config(gated_repo).mode == "advisory"
+
+
+def test_gate_in_advisory_mode_runs_nothing(gated_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", "1")
+    runner.invoke(app, ["init", "--path", str(gated_repo), "--mode", "advisory", "--no-plugin", "--no-ci"])
+    (gated_repo / ".seamspec/.local/trust.json").unlink()  # even an untrusted clone: nothing runs
+    monkeypatch.chdir(gated_repo)
+    result = runner.invoke(app, ["verify", "--all", "--gate"])
+    assert result.exit_code == 0 and "advisory mode" in result.output

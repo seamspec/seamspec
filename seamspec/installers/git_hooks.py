@@ -19,7 +19,7 @@ GATE = "seamspec verify --all --gate"
 
 @dataclass
 class HookResult:
-    status: str  # created | updated | unchanged | manual | skipped
+    status: str  # created | updated | unchanged | manual | skipped | removed | absent
     path: str | None = None
     message: str = ""
 
@@ -110,3 +110,17 @@ def install_pre_commit(root: Path) -> HookResult:
     path.write_text(text, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     return HookResult(status, str(path))
+
+
+def uninstall_pre_commit(root: Path) -> HookResult:
+    """Remove the pre-commit hook only if SeamSpec wrote it: removed | absent | manual."""
+    hooks = _git(root, "rev-parse", "--git-path", "hooks")
+    if hooks is None:
+        return HookResult("absent")
+    path = ((root / hooks) if not os.path.isabs(hooks) else Path(hooks)) / "pre-commit"
+    if not path.is_file():
+        return HookResult("absent")
+    if MARKER not in path.read_text(encoding="utf-8", errors="replace"):
+        return HookResult("manual", str(path), f"{path} wasn't written by SeamSpec; left as is.")
+    path.unlink()
+    return HookResult("removed", str(path))

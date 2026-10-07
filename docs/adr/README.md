@@ -50,3 +50,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261006-9623](ADR-20261006-9623-doctor-v01.md) | seamspec doctor in v0.1 - what it checks, the CI base branch, and what waits | ACCEPTED |
 | [ADR-20261006-d16b](ADR-20261006-d16b-ci-workflow-from-init.md) | The CI workflow and CODEOWNERS that init installs | ACCEPTED |
 | [ADR-20261007-8663](ADR-20261007-8663-remaining-skills-v01.md) | The remaining v0.1 skills - supersede, checkpoint, context, status | ACCEPTED |
+| [ADR-20261007-1b4c](ADR-20261007-1b4c-mode-changes.md) | Changing the mode after init - keep by default, raise with consent, lower only by a human | ACCEPTED |

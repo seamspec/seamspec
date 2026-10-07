@@ -8,7 +8,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
-| 2026-10-07 | **Week 4 · skills** (PR `week-4/skills`): `/seamspec:supersede`, `/seamspec:checkpoint`, `/seamspec:context`, `/seamspec:status`, generated from templates like `lock` and `dead-end`; SPEC §15A.3 now mirrors all six templates. About 458 tokens always loaded for the six descriptions | ADR-20261007-8663 |
+| 2026-10-07 | **Week 4 · modes** (PR `week-4/modes`): `--mode` keeps enforced or strict by default (never lowered silently); raising needs consent; **lowering needs a human at a terminal** (an agent can't switch checks off); advisory removes SeamSpec's hook and `--gate` runs nothing; `doctor` checks strict mode's CI and CODEOWNERS; mode changes appear in the CI retirement summary | ADR-20261007-1b4c |
+| 2026-10-07 | **Week 4 · skills** (#35): `/seamspec:supersede`, `/seamspec:checkpoint`, `/seamspec:context`, `/seamspec:status`, generated from templates like `lock` and `dead-end`; SPEC §15A.3 now mirrors all six templates. About 458 tokens always loaded for the six descriptions | ADR-20261007-8663 |
 | 2026-10-06 | **Week 4 exit test passed:** #33 (a regression committed with `--no-verify`: CI failed naming `inv_4b4f5ea7`) and #34 (the owner's supersede: CI passed and listed `inv_e65a013c` LOCKED → SUPERSEDED). Both closed without merging | issue #4 |
 | 2026-10-06 | **Week 4 · CI workflow from `init`** (#32): `.github/workflows/seamspec.yml` (`doctor --ci` then `verify --all --ci`; read-only token; never `pull_request_target`; toolchain steps chosen from runners and lockfiles; never overwritten); `init --ci/--no-ci` by mode (advisory never, enforced asks, strict always plus a CODEOWNERS block) | ADR-20261006-d16b |
 | 2026-10-06 | **Full-run plan: condition E** (#31): the week-5 benchmark adds "rules written in `CLAUDE.md`" (no SeamSpec), to test whether SeamSpec's memory beats plain notes. The owner's decision | ADR-20261006-b270 |
@@ -66,8 +67,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 - [x] `seamspec doctor` (§16.5). Merged in #30
 - [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are merged (#30); the template `init` installs is next
-- [ ] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2): PR `week-4/skills`
-- [ ] `--mode advisory|enforced|strict` handling (§7.3)
+- [x] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2). Merged in #35
+- [ ] `--mode advisory|enforced|strict` handling (§7.3): PR `week-4/modes`
 - [ ] Dogfood on SeamSpec itself (done in #22) and at least one real project
 - Exit criteria: **met.** CI blocks a regression (#33) and lists retirements (#34) on test PRs; `doctor` is clean on the fixtures and on this repo
 

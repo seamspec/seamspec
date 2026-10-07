@@ -157,7 +157,7 @@ def test_consent_later_turns_automatic_runs_on(tmp_path: Path) -> None:
     report = scaffold.init(tmp_path, mode="strict", auto_run=True)
     after = (tmp_path / ".seamspec/config.toml").read_text()
     assert report.mode == "strict" and load_config(tmp_path).mode == "strict"
-    assert dict(report.actions)[".seamspec/config.toml"] == "updated (mode: strict)"
+    assert dict(report.actions)[".seamspec/config.toml"] == "updated (mode: advisory → strict)"
     cfg = load_config(tmp_path)
     assert cfg.hooks.fail_closed is True and cfg.execution.trust_level == "harness"  # strict defaults restored
     assert "[runners.pytest]" in after and after.count("\n") == before.count("\n")  # nothing else moved
@@ -187,3 +187,51 @@ def test_local_state_is_ignored_even_without_the_root_gitignore(tmp_path: Path) 
         ["git", "check-ignore", "-q", ".seamspec/.local/consent.json"], cwd=tmp_path, capture_output=True
     )
     assert ignored.returncode == 0
+
+
+# --- switching modes later (§7.3, ADR-20261007-1b4c) -----------------------------------------------
+
+
+def test_rerunning_init_without_a_mode_keeps_the_current_one(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("")
+    scaffold.init(tmp_path, mode="strict", auto_run=True)
+    scaffold.init(tmp_path, auto_run=True)  # no mode: must not fall back to "enforced"
+    assert load_config(tmp_path).mode == "strict"
+
+
+def test_strict_and_back_only_touches_lines_init_wrote(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("")
+    scaffold.init(tmp_path, auto_run=True)
+    original = (tmp_path / ".seamspec/config.toml").read_text()
+    scaffold.init(tmp_path, mode="strict", auto_run=True)
+    cfg = load_config(tmp_path)
+    assert cfg.mode == "strict" and cfg.hooks.fail_closed and cfg.execution.trust_level == "harness"
+    scaffold.init(tmp_path, mode="enforced", auto_run=True)
+    assert (tmp_path / ".seamspec/config.toml").read_text() == original  # exactly as before
+    # a value a human edited is left alone
+    path = tmp_path / ".seamspec/config.toml"
+    path.write_text(path.read_text().replace(scaffold.NON_STRICT_HOOKS, "fail_closed = true\n"))
+    scaffold.init(tmp_path, mode="strict", auto_run=True)
+    scaffold.init(tmp_path, mode="enforced", auto_run=True)
+    assert load_config(tmp_path).hooks.fail_closed is True
+
+
+def test_raising_the_mode_needs_automatic_runs(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("")
+    scaffold.init(tmp_path, auto_run=True)
+    report = scaffold.init(tmp_path, mode="strict", auto_run=False)
+    assert load_config(tmp_path).mode == "enforced"
+    assert dict(report.actions)[".seamspec/config.toml"].startswith("kept (mode: enforced; strict needs")
+
+
+def test_advisory_removes_seamspecs_hook_but_never_someone_elses(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "pyproject.toml").write_text("")
+    scaffold.init(tmp_path, auto_run=True)
+    hook = tmp_path / ".git/hooks/pre-commit"
+    assert hook.is_file()
+    report = scaffold.init(tmp_path, mode="advisory")
+    assert not hook.exists() and report.hook is not None and report.hook.status == "removed"
+    hook.write_text("#!/bin/sh\necho mine\n")
+    scaffold.init(tmp_path, mode="advisory")
+    assert hook.read_text() == "#!/bin/sh\necho mine\n"
