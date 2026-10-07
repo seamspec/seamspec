@@ -157,7 +157,8 @@ def init(
 
     current = scaffold.current_mode(root)
     target = mode or scaffold.default_mode(current)
-    if current is not None and scaffold.MODE_RANK[target] < scaffold.MODE_RANK[current]:
+    lowering = current is not None and scaffold.MODE_RANK[target] < scaffold.MODE_RANK[current]
+    if lowering:
         # Lowering the mode switches checks off, so it's a human decision, like approving (ADR-20261007-1b4c).
         try:
             lifecycle.require_interactive()
@@ -169,9 +170,11 @@ def init(
         if _interactive() and not typer.confirm(f"Lower the mode from {current} to {target}?", default=False):
             raise _fail("mode unchanged")
 
-    auto_run: bool | None = False
+    # Consent is only asked when raising the mode or setting up. Lowering it, or choosing advisory, asks
+    # nothing, so this machine's earlier answer is kept, never overwritten with a "no" nobody gave.
+    auto_run: bool | None = None
     trust_shown: str | None = None
-    if target != "advisory":
+    if target != "advisory" and not lowering:
         if accept_auto_run:
             auto_run = True
         elif _interactive():
@@ -217,7 +220,10 @@ def init(
             typer.echo(f"  {report.hook.status:<9} git pre-commit hook ({report.hook.path})")
         else:
             typer.echo(f"  note: {report.hook.message}")
-    if not report.consent and target != "advisory":
+    if not report.consent and report.mode != "advisory":
+        typer.echo(f"Automatic test runs are off on this machine (the repository's mode is {report.mode}). "
+                   "Re-run `seamspec init` to turn them on.")  # fmt: skip
+    elif not report.consent and target != "advisory":
         typer.echo("Automatic test runs are off (advisory mode). Re-run `seamspec init` to turn them on.")
     if not report.trusted and trust_shown is not None:
         typer.echo("The runner settings changed after they were shown (for example --mode strict switched")

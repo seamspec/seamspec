@@ -424,3 +424,38 @@ def test_gate_in_advisory_mode_runs_nothing(gated_repo: Path, monkeypatch: pytes
     monkeypatch.chdir(gated_repo)
     result = runner.invoke(app, ["verify", "--all", "--gate"])
     assert result.exit_code == 0 and "advisory mode" in result.output
+
+
+def test_lowering_strict_to_enforced_needs_no_consent_and_keeps_it(
+    gated_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #36: lowering was treated like raising (blocked without consent) and re-asked for consent."""
+    from seamspec.installers import scaffold
+
+    monkeypatch.setenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", "1")
+    scaffold.init(gated_repo, mode="strict", auto_run=True, claude_md=False)
+    consent = (gated_repo / ".seamspec/.local/consent.json").read_text()
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    result = runner.invoke(app, ["init", "--path", str(gated_repo), "--mode", "enforced", "--no-plugin", "--no-ci",
+                                 "--no-claude-md"], input="y\n")  # only the "Lower the mode?" question  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert "Allow automatic test runs" not in result.output and "strict → enforced" in result.output
+    assert load_config(gated_repo).mode == "enforced"
+    assert (gated_repo / ".seamspec/.local/consent.json").read_text() == consent  # untouched
+
+
+def test_lowering_to_advisory_keeps_this_machines_consent(gated_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", "1")
+    consent = (gated_repo / ".seamspec/.local/consent.json").read_text()
+    runner.invoke(app, ["init", "--path", str(gated_repo), "--mode", "advisory", "--no-plugin", "--no-ci"])
+    assert load_config(gated_repo).mode == "advisory"
+    assert (gated_repo / ".seamspec/.local/consent.json").read_text() == consent  # no "no" nobody gave
+
+
+def test_declining_consent_names_the_real_mode(py_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (py_repo / ".seamspec/.local/consent.json").unlink()
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin", "--no-ci"],
+                           input="n\n")  # fmt: skip
+    assert "off on this machine (the repository's mode is enforced)" in result.output
+    assert "(advisory mode)" not in result.output
