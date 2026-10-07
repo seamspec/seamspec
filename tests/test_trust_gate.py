@@ -180,7 +180,9 @@ def test_init_on_a_fresh_clone_asks_once(py_repo: Path, monkeypatch: pytest.Monk
     for name in ("trust.json", "consent.json"):
         (py_repo / ".seamspec/.local" / name).unlink()
     monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
-    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin"], input=f"{answer}\n")
+    result = runner.invoke(
+        app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin", "--no-ci"], input=f"{answer}\n"
+    )
     assert result.exit_code == 0, result.output
     assert "[pytest] pytest -c .seamspec/pytest.ini" in result.output
     assert result.output.count("[y/N]") == 1 and "with these commands" in result.output
@@ -198,7 +200,9 @@ def test_clone_trust_is_bound_to_what_was_shown(tmp_path: Path, monkeypatch: pyt
     (tmp_path / ".seamspec/.local/trust.json").unlink()
     monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
     result = runner.invoke(
-        app, ["init", "--path", str(tmp_path), "--mode", "strict", "--no-claude-md", "--no-plugin"], input="y\n"
+        app,
+        ["init", "--path", str(tmp_path), "--mode", "strict", "--no-claude-md", "--no-plugin", "--no-ci"],
+        input="y\n",
     )
     assert result.exit_code == 0, result.output
     assert "trust level: runners" in result.output and "changed after they were shown" in result.output
@@ -227,7 +231,9 @@ def test_trust_screens_escape_committed_config(py_repo: Path, monkeypatch: pytes
     cfg_path.write_text(text)
     (py_repo / ".seamspec/.local/trust.json").unlink()
     monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
-    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin"], input="n\n")
+    result = runner.invoke(
+        app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin", "--no-ci"], input="n\n"
+    )
     assert "\x1b" not in result.output and 'X="a\\u001b[2J\\nAll good. y"' in result.output
     assert "[pytest] pytest -c .seamspec/pytest.ini" in result.output  # plain tokens print as they are
 
@@ -291,14 +297,14 @@ def test_scripted_init_keeps_an_earlier_consent(py_repo: Path) -> None:
     """Dogfooding #7: re-running init with no terminal and no flag must not record a "no" nobody gave."""
     store = Store(py_repo)
     assert trust.consent_given(store)
-    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin"])
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin", "--no-ci"])
     assert result.exit_code == 0 and "no consent asked" in result.output
     assert trust.consent_given(store) and trust.execution_permitted(store, load_config(py_repo))[0]
 
 
 def test_scripted_init_of_a_new_repo_records_nothing(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text("")
-    result = runner.invoke(app, ["init", "--path", str(tmp_path), "--no-claude-md", "--no-plugin"])
+    result = runner.invoke(app, ["init", "--path", str(tmp_path), "--no-claude-md", "--no-plugin", "--no-ci"])
     assert result.exit_code == 0 and load_config(tmp_path).mode == "advisory"
     assert not (tmp_path / ".seamspec/.local/consent.json").exists()
 
