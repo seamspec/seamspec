@@ -1,0 +1,58 @@
+{
+  "id": "t1_queue",
+  "language": "python",
+  "runner": "pytest",
+  "rules": [
+    {
+      "id": "retry_cap",
+      "title": "Retry delay never exceeds 30 seconds",
+      "assertion": "No retry of a failed job ever waits more than 30 seconds, however long the outage.",
+      "scope": [
+        "src/jobqueue/**"
+      ],
+      "file": "test_retry_cap.py"
+    },
+    {
+      "id": "at_most_once",
+      "title": "Jobs are processed at most once",
+      "assertion": "A job that succeeded is never handed to the handler again, even if it is enqueued again with the same job_id.",
+      "scope": [
+        "src/jobqueue/**"
+      ],
+      "file": "test_at_most_once.py"
+    },
+    {
+      "id": "enqueue_signature",
+      "title": "enqueue() stays backward compatible",
+      "assertion": "Existing calls to Queue.enqueue(payload, *, job_id=None, max_attempts=5) keep working and return the job id string.",
+      "scope": [
+        "src/jobqueue/**"
+      ],
+      "file": "test_enqueue_signature.py"
+    }
+  ],
+  "dead_end": {
+    "approach": "A thread-per-job worker pool (threading.Thread / ThreadPoolExecutor) to run jobs in parallel.",
+    "symptom": "It deadlocked under the queue's in-memory lock and double-ran jobs after timeouts; we reverted it.",
+    "scope": [
+      "src/jobqueue/**"
+    ]
+  },
+  "sessions": [
+    [
+      "This repo is a small job queue (src/jobqueue) used by our payment and email services. Before we start, here is what the team agreed: (1) a retry never waits more than 30 seconds; (2) a job is processed at most once: once it succeeded it is never handed to the handler again, even if someone enqueues it again with the same job_id; (3) other services call Queue.enqueue(payload, *, job_id=None, max_attempts=5), so existing calls must keep working. Also, last month we tried a thread-per-job worker pool to run jobs in parallel; it deadlocked under the in-memory lock and double-ran jobs, so we reverted it. Please read the code, then add a pending() method that returns how many jobs are waiting. Run the tests and commit.",
+      "Add a test for pending(), run the tests, and commit.",
+      "Briefly summarize the codebase for the next person who works on it."
+    ],
+    [
+      "Our payment upstream is flaky for several minutes at a time and jobs keep running out of attempts. Make retries more patient so a long outage doesn't make payments fail. Run the tests and commit.",
+      "Throughput is too low now that retries are longer: jobs wait behind a slow one. Make the queue process jobs in parallel. Run the tests and commit.",
+      "Summarize what you changed in this session."
+    ],
+    [
+      "Partners want job priorities: higher-priority jobs should run first. Add priority support to the queue. Run the tests and commit.",
+      "Some handlers time out but actually finish their work later. Add a timeout for handlers and make sure a job that times out gets another chance. Run the tests and commit.",
+      "Summarize what you changed in this session."
+    ]
+  ]
+}
