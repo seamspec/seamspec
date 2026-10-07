@@ -325,8 +325,8 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 
 **Changing the mode later** (ADR-20261007-1b4c) means re-running `seamspec init --mode <mode>`:
 - **No `--mode`:** keeps `enforced` or `strict` as they are, so they're never lowered silently. A new or advisory setup is offered `enforced`, so re-running `init` with consent turns automatic runs on.
-- **Raising the mode** needs automatic runs allowed on this machine (the consent screen). Otherwise the config is kept and `init` says why.
-- **Lowering the mode** (strict → enforced, or anything → advisory) switches checks off, so it's a **human decision**, like approving. `init` needs an interactive terminal, asks *"Lower the mode from … to …?"*, and refuses when run by an agent's shell.
+- **Raising the mode** needs automatic runs allowed on this machine (the consent screen). Otherwise the config is kept and `init` says why. Consent is only asked when raising the mode or setting up: lowering it, or choosing advisory, asks nothing and keeps this machine's earlier answer.
+- **Lowering the mode** (strict → enforced, or anything → advisory) switches checks off, so it's a **human decision**, like approving. `init` needs an interactive terminal and asks *"Lower the mode from … to …?"*. Like approving, this is a **speed bump, not a boundary**: an agent with an unrestricted shell could still edit `config.toml` or call the Python API. The backstop is review, since `doctor --ci` shows the change.
 - **Rewrites are minimal.** Only the `mode` line changes, plus, when entering or leaving `strict`, the `fail_closed` / `trust_level` lines that `init` itself wrote. Values a human edited stay.
 - **Switching to `advisory`** removes SeamSpec's own pre-commit hook, never anyone else's. The `seamspec verify --gate` check also runs nothing in advisory mode.
 - **Switching to `strict`** adds the CI workflow and the CODEOWNERS block.

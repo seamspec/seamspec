@@ -245,9 +245,9 @@ def _mode_at(root: Path, ref: str) -> str | None:
 def retirement_summary(root: Path, base_ref: str, base: dict, now: dict, mode: str | None = None) -> str:
     """Never fails: everything a reviewer must see, even when each change is valid (§16.5)."""
     lines = [f"## SeamSpec: ledger changes against `{base_ref}`", ""]
-    before = _mode_at(root, base_ref)
-    if mode and before and before != mode:
-        lines += [f"**Mode changed: {before} → {mode}**", ""]
+    base_mode = _mode_at(root, base_ref)
+    if mode and base_mode and base_mode != mode:
+        lines += [f"**Mode changed: {base_mode} → {mode}**", ""]
     changes = []
     for rec_id in sorted(set(base) | set(now)):
         before = base.get(rec_id, {}).get("status", "(none)")

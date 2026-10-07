@@ -199,7 +199,7 @@ def init(
     # Switching modes on an existing config (§7.3, ADR-20261007-1b4c). Raising it needs automatic
     # runs allowed on this machine; lowering it is checked as a human decision by the CLI.
     if not created_config and current is not None and mode != current:
-        if mode == "advisory" or auto_run:
+        if MODE_RANK[mode] < MODE_RANK[current] or auto_run:  # lowering never needs consent
             _set_mode(root, mode)
             report.add(config_rel, f"updated (mode: {current} → {mode})")
         else:

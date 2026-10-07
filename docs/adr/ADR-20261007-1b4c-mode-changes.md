@@ -34,6 +34,12 @@ Week 4 (issue #4) lists "`--mode advisory|enforced|strict` handling" (§7.3). An
 - *Fail CI when the mode is lowered:* rejected. Lowering can be legitimate; the summary makes it visible, and PR review (CODEOWNERS in strict) decides.
 - *Leave the hook in place in advisory mode:* rejected. It contradicts §7.3, and it surprised users with blocked commits.
 
+## Corrections from the code review of #36 (fixed in #37)
+1. **Lowering strict → enforced is a lowering, not a raise.** It no longer needs auto-run consent; `scaffold.init` compares `MODE_RANK`. Before the fix, declining the consent screen silently kept the repo strict.
+2. **The consent screen is only shown when raising the mode or setting up.** Lowering, or choosing advisory, no longer asks for consent or records it, so this machine's earlier answer is never overwritten with a "no" nobody gave (the dogfooding finding #7 pattern).
+3. **After declining consent on an enforced or strict repo,** `init` now says runs are off *on this machine* and names the repository's real mode, instead of "(advisory mode)".
+4. **Decision 3's "an agent's shell is refused" overstated it.** The terminal requirement is a speed bump, as for approving: an agent with an unrestricted shell can edit `config.toml`, call `scaffold.init` from Python, or set the test override. The backstop is decision 7, the mode change at the top of the CI summary, plus PR review. SPEC §7.3 now says so.
+
 ## Enforced Invariants
 None yet. Dogfooding candidate: "an agent's shell can't lower the mode".
 

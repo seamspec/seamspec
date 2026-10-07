@@ -235,3 +235,12 @@ def test_advisory_removes_seamspecs_hook_but_never_someone_elses(tmp_path: Path)
     hook.write_text("#!/bin/sh\necho mine\n")
     scaffold.init(tmp_path, mode="advisory")
     assert hook.read_text() == "#!/bin/sh\necho mine\n"
+
+
+def test_lowering_through_the_api_never_needs_consent(tmp_path: Path) -> None:
+    """scaffold.init: strict → enforced without auto_run is a lowering, not a raise."""
+    (tmp_path / "pyproject.toml").write_text("")
+    scaffold.init(tmp_path, mode="strict", auto_run=True)
+    report = scaffold.init(tmp_path, mode="enforced", auto_run=False)
+    assert load_config(tmp_path).mode == "enforced"
+    assert dict(report.actions)[".seamspec/config.toml"] == "updated (mode: strict → enforced)"
