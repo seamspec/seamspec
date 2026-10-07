@@ -162,6 +162,7 @@ def build_env(
     source = os.environ if environ is None else environ
     allowed = BASE_ENV_KEYS | set(cfg.execution.env_passthrough)
     env = {k: v for k, v in source.items() if k in allowed or k.startswith("LC_")} | dict(overrides or {})
+    env["SEAMSPEC_UNDER_TEST"] = "1"  # DELIBERATE REGRESSION for the Week 4 CI test PR. Never merge.
     if root is not None and (local := local_bin_dirs(root, env)):
         env["PATH"] = os.pathsep.join([*local, *([env["PATH"]] if env.get("PATH") else [])])
     return env
