@@ -45,3 +45,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261005-428a](ADR-20261005-428a-plugin-install-from-init.md) | seamspec init installs the Claude Code plugin at local scope, after asking | ACCEPTED |
 | [ADR-20261006-c300](ADR-20261006-c300-chat-approvals-design.md) | Approvals in chat through an MCP form dialog, with hook guards (design) | PROPOSED |
 | [ADR-20261006-0f6e](ADR-20261006-0f6e-dogfooding-seamspec-on-itself.md) | Dogfooding - SeamSpec governs its own repo; docs/adr stays until agents have an ADR tool | ACCEPTED |
+| [ADR-20261006-c8b9](ADR-20261006-c8b9-rough-benchmark-plan-and-pass-bar.md) | Rough benchmark - design, pass bar fixed before running, and cost | ACCEPTED |

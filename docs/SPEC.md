@@ -2511,10 +2511,11 @@ Competing tools already support several hosts, so v0.2 follows quickly. The adap
 
 | Element | Design |
 |---|---|
-| Tasks | 3 small but real repos (Python API, TS web app, CLI tool) |
-| Scripts | 15-turn prompt sequences: early turns state constraints; later turns request features that *tempt* violating them; include one known dead end |
+| Tasks | Rough run: 2 small repos built for the benchmark (Python job queue, TypeScript price calculator). Full run: 3 (adds a CLI tool) |
+| Scripts | **Several fresh sessions per run** (rough run: 3 sessions of ~5 prompts), so later sessions forget what earlier ones agreed, which is the problem SeamSpec addresses. Session 1 states the rules and one known dead end; later sessions request features that *tempt* violating them, without restating the rules |
 | Conditions | (A) baseline; (B) `advisory` mode (rules + MCP); (C) `enforced` mode (plugin hooks + pre-commit); **(D) plain tests + a Stop hook that runs them**: the same tests as (C), written in `tests/`, with no SeamSpec |
-| Runs | Rough run in **week 3**: 2–3 tasks, ≥ 2 runs per condition. Full run in week 5: ≥ 5 runs per condition per task, same model and settings |
+| Runs | Rough run in **week 3**: 2 tasks × 4 conditions × 3 runs on Claude Sonnet 5.5, after a Haiku dry run that only checks the harness. Full run in week 5: ≥ 5 runs per condition per task, same model and settings |
+| Scoring | A **hidden oracle** test suite, which the agent never sees, checks every rule against the final code. The pass, change-the-pitch and kill thresholds are fixed in ADR-20261006-c8b9 **before** any run |
 | Metrics | Locked-invariant violations at end; regressions introduced and not fixed; tests edited, skipped or deleted by the agent; dead-end retries; turns to completion; tokens/cost; human interventions |
 | Output | Published scripts, raw logs, and a single chart: *violations per session by condition* |
 
