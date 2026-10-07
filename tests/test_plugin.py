@@ -47,8 +47,10 @@ def test_mcp_config() -> None:
 def test_skills_match_their_templates(name: str) -> None:
     committed = (PLUGIN / "skills" / name / "SKILL.md").read_text()
     assert committed == render(name), f"skills/{name}/SKILL.md is stale: run `uv run python -m seamspec.core.commands`"
-    assert committed.startswith(f"---\nname: {name}\n") and "$ARGUMENTS" in committed
-    assert "{{" not in committed
+    assert committed.startswith(f"---\nname: {name}\n") and "{{" not in committed
+    # Commands that take input pass it through; `status` takes none (§15A.2).
+    takes_input = "argument-hint:" in committed
+    assert ("$ARGUMENTS" in committed) is takes_input and (name == "status") is not takes_input
 
 
 def _path_without_seamspec(tmp_path: Path) -> str:

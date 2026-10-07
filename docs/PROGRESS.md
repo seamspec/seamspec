@@ -8,7 +8,9 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
-| 2026-10-06 | **Week 4 · CI workflow from `init`** (PR `week-4/ci-workflow`): `.github/workflows/seamspec.yml` (`doctor --ci` then `verify --all --ci`; read-only token; never `pull_request_target`; toolchain steps chosen from runners and lockfiles; never overwritten); `init --ci/--no-ci` by mode (advisory never, enforced asks, strict always plus a CODEOWNERS block) | ADR-20261006-d16b |
+| 2026-10-07 | **Week 4 · skills** (PR `week-4/skills`): `/seamspec:supersede`, `/seamspec:checkpoint`, `/seamspec:context`, `/seamspec:status`, generated from templates like `lock` and `dead-end`; SPEC §15A.3 now mirrors all six templates. About 458 tokens always loaded for the six descriptions | ADR-20261007-8663 |
+| 2026-10-06 | **Week 4 exit test passed:** #33 (a regression committed with `--no-verify`: CI failed naming `inv_4b4f5ea7`) and #34 (the owner's supersede: CI passed and listed `inv_e65a013c` LOCKED → SUPERSEDED). Both closed without merging | issue #4 |
+| 2026-10-06 | **Week 4 · CI workflow from `init`** (#32): `.github/workflows/seamspec.yml` (`doctor --ci` then `verify --all --ci`; read-only token; never `pull_request_target`; toolchain steps chosen from runners and lockfiles; never overwritten); `init --ci/--no-ci` by mode (advisory never, enforced asks, strict always plus a CODEOWNERS block) | ADR-20261006-d16b |
 | 2026-10-06 | **Full-run plan: condition E** (#31): the week-5 benchmark adds "rules written in `CLAUDE.md`" (no SeamSpec), to test whether SeamSpec's memory beats plain notes. The owner's decision | ADR-20261006-b270 |
 | 2026-10-06 | **Week 4 · doctor** (#30): `seamspec doctor` (config, schemas naming the bad file, integrity, runner config, approval provenance, scopes; locally also the journal, CLAUDE.md block, pre-commit hook, allowlisted SeamSpec commands) and `doctor --ci`: rules only move forward (only by supersede, including tests re-hashed by an agent) plus a retirement summary in the job summary. This repo's CI runs it | ADR-20261006-9623 |
 | 2026-10-06 | **Rough benchmark: PASS** (PR `week-3/bench-result`). Counted run of 24 runs on Sonnet 5.5, $27.40: V(A)=9, V(B)=1, V(C)=2, V(D)=6. SeamSpec beat plain tests on violations, tampering (0 vs 6) and dead ends (0 vs 4), at 1.29× the cost. In every T2 run with SeamSpec, the agent surfaced both conflicts with `request_supersede`; with plain tests it rewrote the tests. B ≈ C: the memory and the protocol do most of the work. Decision: keep building, and lead positioning with remembered agreements. Benchmark total about $42.69 | ADR-20261006-b270, `docs/benchmark/rough-1.md` |
@@ -64,10 +66,10 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 - [x] `seamspec doctor` (§16.5). Merged in #30
 - [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are merged (#30); the template `init` installs is next
-- [ ] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2)
+- [ ] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2): PR `week-4/skills`
 - [ ] `--mode advisory|enforced|strict` handling (§7.3)
 - [ ] Dogfood on SeamSpec itself (done in #22) and at least one real project
-- Exit criteria: CI blocks a regression and lists retirements on a test PR; `doctor` is clean on the fixtures
+- Exit criteria: **met.** CI blocks a regression (#33) and lists retirements (#34) on test PRs; `doctor` is clean on the fixtures and on this repo
 
 ## Done in Week 3 (issue #3, closed)
 
