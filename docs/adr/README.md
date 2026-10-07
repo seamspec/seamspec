@@ -48,3 +48,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261006-c8b9](ADR-20261006-c8b9-rough-benchmark-plan-and-pass-bar.md) | Rough benchmark - design, pass bar fixed before running, and cost | ACCEPTED |
 | [ADR-20261006-b270](ADR-20261006-b270-rough-benchmark-result-pass.md) | Rough benchmark result - PASS; keep building, lead with remembered agreements | ACCEPTED |
 | [ADR-20261006-9623](ADR-20261006-9623-doctor-v01.md) | seamspec doctor in v0.1 - what it checks, the CI base branch, and what waits | ACCEPTED |
+| [ADR-20261006-d16b](ADR-20261006-d16b-ci-workflow-from-init.md) | The CI workflow and CODEOWNERS that init installs | ACCEPTED |

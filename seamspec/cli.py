@@ -20,6 +20,7 @@ from .core.models import DeadEnd, Invariant, InvStatus
 from .core.root import RootNotFound, find_root
 from .core.scope import matches
 from .core.store import RecordError, Store
+from .installers import ci as ci_installer
 from .installers import claude_plugin, scaffold
 from .installers.directive import DirectiveError
 
@@ -128,6 +129,13 @@ def init(
             help="Install and enable the SeamSpec Claude Code plugin for this repository only. Asks when omitted.",
         ),
     ] = None,
+    ci: Annotated[
+        bool | None,
+        typer.Option(
+            "--ci/--no-ci",
+            help="Add the CI workflow (enforced mode asks when omitted; strict always adds it; advisory never).",
+        ),
+    ] = None,
     accept_auto_run: Annotated[
         bool,
         typer.Option(
@@ -198,8 +206,32 @@ def init(
         typer.echo("This clone isn't trusted yet: run `seamspec trust` to review its runner commands.")
     if not (root / ".git").exists():
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
+    _init_ci(root, report.mode, ci)
     _init_plugin(root, plugin)
-    typer.echo("The CI workflow is installed by a later version of `init` (v0.1 in progress).")
+
+
+def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
+    """CI by mode (§7.3): never in advisory, offered in enforced, always in strict (+ CODEOWNERS)."""
+    if mode == "advisory":
+        if wanted:
+            typer.echo("CI workflow: not installed (advisory mode never adds one, §7.3).")
+        return
+    if mode == "enforced" and wanted is False:
+        return
+    if mode == "strict" and wanted is False:
+        typer.echo("CI workflow: strict mode always adds it (§7.3); --no-ci is ignored.")
+    if mode == "enforced" and wanted is None:
+        if not _interactive():
+            typer.echo("CI workflow: not added (no terminal). Run `seamspec init --ci` to add it.")
+            return
+        question = f"Add a CI workflow ({ci_installer.WORKFLOW_REL}) that runs your approved rules on every PR?"
+        if not typer.confirm(question, default=True):
+            return
+    cfg = load_config(root)
+    typer.echo(f"  {ci_installer.install_workflow(root, cfg):<9} {ci_installer.WORKFLOW_REL}")
+    if mode == "strict":
+        typer.echo(f"  {ci_installer.install_codeowners(root, cfg):<9} {ci_installer.CODEOWNERS_REL}"
+                   " (replace @your-team/leads with your reviewers)")  # fmt: skip
 
 
 def _init_plugin(root: Path, wanted: bool | None) -> None:
