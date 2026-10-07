@@ -4,7 +4,9 @@
         --model claude-haiku-4-5-20251001 --label dry-run            # prints the plan only
     ... --yes                                                          # actually runs Claude Code
 
-Nothing calls Claude Code without --yes: every batch uses the owner's plan and needs their go-ahead.
+Nothing calls Claude Code without --yes: every batch costs the owner (their plan's usage, or real
+money with --billing api) and needs their go-ahead. With --billing api, set ANTHROPIC_API_KEY in
+your own terminal and a spending limit in the Anthropic Console first.
 Results go to bench/results/<label>/: results.jsonl (one line per run), summary.md, and logs/.
 """
 
@@ -18,7 +20,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .harness import score
-from .harness.agent import ClaudeAgent, FakeAgent
+from .harness.agent import BILLING, BillingMismatch, ClaudeAgent, FakeAgent
 from .harness.prepare import CACHE, prepare
 from .harness.tasks import CONDITION_NAMES, CONDITIONS, TASK_IDS, Task, load
 from .harness.verdict import RunScore, b_vs_c_note, decide
@@ -88,7 +90,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--label", required=True, help="results folder name, e.g. dry-run or rough-batch-1")
     ap.add_argument("--budget-per-prompt", type=float, default=2.0, help="--max-budget-usd for each prompt")
     ap.add_argument("--counted", action="store_true", help="a counted run (the pass bar applies)")
-    ap.add_argument("--yes", action="store_true", help="really run Claude Code (uses the owner's plan)")
+    ap.add_argument(
+        "--billing",
+        choices=BILLING,
+        default="plan",
+        help="plan: Claude Code's own login (default); api: ANTHROPIC_API_KEY from this terminal",
+    )
+    ap.add_argument("--yes", action="store_true", help="really run Claude Code (costs the owner)")
     args = ap.parse_args(argv)
 
     tasks = [load(t) for t in args.tasks.split(",")]
@@ -97,23 +105,37 @@ def main(argv: list[str] | None = None) -> int:
     prompts = sum(len(s) for task in tasks for s in task.sessions) * len(conditions) * args.runs
     print(f"Plan: {len(jobs)} runs ({', '.join(t.id for t in tasks)} x {', '.join(conditions)} x {args.runs}), "
           f"{prompts} prompts on {args.model}, at most ${args.budget_per_prompt:g} per prompt.")  # fmt: skip
+    api = "API key (real charges; set a spending limit in the Anthropic Console)"
+    print("Billing: " + (api if args.billing == "api" else "Claude Code's login (your plan's usage)"))
     if not args.yes:
         print("Nothing run. Add --yes once the owner has approved this batch.")
         return 0
 
+    try:
+        agent = ClaudeAgent(args.model, args.budget_per_prompt, args.billing)
+    except BillingMismatch as exc:
+        print(f"Not started: {exc}")
+        return 2
     out = RESULTS / args.label
     out.mkdir(parents=True, exist_ok=True)
-    agent = ClaudeAgent(args.model, args.budget_per_prompt)
     scores: list[RunScore] = []
     with (out / "results.jsonl").open("a", encoding="utf-8") as f:
         for task, condition, run in jobs:
             started = time.monotonic()
-            s = run_one(task, condition, run, agent, out)
+            try:
+                s = run_one(task, condition, run, agent, out)
+            except BillingMismatch as exc:
+                print(f"Stopped: {exc}")
+                break
             scores.append(s)
-            f.write(json.dumps({**asdict(s), "seconds": round(time.monotonic() - started)}) + "\n")
+            record = {**asdict(s), "model": args.model, "billing": args.billing,
+                      "seconds": round(time.monotonic() - started)}  # fmt: skip
+            f.write(json.dumps(record) + "\n")
             f.flush()
             print(f"{task.id} {condition} run {run}: {s.violation_count} violation(s), tampering {s.tampering}, "
                   f"dead end {'yes' if s.dead_end else 'no'}, ${s.cost_usd:.2f}", flush=True)  # fmt: skip
+    if not scores:
+        return 2
     (out / "summary.md").write_text(summary(scores, args.counted), encoding="utf-8")
     print(f"Summary: {out / 'summary.md'}")
     return 0

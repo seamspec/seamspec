@@ -1,9 +1,13 @@
 """Drive the agent: one fresh Claude Code session per scripted session, prompts resumed within it.
 
-Every condition gets the same prompts, model, tools and settings. Billing follows the owner's
-choice in ADR-20261006-c8b9 (the Pro plan): ANTHROPIC_API_KEY is removed from the environment so
-Claude Code uses its own login. User-level settings are excluded (`--setting-sources project,local`)
-so the owner's own plugins and hooks can't change the results.
+Every condition gets the same prompts, model, tools and settings. User-level settings are
+excluded (`--setting-sources project,local`) so the owner's own plugins and hooks can't change the
+results.
+
+Billing is the owner's choice (ADR-20261006-c8b9): `plan` removes ANTHROPIC_API_KEY so Claude Code
+uses its own login (the Pro plan); `api` requires the key in the environment. Either way, the
+`apiKeySource` Claude Code reports at the start of every prompt is checked, and a mismatch stops
+the batch before it bills the wrong account.
 """
 
 from __future__ import annotations
@@ -34,6 +38,13 @@ ALLOWED_TOOLS = [
 ]  # fmt: skip
 
 
+BILLING = ("plan", "api")
+
+
+class BillingMismatch(RuntimeError):
+    """Claude Code would bill a different account than the owner chose: stop the batch."""
+
+
 @dataclass
 class PromptResult:
     session: int
@@ -46,6 +57,7 @@ class PromptResult:
     is_error: bool = False
     note: str = ""
     session_id: str | None = None
+    api_key_source: str | None = None
 
 
 @dataclass
@@ -65,15 +77,41 @@ def parse_stream(lines: list[str]) -> dict:
     return {}
 
 
+def api_key_source(lines: list[str]) -> str | None:
+    """`apiKeySource` from the stream's `system` init event: how Claude Code is billed."""
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "system" and "apiKeySource" in event:
+            return str(event["apiKeySource"])
+    return None
+
+
+def check_billing(billing: str, source: str | None) -> None:
+    """`api` must be billed via ANTHROPIC_API_KEY; `plan` must never be. Unknown sources pass."""
+    if billing == "api" and source is not None and source != "ANTHROPIC_API_KEY":
+        raise BillingMismatch(f"--billing api, but Claude Code reports apiKeySource={source!r}. Stopping.")
+    if billing == "plan" and source == "ANTHROPIC_API_KEY":
+        raise BillingMismatch("--billing plan, but Claude Code is using ANTHROPIC_API_KEY. Stopping.")
+
+
 class ClaudeAgent:
-    def __init__(self, model: str, budget_per_prompt: float) -> None:
+    def __init__(self, model: str, budget_per_prompt: float, billing: str = "plan") -> None:
+        if billing not in BILLING:
+            raise ValueError(f"billing must be one of {BILLING}")
+        if billing == "api" and not os.environ.get("ANTHROPIC_API_KEY"):
+            raise BillingMismatch("--billing api needs ANTHROPIC_API_KEY set in this terminal.")
         self.model = model
         self.budget = budget_per_prompt
+        self.billing = billing
 
     def run_session(self, work: Path, session: int, prompts: tuple[str, ...], use_plugin: bool,
                     log_dir: Path) -> SessionLog:  # fmt: skip
         log = SessionLog()
-        env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "VIRTUAL_ENV", "PYTHONPATH")}
+        dropped = {"VIRTUAL_ENV", "PYTHONPATH"} | ({"ANTHROPIC_API_KEY"} if self.billing == "plan" else set())
+        env = {k: v for k, v in os.environ.items() if k not in dropped}
         env["PATH"] = os.pathsep.join([str(work / ".venv/bin"), str(work / "node_modules/.bin"), env.get("PATH", "")])
         session_id: str | None = None
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -95,6 +133,8 @@ class ClaudeAgent:
             (log_dir / f"s{session}p{i}.jsonl").write_text(stdout, encoding="utf-8")
             if stderr:
                 (log_dir / f"s{session}p{i}.stderr.txt").write_text(stderr, encoding="utf-8")
+            result.api_key_source = api_key_source(stdout.splitlines())
+            check_billing(self.billing, result.api_key_source)
             final = parse_stream(stdout.splitlines())
             usage = final.get("usage") or {}
             result.cost_usd = float(final.get("total_cost_usd") or 0.0)
