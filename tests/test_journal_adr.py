@@ -145,10 +145,16 @@ def test_adr_roundtrip_and_status(py_repo: Path) -> None:
 def test_this_repos_hand_written_adrs_parse() -> None:
     """docs/adr/ uses the same format and moves into .seamspec/adrs/ in week 3 (ADR-20261005-ae6e)."""
     files = sorted((REPO_ROOT / "docs/adr").glob("ADR-*.md"))
+    index = (REPO_ROOT / "docs/adr/README.md").read_text(encoding="utf-8")
     assert files
     for path in files:
         record = adr.parse(path.read_text(encoding="utf-8"), path)
-        assert path.name.startswith(record.id) and record.status == "ACCEPTED"
+        assert path.name.startswith(record.id)
+        # PROPOSED designs wait for the owner; the index must show the same status as the file
+        assert (
+            f"[{record.id}]({path.name})" in index
+            and f"| {record.status} |" in index.split(record.id, 1)[1].split("\n", 1)[0]
+        )
 
 
 def test_bad_adrs_are_rejected() -> None:
