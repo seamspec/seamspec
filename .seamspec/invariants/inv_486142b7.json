@@ -1,0 +1,31 @@
+{
+  "schema_version": "1",
+  "id": "inv_486142b7",
+  "title": "init never changes Claude Code settings silently",
+  "assertion": "Without a terminal and without `--plugin`, `seamspec init` never calls the `claude` CLI and never creates `.claude/`.",
+  "scope": {
+    "paths": [
+      "seamspec/cli.py",
+      "seamspec/installers/claude_plugin.py"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "prompt",
+    "text": "Owner (2026-10-07, dogfooding): \"installed the plugin, go ahead and propose the rules\". Candidate from ADR-20261005-428a.",
+    "ref": null
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_486142b7.py",
+    "harness_sha256": "ba2b58f8d30f19f74b696e687423cf02f510b75747ee5e14cfb67a8825be65e9",
+    "assertion_sha256": "0e20907628db8f86a85a9b71e04acb4ca573b4570a854eeccddb9055a66a1cfd"
+  },
+  "adr_id": null,
+  "created_at": "2026-10-07T00:15:54.406224Z",
+  "approved_at": "2026-10-07T00:18:22.948420Z",
+  "approved_by": "vamship",
+  "superseded_by": null,
+  "status_reason": null
+}

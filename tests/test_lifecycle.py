@@ -43,6 +43,33 @@ def propose(root: Path, code: str = PASS, **kw) -> dict:
 # --- propose -------------------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"GIT_AUTHOR_NAME": "Maya Rao", "GIT_AUTHOR_EMAIL": "maya@example.com"},
+        # no user.name anywhere: git falls back to the OS full name (if any); so must SeamSpec (dogfooding #5)
+        {"GIT_AUTHOR_EMAIL": "maya@example.com"},
+    ],
+)
+def test_approver_is_the_identity_git_records(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env: dict) -> None:
+    import getpass
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-global-config"))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    git_says = subprocess.run(["git", "var", "GIT_AUTHOR_IDENT"], cwd=tmp_path, capture_output=True, text=True)
+    expected = git_says.stdout.strip().rsplit(" ", 2)[0] if git_says.returncode == 0 else getpass.getuser()
+    if expected.startswith("<"):  # git found no name at all
+        expected = getpass.getuser()
+    assert lifecycle.approver_identity(Store(tmp_path)) == expected
+    if "GIT_AUTHOR_NAME" in env:
+        assert expected == "Maya Rao <maya@example.com>"
+
+
 def test_propose_writes_outside_test_trees_and_runs_nothing(py_repo: Path) -> None:
     marker = py_repo / "ran.txt"
     out = propose(py_repo, code=f"open({str(marker)!r}, 'w').write('x')\n" + PASS)

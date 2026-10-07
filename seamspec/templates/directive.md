@@ -1,7 +1,7 @@
 # SeamSpec Protocol
 
-This repository uses SeamSpec. Locked invariants are enforced by hooks, pre-commit, and CI —
-failing them will block you from finishing and block commits.
+This repository uses SeamSpec. Locked invariants are enforced by hooks and git pre-commit (and by
+CI where the SeamSpec workflow is installed): failing them blocks you from finishing and blocks commits.
 
 1. Before editing a file, call `get_constraints(files)` (or run `seamspec context <files>`).
    Respect every LOCKED invariant. Approaches listed as previously failed (dead ends) failed for

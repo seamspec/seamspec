@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "id": "inv_e65a013c",
+  "title": "Stop check finishes before the hook timeout",
+  "assertion": "The Stop deadline can never be configured within 30 seconds of the plugin's Stop hook timeout, so Claude Code never discards SeamSpec's Stop decision.",
+  "scope": {
+    "paths": [
+      "seamspec/core/config.py",
+      "seamspec/adapters/claude.py",
+      "seamspec-plugin/hooks/hooks.json"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "prompt",
+    "text": "Owner (2026-10-07, dogfooding): \"installed the plugin, go ahead and propose the rules\". Candidate from ADR-20261005-5675.",
+    "ref": null
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_e65a013c.py",
+    "harness_sha256": "d2df63705dbea57289115ca8a5cafa16d3181b4695454449e0af2f71decba61f",
+    "assertion_sha256": "3a08d403fa85cef9569df0d1ef1e8d6fa3c2940ecc3b9976b361a685b30983a4"
+  },
+  "adr_id": null,
+  "created_at": "2026-10-07T00:15:53.915589Z",
+  "approved_at": "2026-10-07T00:18:06.842697Z",
+  "approved_by": "vamship",
+  "superseded_by": null,
+  "status_reason": null
+}

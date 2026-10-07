@@ -19,8 +19,9 @@ Record a failed approach as a SeamSpec dead end. User note (may be empty): $ARGU
 ---
 Rules for every SeamSpec command:
 - Never approve invariants and never edit files under `.seamspec/` directly.
-- `propose_invariant` never runs tests. After proposing, run `seamspec verify --proposed <ids>`
-  with your shell tool; the user may be asked to allow it. Never try to work around that prompt.
+- `propose_invariant` never runs tests. After proposing, run `seamspec verify --proposed <id>`
+  (repeat `--proposed <id>` for each id) with your shell tool; the user may be asked to allow it.
+  Never try to work around that prompt.
 - If SeamSpec MCP tools are unavailable, use the CLI instead: `seamspec context <files>`,
   `seamspec propose --json -`, `seamspec dead-end --json -`, `seamspec verify --json`.
 - End your reply with the SeamSpec summary block:

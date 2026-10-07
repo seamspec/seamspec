@@ -49,11 +49,26 @@ jobs:
         env:
           SEAMSPEC_REQUIRE_VITEST: "1"
 
+  # SeamSpec governs this repo (ADR-20261006-0f6e): its LOCKED rules also run on every PR,
+  # so a commit made with --no-verify, or on another machine, can't slip past them.
+  seamspec:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run seamspec verify --all --ci
+
   # One stable check for branch rulesets to require (ADR-20261005-d8bc). The jobs above
   # report one check per OS/Python pair, and those names change whenever the matrix does.
   ci-ok:
     if: always()
-    needs: [test, vitest]
+    needs: [test, vitest, seamspec]
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.test.result }}" = "success" && test "${{ needs.vitest.result }}" = "success"
+      - run: >-
+          test "${{ needs.test.result }}" = "success" &&
+          test "${{ needs.vitest.result }}" = "success" &&
+          test "${{ needs.seamspec.result }}" = "success"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -174,3 +175,15 @@ def test_gitignore_keeps_bytecode_out_of_the_ledger(tmp_path: Path) -> None:
     out = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=tmp_path,
                          capture_output=True, text=True).stdout  # fmt: skip
     assert "__pycache__" not in out
+
+
+def test_local_state_is_ignored_even_without_the_root_gitignore(tmp_path: Path) -> None:
+    """Dogfooding #8: on a branch whose .gitignore predates SeamSpec, local state must stay invisible to git."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    scaffold.init(tmp_path, auto_run=True, actor="Maya")
+    (tmp_path / ".gitignore").unlink()
+    assert (tmp_path / ".seamspec/.local/.gitignore").read_text().splitlines()[-1] == "*"
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", ".seamspec/.local/consent.json"], cwd=tmp_path, capture_output=True
+    )
+    assert ignored.returncode == 0

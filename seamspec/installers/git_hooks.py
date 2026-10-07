@@ -41,12 +41,33 @@ def render_hook(prefix: str) -> str:
         "# Runs every LOCKED SeamSpec invariant before each commit (SPEC §16.4).\n"
         "# GUI git clients often lack ~/.local/bin, where `uv tool` installs.\n"
         'PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder)\n'
+        f"{cd}"
+        "# A branch where SeamSpec was never set up (no config here or in HEAD) has nothing to check.\n"
+        "# A config that exists in HEAD but is missing here still runs the gate, and fails.\n"
+        "# If git can't answer, fail closed: never guess that a branch is ungoverned.\n"
+        "if [ ! -f .seamspec/config.toml ]; then\n"
+        "  if ! command -v git >/dev/null 2>&1; then\n"
+        '    echo "SeamSpec: git not found on PATH, so this branch can\'t be checked. Not committing." >&2\n'
+        "    exit 1\n"
+        "  fi\n"
+        '  in_head=""\n'
+        "  if git rev-parse --verify -q HEAD >/dev/null; then\n"
+        "    in_head=$(git ls-tree --name-only HEAD -- ./.seamspec/config.toml) || {\n"
+        '      echo "SeamSpec: git failed to read HEAD, so this branch can\'t be checked. Not committing." >&2\n'
+        "      exit 1\n"
+        "    }\n"
+        "  fi\n"
+        '  if [ -z "$in_head" ]; then\n'
+        '    echo "SeamSpec: not set up on this branch; nothing to check." >&2\n'
+        "    exit 0\n"
+        "  fi\n"
+        "fi\n"
         "if ! command -v seamspec >/dev/null 2>&1; then\n"
         '  echo "SeamSpec: the seamspec CLI is not installed (uv tool install seamspec)." >&2\n'
         '  echo "SeamSpec: install it, or delete this hook to stop checking." >&2\n'
         "  exit 1\n"
         "fi\n"
-        f"{cd}exec {GATE}\n"
+        f"exec {GATE}\n"
     )
 
 
