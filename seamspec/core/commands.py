@@ -11,7 +11,7 @@ from __future__ import annotations
 from importlib.resources import files
 from pathlib import Path
 
-V01_COMMANDS = ("lock", "dead-end")
+V01_COMMANDS = ("lock", "dead-end", "supersede", "checkpoint", "context", "status")
 CLAUDE_ARGS = "$ARGUMENTS"
 
 

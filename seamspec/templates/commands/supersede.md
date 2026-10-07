@@ -1,0 +1,19 @@
+---
+name: supersede
+description: Replace a LOCKED SeamSpec rule whose requirement genuinely changed, by proposing a replacement and asking the human to approve the swap. Use when the user says the rule "has changed", "is wrong now" or "we agreed something new".
+argument-hint: <invariant_id> <reason>
+---
+A LOCKED SeamSpec invariant needs to change: {{args}}
+
+1. Call `get_constraints` on the rule's scope to read it, and read its ADR if it has one
+   (`seamspec://adrs/{adr_id}`). If no invariant id was given, find the rule the user means
+   and confirm it with them.
+2. If the new behavior isn't clear from the reason, ask the user one clarifying question first.
+3. Write a test for the NEW behavior and call `propose_invariant` with every required field
+   (`title`, `assertion`, `scope_paths`, `runner`, `harness_code`, `origin_text` = the user's
+   words about the change). This is the replacement.
+4. Run the replacement's test: `seamspec verify --proposed <new id>`.
+5. Call `request_supersede(invariant_id, reason, replacement_id)`.
+6. Never edit or delete the old rule's test, and don't commit code that breaks the old rule:
+   the pre-commit check and CI keep enforcing it until the human approves the supersede.
+7. Tell the user to run `seamspec review` to approve or decline the change.

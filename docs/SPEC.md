@@ -1372,8 +1372,10 @@ Templates live in `seamspec/templates/commands/<name>.md`. **In v0.1 the frontma
 | Placeholder | Rendered as |
 |---|---|
 | `{{args}}` | Claude Code: `$ARGUMENTS` · Copilot: `${input:<arg_name>}` · Cursor: "the text the user typed after the command" · MCP prompt: the argument value |
-| `{{max_proposals}}` | `commands.max_proposals_per_run` from `config.toml` |
-| `{{runners}}` | Runner names from `config.toml`, e.g. `pytest, vitest` |
+| `{{max_proposals}}` | `commands.max_proposals_per_run` from `config.toml` *(v0.2 per-project renderers)* |
+| `{{runners}}` | Runner names from `config.toml`, e.g. `pytest, vitest` *(v0.2 per-project renderers)* |
+
+**v0.1 renders only `{{args}}`.** Claude Code skills ship inside the plugin, which is the same for every project, so project values can't be filled in. The templates say "at most 3, or `commands.max_proposals_per_run` if set", and they take runners from `get_constraints` (ADR-20261007-8663).
 
 **Standard footer** (appended to every rendered command):
 
@@ -1400,24 +1402,29 @@ Rules for every SeamSpec command:
 ```markdown
 ---
 name: lock
-description: Protect a behavior you just built as a proposed SeamSpec invariant
-argument: { name: behavior, hint: "<behavior to protect>", required: true }
+description: Protect a behavior you just built as a proposed SeamSpec invariant (a plain-language rule plus a test). Use when the user says "lock this", "protect this" or "make that a rule".
+argument-hint: <behavior to protect>
 ---
 Protect this behavior as a SeamSpec invariant: {{args}}
 
 1. Identify the files that implement it. Call `get_constraints` on them. If the new rule
    conflicts with a LOCKED invariant, stop and explain the conflict instead of proposing.
 2. Write ONE focused, behavior-level test: inputs → outputs, or a property over a range.
-   Do not test private helpers or internal structure. Available runners: {{runners}}.
-3. Call `propose_invariant` with:
-   - a precise one-sentence `assertion`
-   - the narrowest `scope_paths` globs that cover the behavior
-   - `origin_text` = the user's original request for this behavior, quoted
-   - `adr` (`context`, `decision`, `consequences`) if a design choice was made
+   Do not test private helpers or internal structure. Use the runner, test location and
+   import style that `get_constraints` returns under `runners`.
+3. Call `propose_invariant` with every required field:
+   - `title`: a short name for the rule
+   - `assertion`: the rule as one precise sentence
+   - `scope_paths`: the narrowest globs that cover the behavior
+   - `runner`: the runner `get_constraints` suggests (e.g. `pytest`)
+   - `harness_code`: the full test file you wrote in step 2
+   - `origin_text`: the user's original request for this behavior, quoted
+   - optionally `adr` (`context`, `decision`, `consequences`) if a design choice was made
 4. `propose_invariant` does not run the test. Run it with your shell tool:
    `seamspec verify --proposed <id>` (the user may be asked to allow this).
 5. If the test fails: fix the test only if the test is wrong; if the code is wrong, report
    the bug and do not keep the proposal. Retry a fixed test with `replace_id`, then run it again.
+6. Tell the user the rule is only proposed: it is locked when they approve it in `seamspec review`.
 ```
 
 #### `dead-end.md`
@@ -1425,8 +1432,8 @@ Protect this behavior as a SeamSpec invariant: {{args}}
 ```markdown
 ---
 name: dead-end
-description: Record an approach that was tried and failed, so it is not retried
-argument: { name: note, hint: "[what failed]", required: false }
+description: Record an approach that was tried and failed, so SeamSpec reminds future sessions not to retry it. Use when the user says "that didn't work" or "don't try that again".
+argument-hint: "[what failed]"
 ---
 Record a failed approach as a SeamSpec dead end. User note (may be empty): {{args}}
 
@@ -1468,19 +1475,22 @@ Process pending items from BRAINDUMP.md.
 ```markdown
 ---
 name: checkpoint
-description: End-of-session check — verify, protect new behavior, log failed approaches
-argument: { name: focus, hint: "[area to focus on]", required: false }
+description: End-of-session SeamSpec check. Verifies the locked rules, proposes rules for behavior built this session, and records approaches that failed. Use when the user says "wrap up", "checkpoint" or "before I commit".
+argument-hint: "[area to focus on]"
 ---
 Run a SeamSpec checkpoint for this session. Optional focus: {{args}}
 
-1. Call `verify(scope="all")`. If any LOCKED invariant fails, stop here: report it and either
-   fix the regression or, if the change is intentional, follow the supersede steps.
-2. Find files changed this session: `git diff --name-only HEAD` plus untracked files.
-3. Call `get_constraints` on them so you don't duplicate existing invariants.
-4. Pick up to {{max_proposals}} behaviors established this session that are worth protecting:
-   explicit user constraints, user-visible behavior, security, data integrity. Skip cosmetic or
-   trivial behavior. Propose each with `propose_invariant`.
-5. Log every approach tried and abandoned this session with `log_dead_end`.
+1. Call `verify(scope="all")`. If it reports `not_permitted`, run `seamspec verify` with your
+   shell tool instead (the user may be asked to allow it). If any LOCKED rule fails, stop here:
+   fix the regression, or, if the change is intentional, follow the supersede steps
+   (`/seamspec:supersede`).
+2. List the files changed this session: `git diff --name-only HEAD`, plus untracked files.
+3. Call `get_constraints` on them, so you don't propose a rule that already exists.
+4. Pick at most 3 behaviors established this session that are worth protecting (fewer is fine;
+   if `.seamspec/config.toml` sets `commands.max_proposals_per_run`, use that limit): explicit
+   user constraints, user-visible behavior, security, data integrity. Skip cosmetic or trivial
+   behavior. Propose each with `propose_invariant`, then run `seamspec verify --proposed <id>`.
+5. Record every approach tried and abandoned this session with `log_dead_end`.
 ```
 
 #### `supersede.md`
@@ -1488,18 +1498,23 @@ Run a SeamSpec checkpoint for this session. Optional focus: {{args}}
 ```markdown
 ---
 name: supersede
-description: Replace a locked invariant whose requirement genuinely changed
-argument: { name: target, hint: "<invariant_id> <reason>", required: true }
+description: Replace a LOCKED SeamSpec rule whose requirement genuinely changed, by proposing a replacement and asking the human to approve the swap. Use when the user says the rule "has changed", "is wrong now" or "we agreed something new".
+argument-hint: <invariant_id> <reason>
 ---
-A LOCKED invariant needs to change: {{args}}
+A LOCKED SeamSpec invariant needs to change: {{args}}
 
-1. Read the invariant via `get_constraints` on its scope, and its ADR via `seamspec://adrs/{adr_id}`.
-2. If the new behavior is unclear from the reason, ask the user one clarifying question first.
-3. Write a test for the NEW behavior and call `propose_invariant` (this is the replacement).
-4. Call `request_supersede(invariant_id, reason, replacement_id)`.
-5. Do not edit or delete the old invariant's test.
-6. Tell the user that pre-commit and CI will block until they run `seamspec review` and
-   approve the supersede.
+1. Call `get_constraints` on the rule's scope to read it, and read its ADR if it has one
+   (`seamspec://adrs/{adr_id}`). If no invariant id was given, find the rule the user means
+   and confirm it with them.
+2. If the new behavior isn't clear from the reason, ask the user one clarifying question first.
+3. Write a test for the NEW behavior and call `propose_invariant` with every required field
+   (`title`, `assertion`, `scope_paths`, `runner`, `harness_code`, `origin_text` = the user's
+   words about the change). This is the replacement.
+4. Run the replacement's test: `seamspec verify --proposed <new id>`.
+5. Call `request_supersede(invariant_id, reason, replacement_id)`.
+6. Never edit or delete the old rule's test, and don't commit code that breaks the old rule:
+   the pre-commit check and CI keep enforcing it until the human approves the supersede.
+7. Tell the user to run `seamspec review` to approve or decline the change.
 ```
 
 #### `context.md`
@@ -1507,15 +1522,20 @@ A LOCKED invariant needs to change: {{args}}
 ```markdown
 ---
 name: context
-description: Explain which SeamSpec invariants, dead ends, and decisions apply to files
-argument: { name: files, hint: "[files...]", required: false }
+description: Explain which SeamSpec rules, dead ends and decisions apply to some files, in plain language. Use when the user asks "what applies here?", "what are the rules for this file?" or before a big change.
+argument-hint: "[files...]"
 ---
-Show SeamSpec constraints for: {{args}}
+Show the SeamSpec constraints for: {{args}}
 
-1. If no files were given, use files discussed in this conversation, else `git diff --name-only HEAD`.
+1. If no files were given, use the files discussed in this conversation, else
+   `git diff --name-only HEAD`.
 2. Call `get_constraints(files)`.
-3. Explain in plain language: LOCKED invariants (must hold), PROPOSED (pending review),
-   dead ends (avoid), and linked ADRs. Flag anything that conflicts with the current plan.
+3. Explain in plain language:
+   - LOCKED rules: must keep holding;
+   - PROPOSED rules: waiting for the human's review;
+   - dead ends: approaches that failed before, and why;
+   - linked decisions (ADRs).
+4. Flag anything that conflicts with the current plan, and say what you would do about it.
 ```
 
 #### `status.md`
@@ -1523,10 +1543,12 @@ Show SeamSpec constraints for: {{args}}
 ```markdown
 ---
 name: status
-description: Show SeamSpec status for this repository
+description: Show where SeamSpec stands in this repository. Mode, rules by status, dead ends, pending reviews and the last check. Use when the user asks "what's the SeamSpec status?" or "anything waiting for me?".
 ---
-Run `seamspec status --json` and summarize: mode, host tiers, invariant counts by status,
-active dead ends, pending reviews, and the last verify result.
+Run `seamspec status --json` with your shell tool and summarize it in plain language: the mode,
+how many rules are LOCKED, PROPOSED, SUPERSEDED and REJECTED, active dead ends, what is waiting
+for the user's review, and the result of the last verify. If something is waiting, say exactly
+what the user should run next (usually `seamspec review`).
 ```
 
 ### 15A.4 Host Rendering
@@ -2188,11 +2210,11 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - `review.run(store, cfg)`: the flow in §15. It is prompt-driven (one-letter answers, re-asked on anything else) rather than a full-screen TUI, so it works in any terminal and can be tested end to end. Items appear oldest first (proposals and dead ends by `created_at`, supersede requests by `requested_at`; ties broken by id). It records `.seamspec/.local/review.json` (`last_review_at`), which decides which dead ends count as new. The cursor is the time the review **started**, so dead ends created during the review stay new. If you quit part-way through the dead-end list, it only advances past the ones you actually answered.
 - `lifecycle.approve(..., confirm_config=None)` refuses when runner config fingerprints don't match. To confirm, a caller passes the fingerprints of **exactly the bytes it showed the human** (`review.show_config_changes()` returns them); if the files changed again after display, approval is refused. `review`'s own confirmation step applies the same check before writing `fingerprints.json`.
 
-### 19.8c `seamspec/core/commands.py` — implemented (week 3)
+### 19.8c `seamspec/core/commands.py` — implemented (weeks 3–4)
 
 [`commands.py`](../seamspec/core/commands.py)
 
-- `V01_COMMANDS = ("lock", "dead-end")`. The other workflow commands (§15A.2) arrive in week 4 (`supersede`, `checkpoint`, `context`, `status`) and v0.2 (`drain`).
+- `V01_COMMANDS = ("lock", "dead-end", "supersede", "checkpoint", "context", "status")` (the last four added in week 4, ADR-20261007-8663). `drain` arrives with the braindump in v0.2.
 - `render(name, host="claude")` returns the full `SKILL.md`: the template's frontmatter (Claude Code keys in v0.1), a generated-file header, the body with `{{args}}` → `$ARGUMENTS`, and the shared `_footer.md`. Other hosts raise until v0.2.
 - `write_plugin_skills(plugin_dir)` writes `skills/<name>/SKILL.md`; `uv run python -m seamspec.core.commands` regenerates the committed plugin skills. `tests/test_plugin.py` fails if they drift from the templates.
 
