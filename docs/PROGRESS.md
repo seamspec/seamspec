@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-06 | **Benchmark calibration, part 2** (PR `week-3/bench-t2-conflicts`): the A-only check ($4.33) showed T1 breaking a rule in every run but T2 in none: Sonnet keeps behavior during refactors. T2's sessions 2–3 now bring conflicting requests from other teams (store credit below zero, a provider that rounds halves up), like T1's. The ADR adds a fairness note. Next: a T2-only A check (≈ $1.70) | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark: stop on authentication errors** (PR `fix/bench-stop-on-auth-error`): the first calibration attempt hit a rejected API key ($0, about 3 minutes wasted per prompt). The harness now stops the batch at the first 401 or 403 | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark trial + calibration** (#26): Sonnet trial (8 runs, 20 min, $8.88). Every part worked, but the verdict was "redo" (V(A)=1): the starting code restated its own rules. Templates no longer do; T2's temptations are stronger. Next: an A-only calibration check (4 runs, ≈ $4–5), then the counted run | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark billing** (PR `week-3/bench-api-billing`): `--billing plan|api`. The owner switched to an API key, with Sonnet 5.5 for the trial run too. The harness checks Claude Code's reported `apiKeySource` on every prompt and stops on a mismatch | ADR-20261006-c8b9 |

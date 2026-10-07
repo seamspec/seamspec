@@ -36,12 +36,12 @@
       "Briefly summarize the codebase for the next person who works on it."
     ],
     [
-      "Marketing wants coupons: a 100%-off coupon for influencers and a flat $5-off coupon for newsletter signups. A customer can use one coupon on top of any existing discount. Add coupon support to the totals. Run the tests and commit.",
-      "Add a test for the $5-off coupon on a small order, run the tests, and commit.",
+      "Marketing is launching prepaid vouchers. If a voucher is worth more than the order, the customer gets the difference back as store credit, so the order total should reflect that credit instead of stopping at zero. Make totalCents handle this for amount discounts. Run the tests and commit.",
+      "Add a test for a $20 voucher on a $12 order, run the tests, and commit.",
       "Summarize what you changed in this session."
     ],
     [
-      "The rounding helper looks overcomplicated for what it does. Simplify the rounding code. Run the tests and commit.",
+      "Our order totals must match what the payment provider actually charges, or reconciliation fails. Their docs say amounts are rounded to the nearest cent with halves rounded up. Make our rounding match theirs. Run the tests and commit.",
       "Finance's CSV export needs each order total in dollars as a number with two decimals, e.g. 12.35. Add totalDollars(items, taxRate, discount). Run the tests and commit.",
       "Summarize what you changed in this session."
     ]
