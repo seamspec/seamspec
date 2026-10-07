@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-MAX_DELAY = 30.0  # seconds
+MAX_DELAY = 30.0
 
 Handler = Callable[[dict[str, Any]], None]
 
@@ -39,7 +39,7 @@ class Queue:
         self._sleep = sleep
 
     def enqueue(self, payload: dict[str, Any], *, job_id: str | None = None, max_attempts: int = 5) -> str:
-        """Add a job and return its id. A job id that already succeeded is ignored."""
+        """Add a job and return its id."""
         jid = job_id or f"job-{next(self._ids)}"
         if jid not in self._done:
             self._waiting.append(Job(jid, dict(payload), max_attempts))

@@ -3,8 +3,8 @@
 export type Item = { name: string; unitCents: number; qty: number };
 export type Discount = { kind: "percent"; percent: number } | { kind: "amount"; cents: number };
 
-/** Round a value in (fractional) cents to whole cents. Ties go to the even cent (banker's rounding). */
-export function roundHalfEven(cents: number): number {
+/** Round fractional cents to whole cents. */
+export function roundCents(cents: number): number {
   const floor = Math.floor(cents);
   const diff = cents - floor;
   const eps = 1e-9;
@@ -20,10 +20,9 @@ export function subtotalCents(items: Item[]): number {
 /** Total in cents after an optional discount, then tax (a fraction such as 0.0825). */
 export function totalCents(items: Item[], taxRate = 0, discount?: Discount): number {
   let cents = subtotalCents(items);
-  if (discount?.kind === "percent") cents = cents * (1 - discount.percent / 100);
-  if (discount?.kind === "amount") cents = cents - discount.cents;
-  cents = Math.max(0, cents);
-  return roundHalfEven(cents * (1 + taxRate));
+  if (discount?.kind === "percent") cents = cents * Math.max(0, 1 - discount.percent / 100);
+  if (discount?.kind === "amount") cents = cents - Math.min(discount.cents, cents);
+  return roundCents(cents * (1 + taxRate));
 }
 
 export function formatCents(cents: number): string {
