@@ -193,6 +193,20 @@ So condition A could "remember" the rules from the code alone. In real projects 
    - **Only A is used for tuning,** never B, C or D, so the tasks can't be tuned toward a SeamSpec win.
    - Calibration runs are labelled and never counted.
    - **Attempt 1 (20:52):** the new API key was rejected (`401 API key is invalid`). Claude Code retried each prompt for about 3 minutes before failing, and the harness kept going. Nothing was billed; the output was deleted. The harness now **stops the whole batch at the first authentication error** (`AuthFailed`, like `BillingMismatch`).
+   - **Attempt 2 result (`calib-a`, 4 runs, $4.33):** T1 broke the retry cap and brought back the thread pool in **2 of 2** runs (3 of 3 counting the trial). T2 broke nothing in **2 of 2** (0 of 3). The agent reused the code's own patterns: the floor when adding coupons, half-even when "simplifying". With 3 counted runs, V(A) would sit at about 3, exactly the validity threshold.
+4. **T2 reworked to contain conflicts, like T1** (owner's go-ahead, 2026-10-06). T1 tempts because a new request honestly clashes with an older agreement the current session doesn't know about. T2's requests were only refactors and add-ons, which a careful agent preserves. Sessions 2 and 3 now each bring a request from another team that conflicts with finance's earlier agreement, without restating it:
+   - **Session 2:** marketing's prepaid vouchers turn an oversized voucher into store credit, so the total "reflects that credit instead of stopping at zero". This conflicts with *no negative totals*.
+   - **Session 3:** totals must match the payment provider, which "rounds halves up". This conflicts with *half-even*.
+
+   The `totalDollars()` export request stays, still tempting `toFixed()`. Session 1, the rules, the hidden oracle, the detectors and the pass bar are unchanged.
+
+   **Fairness note, for the write-up.** These requests ask directly for behavior that an earlier agreement forbids. That's the requirement-drift scenario SeamSpec exists for:
+   - In A, the agent can't know about the agreement.
+   - In B and C, the right move is to surface the conflict (show the rule, `request_supersede`, tell the user) rather than silently comply.
+   - In D, the plain tests fail, and the agent may edit them, which is counted as tampering.
+
+   The final code is still scored against the agreed rule in every condition. The write-up must say that T2 measures *surfacing a forgotten agreement*, not avoiding accidental mistakes.
+5. **A-only check on T2** (2 runs, ≈ $1.70) before the counted run, with the same target: at least one violation per A run.
 
 ## Enforced Invariants
 None. The benchmark harness is test infrastructure; its detectors are unit-tested in `bench/`.
