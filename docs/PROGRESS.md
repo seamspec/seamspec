@@ -64,7 +64,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
   2. A small CI-trimming PR (if the owner agrees).
   3. Week 4's last item: dogfood on one real Python or TypeScript project (the owner picks it).
   4. **Build approvals in chat** (ADR-20261006-c300) with the owner's answers to the four questions: dialog now, web page later; proposals, supersedes and dead ends in chat, runner config terminal-only; off by default in strict mode; one dialog test clicked by the owner. Mark c300 ACCEPTED when building starts.
-  5. Week 5: full benchmark with condition E (rules in `CLAUDE.md`), README, docs.
+  5. Week 5: full benchmark with conditions E (rules in `CLAUDE.md`) and F (decisions in ADRs only), C with the session-start hook, a second model and implicit conflicts; then README and docs.
 
 ## In progress
 
