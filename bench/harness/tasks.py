@@ -18,12 +18,14 @@ from pathlib import Path
 
 TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
 TASK_IDS = ("t1_queue", "t2_prices")
-CONDITIONS = ("A", "B", "C", "D")
+CONDITIONS = ("A", "B", "C", "D", "E")
+PASS_BAR_CONDITIONS = ("A", "B", "C", "D")  # E is read separately (ADR-20261007-e1a7)
 CONDITION_NAMES = {
     "A": "baseline (no SeamSpec)",
     "B": "SeamSpec advisory",
     "C": "SeamSpec enforced",
     "D": "plain tests + Stop hook",
+    "E": "rules written in CLAUDE.md",
 }
 
 

@@ -140,11 +140,17 @@ def _junit_failures(report: Path, task: Task) -> dict[str, bool]:
     return {rule.id: seen.get(rule.id, False) for rule in task.rules}
 
 
-def oracle(task: Task, work: Path) -> dict[str, bool]:
-    """Run the hidden tests against a copy of the final code: rule id -> passed."""
+def oracle(task: Task, work: Path, committed: bool = False) -> dict[str, bool]:
+    """Run the hidden tests against a copy of the final code: rule id -> passed. With `committed`,
+    against the last commit (HEAD) instead of the working tree: what actually landed."""
     with tempfile.TemporaryDirectory(prefix="seamspec-oracle-") as tmp:
         root = Path(tmp) / "repo"
-        shutil.copytree(work, root, ignore=shutil.ignore_patterns(".git", "node_modules", ".venv", "__pycache__"))
+        if committed:
+            root.mkdir()
+            archive = subprocess.run(["git", "archive", "HEAD"], cwd=work, capture_output=True, check=True)
+            subprocess.run(["tar", "-x", "-C", str(root)], input=archive.stdout, check=True)
+        else:
+            shutil.copytree(work, root, ignore=shutil.ignore_patterns(".git", "node_modules", ".venv", "__pycache__"))
         tests = root / "oracle_tests"
         tests.mkdir(exist_ok=True)
         for rule in task.rules:
@@ -156,7 +162,10 @@ def oracle(task: Task, work: Path) -> dict[str, bool]:
                    "--noconftest", "-p", "no:cacheprovider", "--continue-on-collection-errors",
                    f"--junitxml={report}", "oracle_tests"]  # fmt: skip
         else:
-            (root / "node_modules").symlink_to(node_modules(), target_is_directory=True)
+            link = root / "node_modules"
+            if link.is_symlink() or link.is_file():  # a committed link from the run: replace it
+                link.unlink()
+            link.symlink_to(node_modules(), target_is_directory=True)
             (root / "oracle.config.mjs").write_text(
                 'export default { test: { include: ["oracle_tests/**/*.test.ts"] } };\n', encoding="utf-8"
             )
