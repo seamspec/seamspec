@@ -8,7 +8,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
-| 2026-10-07 | **Code review fixes for mode handling** (PR `fix/mode-review-findings`), from a local code review of #36 (Copilot's quota was used up): lowering strict → enforced no longer needs consent; consent is only asked when raising or setting up (no "no" recorded that nobody gave); the declined-consent message names the real mode; "lowering is human-only" is now described as a speed bump, with CI review as the backstop | ADR-20261007-1b4c |
+| 2026-10-07 | **CI trimmed for Actions minutes** (PR `chore/trim-ci`): PRs run Python 3.11 and 3.14 + vitest + the SeamSpec check (about 5 minutes per push instead of 22); `main` also runs 3.12, 3.13 and macOS; a newer PR push cancels the older run. The owner fixed Actions billing the same morning | ADR-20261007-d757 |
+| 2026-10-07 | **Code review fixes for mode handling** (#37), from a local code review of #36 (Copilot's quota was used up): lowering strict → enforced no longer needs consent; consent is only asked when raising or setting up (no "no" recorded that nobody gave); the declined-consent message names the real mode; "lowering is human-only" is now described as a speed bump, with CI review as the backstop | ADR-20261007-1b4c |
 | 2026-10-07 | **Week 4 · modes** (#36): `--mode` keeps enforced or strict by default (never lowered silently); raising needs consent; **lowering needs a human at a terminal** (an agent can't switch checks off); advisory removes SeamSpec's hook and `--gate` runs nothing; `doctor` checks strict mode's CI and CODEOWNERS; mode changes appear in the CI retirement summary | ADR-20261007-1b4c |
 | 2026-10-07 | **Week 4 · skills** (#35): `/seamspec:supersede`, `/seamspec:checkpoint`, `/seamspec:context`, `/seamspec:status`, generated from templates like `lock` and `dead-end`; SPEC §15A.3 now mirrors all six templates. About 458 tokens always loaded for the six descriptions | ADR-20261007-8663 |
 | 2026-10-06 | **Week 4 exit test passed:** #33 (a regression committed with `--no-verify`: CI failed naming `inv_4b4f5ea7`) and #34 (the owner's supersede: CI passed and listed `inv_e65a013c` LOCKED → SUPERSEDED). Both closed without merging | issue #4 |
@@ -71,7 +72,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] `seamspec doctor` (§16.5). Merged in #30
 - [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are merged (#30); the template `init` installs is next
 - [x] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2). Merged in #35
-- [x] `--mode advisory|enforced|strict` handling (§7.3). Merged in #36; review fixes in PR `fix/mode-review-findings`
+- [x] `--mode advisory|enforced|strict` handling (§7.3). Merged in #36; review fixes in #37
 - [ ] Dogfood on SeamSpec itself (done in #22) and at least one real project
 - Exit criteria: **met.** CI blocks a regression (#33) and lists retirements (#34) on test PRs; `doctor` is clean on the fixtures and on this repo
 

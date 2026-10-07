@@ -2424,7 +2424,7 @@ seamspec/
 ├── README.md
 ├── CLAUDE.md                       # entry point for agents working on SeamSpec (ADR-20261005-2565)
 ├── LICENSE                         # Apache-2.0
-├── .github/workflows/tests.yml     # SeamSpec's own tests: ruff + pytest on Python 3.11–3.14, a vitest job, ci-ok
+├── .github/workflows/tests.yml     # SeamSpec's own CI: PRs run ruff + pytest on Python 3.11 and 3.14, vitest, `seamspec doctor --ci` + `verify --all --ci`, ci-ok; main also runs 3.12, 3.13 and macOS (ADR-20261007-d757)
 ├── .claude-plugin/marketplace.json # this repo is also the plugin marketplace "seamspec" (§16.1)
 ├── bench/                          # benchmark harness, tasks and hidden oracle tests (§23, ADR-20261006-c8b9)
 ├── seamspec-plugin/                # Claude Code plugin (§16.1): hooks, skills, MCP config, wrapper

@@ -10,17 +10,20 @@ on:
 permissions:
   contents: read
 
+# Actions minutes are limited on this private repo (ADR-20261007-d757). A new push to a PR cancels
+# the run still going for its previous commit; runs on main always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Pull requests: the oldest and newest supported Python. Pushes to main: every version.
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        python: ["3.11", "3.12", "3.13", "3.14"]
-        include:
-          - os: macos-latest
-            python: "3.12"
-    runs-on: ${{ matrix.os }}
+        python: ${{ github.event_name == 'pull_request' && fromJSON('["3.11", "3.14"]') || fromJSON('["3.11", "3.12", "3.13", "3.14"]') }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -29,6 +32,18 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - run: uv run pytest
+
+  # macOS minutes count 10x, so macOS runs only on main, after merge. It isn't part of ci-ok.
+  test-macos:
+    if: github.event_name == 'push'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
       - run: uv run pytest
 
   # Real vitest runs against the pinned fixture install (tests/test_verifier_vitest.py).
