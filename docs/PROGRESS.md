@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-06 | **Rough benchmark: PASS** (PR `week-3/bench-result`). Counted run of 24 runs on Sonnet 5.5, $27.40: V(A)=9, V(B)=1, V(C)=2, V(D)=6. SeamSpec beat plain tests on violations, tampering (0 vs 6) and dead ends (0 vs 4), at 1.29× the cost. In every T2 run with SeamSpec, the agent surfaced both conflicts with `request_supersede`; with plain tests it rewrote the tests. B ≈ C: the memory and the protocol do most of the work. Decision: keep building, and lead positioning with remembered agreements. Benchmark total about $42.69 | ADR-20261006-b270, `docs/benchmark/rough-1.md` |
 | 2026-10-06 | **Benchmark calibration, part 2** (PR `week-3/bench-t2-conflicts`): the A-only check ($4.33) showed T1 breaking a rule in every run but T2 in none: Sonnet keeps behavior during refactors. T2's sessions 2–3 now bring conflicting requests from other teams (store credit below zero, a provider that rounds halves up), like T1's. The ADR adds a fairness note. Next: a T2-only A check (≈ $1.70) | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark: stop on authentication errors** (PR `fix/bench-stop-on-auth-error`): the first calibration attempt hit a rejected API key ($0, about 3 minutes wasted per prompt). The harness now stops the batch at the first 401 or 403 | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark trial + calibration** (#26): Sonnet trial (8 runs, 20 min, $8.88). Every part worked, but the verdict was "redo" (V(A)=1): the starting code restated its own rules. Templates no longer do; T2's temptations are stronger. Next: an A-only calibration check (4 runs, ≈ $4–5), then the counted run | ADR-20261006-c8b9 |
@@ -37,21 +38,24 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 | 2026-10-05 | Design spec written, peer-reviewed, scope cut to Claude Code + pytest/vitest for v0.1 | `docs/SPEC.md` §22, §26 |
 | 2026-10-05 | Names claimed (PyPI, npm, GitHub org); landing page live at seamspec.github.io; GitHub milestones + tracking issues #1–#7 created | GitHub |
 
-## Where we stand (2026-10-06, end of day)
+## Where we stand (2026-10-06, after the rough benchmark)
 
-- **Works:** the core loop. A rule plus its test, human approval, then hooks, pre-commit and CI block regressions. Verified in real Claude Code sessions: the agent sees the rule as it edits, gets stopped when it breaks one, and asks for a supersede instead of editing the test.
+- **Works:** the core loop. A rule plus its test, human approval, then hooks and pre-commit block regressions; this repo's CI runs its own rules. Verified in real Claude Code sessions and dogfooded on this repo (#22).
 - **Easier to set up** (#19, #20): no venv activation needed, one question on a teammate's clone, and `seamspec init` installs the plugin (local scope, asks first).
-- **Designed, not built:** approvals in chat (ADR-20261006-c300, PROPOSED, PR #21). The hook risk is measured, and the `ConfigChange` guard works.
-- **Not proven yet:** that agents break fewer things *with* SeamSpec than without, at an acceptable cost. Only the benchmark answers that, and it decides whether this becomes a product.
-- **Suggested order** (the owner decides next session):
-  1. ~~Merge PR #21 as a design only~~ (merged). Building chat approvals waits for the owner's four answers and verification 2.
-  2. ~~**Dogfood** SeamSpec on this repo~~ (PR `week-3/dogfood`).
-  3. **Rough benchmark**, with the pass bar written in an ADR *before* running (cost estimate and approval first).
-  4. Then onboarding polish, and chat approvals if the benchmark is good.
+- **Proven, roughly:** the rough benchmark **passed** (ADR-20261006-b270):
+  - **Fewer broken rules:** 2 with SeamSpec enforced, against 9 without it and 6 with plain tests.
+  - **Every conflict surfaced:** with SeamSpec, the agent raised all 12 conflicts with old agreements through `request_supersede`.
+  - **Plain tests got rewritten:** without SeamSpec's protection, the agent changed the tests to match the new behavior.
+  - **The memory does most of the work:** advisory mode did as well as enforced mode.
+- **Designed, not built:** approvals in chat (ADR-20261006-c300, PROPOSED).
+- **Next, the owner decides the order:**
+  1. **Week 4 onboarding:** the CI workflow from `init`, `doctor`, the remaining skills, and positioning copy that leads with remembered agreements.
+  2. **Approvals in chat:** needs the owner's four answers and verification 2.
+  3. **The full benchmark run in week 5:** a third task, ≥ 5 runs per cell, a second model, and uncommitted pending changes reported separately (ADR-20261006-b270, decision 3).
 
 ## In progress
 
-- **Week 3**, slice by slice: hooks (#16) → MCP server (#17) → plugin + skills (#18) → **setup friction** (the owner moved this ahead of dogfooding after hands-on testing): part 1 runners and clones (#19), part 2 plugin install from `init` (#20), part 3 approvals in chat (design in review, ADR-20261006-c300) → dogfooding → enable the plugin for this repo in the owner's app (with their OK) → rough benchmark (the owner approves the runs first, since they use the owner's Claude account).
+- **Week 3 is done** once the benchmark-result PR is merged. Then tick issue #3 and close the Week 3 milestone.
 
 ## Next (Week 3, issue #3)
 
@@ -61,7 +65,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1). Merged in #18
 - [x] Setup friction: project tools without activation, one question on a clone (#19); plugin install from `init` (#20); approvals in chat designed (ADR-20261006-c300, PROPOSED, #21; build deferred until after the benchmark unless the owner says otherwise)
 - [x] Dogfood: `seamspec init` on this repo (enforced, 6 owner-approved rules, plugin enabled). `docs/adr/` stays for now (ADR-20261006-0f6e). #22
-- [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR. Plan **accepted** by the owner (ADR-20261006-c8b9, #23): pass bar fixed, Claude Sonnet 5.5, billed to an API key (owner's change). Harness built (#24). Trial done ($8.88, harness verdict "redo": tasks too easy). Calibrated (#26). Next: A-only calibration check, then the counted rough run
+- [x] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR: **PASS** (ADR-20261006-b270). Plan **accepted** by the owner (ADR-20261006-c8b9, #23): pass bar fixed, Claude Sonnet 5.5, billed to an API key (owner's change). Harness built (#24). Trial done ($8.88, harness verdict "redo": tasks too easy). Calibrated (#26). Next: A-only calibration check, then the counted rough run
 
 ## Done in Week 2 (issue #2, closed)
 

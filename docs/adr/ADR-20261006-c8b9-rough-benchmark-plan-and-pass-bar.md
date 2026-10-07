@@ -207,6 +207,9 @@ So condition A could "remember" the rules from the code alone. In real projects 
 
    The final code is still scored against the agreed rule in every condition. The write-up must say that T2 measures *surfacing a forgotten agreement*, not avoiding accidental mistakes.
 5. **A-only check on T2** (2 runs, ≈ $1.70) before the counted run, with the same target: at least one violation per A run.
+   - **Result (`calib-a2`, $1.58):** 2 violations in each of the 2 runs (both rules). Calibration done.
+
+**Counted run and verdict:** `rough-1` (24 runs, $27.40), **PASS**, recorded in [ADR-20261006-b270](ADR-20261006-b270-rough-benchmark-result-pass.md).
 
 ## Enforced Invariants
 None. The benchmark harness is test infrastructure; its detectors are unit-tested in `bench/`.
