@@ -1823,13 +1823,13 @@ exec seamspec mcp "$@"
 - the "ask first" instruction (`request_supersede`);
 - how many items wait for the user's review.
 
-It prints nothing when the ledger is empty, or when `source` is `resume` or `fork`. The text is capped at 3,000 characters; beyond that it ends with *"…and N more: call `get_constraints`…"*. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. In v0.2 the braindump nudge (§13.9) is added to the same text.
+Only the rules are described as human-approved: dead ends appear under their own heading, *"recorded, not approved"*. It prints nothing when the ledger is empty, or when `source` is `resume` or `fork`. The text is capped at 3,000 characters; beyond that, the **list** ends with *"…and N more rules and M more dead ends: call `get_constraints`…"* (counted by record type), and the closing instructions follow it. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. In v0.2 the braindump nudge (§13.9) is added to the same text.
 
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "SeamSpec: agreements in force in this repository. A human approved each one, and each has a test that must keep passing.\n- inv_90c10824 · Retry delay never exceeds 60 seconds: … (scope: src/queue/**)\nTried before and failed; don't retry unless the reason no longer applies:\n- de_8dff69ca: … Why it failed: …\nIf a request conflicts with one of these, don't change it on your own: call `request_supersede` and ask the user first. For the full rules on a file: `get_constraints`.\n3 item(s) wait for the user's review: remind them to run `seamspec review`."
+    "additionalContext": "SeamSpec: rules in force in this repository. A human approved each rule, and each has a test that must keep passing:\n- inv_90c10824 · Retry delay never exceeds 60 seconds: … (scope: src/queue/**)\nSeamSpec: approaches tried before that failed (recorded, not approved); don't retry unless the reason no longer applies:\n- de_8dff69ca: … Why it failed: …\nIf a request conflicts with one of these rules, don't change it on your own: call `request_supersede` and ask the user first. For the full rules on a file, call `get_constraints`.\nSeamSpec: 3 item(s) wait for the user's review: remind them to run `seamspec review`."
   }
 }
 ```
@@ -2334,7 +2334,7 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
 - `stop`: auto-run consent + trust (`execution_permitted`) → journal check → skip when the tree fingerprint equals the last green one → run LOCKED rules within `verify.stop_deadline_seconds` (and save `last_verify.json`) → green allows; `incomplete` allows with a warning unless `fail_closed`; failures covered by pending supersede requests allow with a message; anything else blocks, up to `max_stop_retries` per user prompt, then allows with a warning.
 - Errors fail open (`systemMessage` on Stop, nothing on PreToolUse). With `fail_closed`, Stop errors block through the same retry cap.
 - `SessionState` (`.seamspec/.local/sessions/<session>.json`) holds the acknowledged context keys, the retry counts per prompt and the last green fingerprint.
-- `session_start` (week 4, ADR-20261007-ac04): for `source` `startup`, `clear` or `compact`, it returns `additionalContext` with `session_summary(store)`, a summary of LOCKED rules, active dead ends, the "ask first" instruction and the number of pending reviews, capped at `SESSION_MAX_CHARS` (3,000). It returns nothing for an empty ledger or for `resume` / `fork`. It runs in every mode; errors fail open with no output.
+- `session_start` (week 4, ADR-20261007-ac04): for `source` `startup`, `clear` or `compact`, it returns `additionalContext` with `session_summary(store)`, a summary of LOCKED rules (the only items described as human-approved), active dead ends under a "recorded, not approved" heading, the "ask first" instruction and the number of pending reviews. It is capped at `SESSION_MAX_CHARS` (3,000); a cut list ends with a marker that counts the omitted rules and dead ends by type. It returns nothing for an empty ledger or for `resume` / `fork`. It runs in every mode; errors fail open with no output.
 - `tree.tree_fingerprint(root)`: `HEAD` plus the content of every changed or untracked, non-ignored file; `None` outside git, in which case runs are never skipped.
 - Tests: `tests/test_claude_adapter.py` feeds payloads in the documented shape and runs real pytest underneath. It's mutation-checked: returning `allow` with context, or removing the retry cap, fails it.
 

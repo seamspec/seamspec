@@ -220,26 +220,37 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
     waiting += len(pending_supersede_ids(store))
     if not locked and not dead and not waiting:
         return None
-    head = ["SeamSpec: agreements in force in this repository. A human approved each one, and each has a test "
-            "that must keep passing."]  # fmt: skip
-    tail = ["If a request conflicts with one of these, don't change it on your own: call `request_supersede` "
-            "and ask the user first. For the full rules on a file: `get_constraints`."]  # fmt: skip
-    if waiting:
-        tail.append(f"{waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
-    body: list[str] = []
-    entries = [f"- {r.id} · {r.title}: {r.assertion} (scope: {', '.join(r.scope.paths)})" for r in locked]
+    # Only LOCKED rules are human-approved; dead ends are recorded by agents or people, never approved.
+    items: list[tuple[str, str]] = []  # (kind, line): kind is "heading", "rule" or "dead"
+    if locked:
+        items.append(("heading", "SeamSpec: rules in force in this repository. A human approved each rule, and each "
+                                 "has a test that must keep passing:"))  # fmt: skip
+        items += [("rule", f"- {r.id} · {r.title}: {r.assertion} (scope: {', '.join(r.scope.paths)})") for r in locked]
     if dead:
-        entries.append("Tried before and failed; don't retry unless the reason no longer applies:")
-        entries += [f"- {d.id}: {d.approach} Why it failed: {d.failure_symptom}" for d in dead]
-    budget = max_chars - len("\n".join(head + tail)) - 120
-    for i, entry in enumerate(entries):
-        if len(entry) + 1 > budget:
-            more = sum(not e.endswith(":") for e in entries[i:])
-            body.append(f"…and {more} more: call `get_constraints` for the files you work on.")
+        items.append(("heading", "SeamSpec: approaches tried before that failed (recorded, not approved); don't retry "
+                                 "unless the reason no longer applies:"))  # fmt: skip
+        items += [("dead", f"- {d.id}: {d.approach} Why it failed: {d.failure_symptom}") for d in dead]
+    tail = []
+    if locked:
+        tail.append("If a request conflicts with one of these rules, don't change it on your own: call "
+                    "`request_supersede` and ask the user first. For the full rules on a file, call "
+                    "`get_constraints`.")  # fmt: skip
+    if waiting:
+        tail.append(f"SeamSpec: {waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
+    reserve = len("\n".join(tail)) + 160  # room for the tail and the "…and N more" line
+    body: list[str] = []
+    used = 0
+    for i, (_kind, line) in enumerate(items):
+        if used + len(line) + 1 > max_chars - reserve:
+            rules_left = sum(k == "rule" for k, _ in items[i:])
+            dead_left = sum(k == "dead" for k, _ in items[i:])
+            parts = [f"{n} more {word}{'s' if n != 1 else ''}" for n, word in ((rules_left, "rule"),
+                     (dead_left, "dead end")) if n]  # fmt: skip
+            body.append(f"…and {' and '.join(parts)}: call `get_constraints` for the files you work on.")
             break
-        body.append(entry)
-        budget -= len(entry) + 1
-    return "\n".join(head + body + tail)
+        body.append(line)
+        used += len(line) + 1
+    return "\n".join(body + tail)
 
 
 def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:

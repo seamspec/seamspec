@@ -360,9 +360,29 @@ def test_session_summary_stays_within_its_cap(git_repo: Path) -> None:
         store.save(inv)
     text = claude.session_summary(store)
     assert text is not None and len(text) <= claude.SESSION_MAX_CHARS
-    assert "more: call `get_constraints`" in text
+    assert "more rules: call `get_constraints`" in text
 
 
 def test_session_start_fails_open(git_repo: Path) -> None:
     (git_repo / ".seamspec/invariants/inv_deadbeef.json").write_text("{not json")
     assert claude.main("session-start", json.dumps({"cwd": str(git_repo), "source": "startup"})) == ""
+
+
+def test_dead_ends_are_never_presented_as_approved(git_repo: Path, human: None) -> None:
+    """Copilot, #41: only LOCKED rules are human-approved; dead ends are recorded, not approved."""
+    Store(git_repo).create(make_dead_end())
+    text = claude.session_summary(Store(git_repo))
+    assert text is not None and "approved" not in text.replace("recorded, not approved", "")
+    assert "de_9f8e7d6c" in text and "request_supersede" not in text  # no rules: no supersede advice
+
+
+def test_truncation_counts_every_omitted_item(git_repo: Path) -> None:
+    """A dead end whose reason ends with a colon still counts; rules and dead ends are counted apart."""
+    store = Store(git_repo)
+    for i in range(40):
+        store.create(make_dead_end(f"de_{i:08x}", failure_symptom="It deadlocked with this message:"))
+    text = claude.session_summary(store, max_chars=1200)
+    assert text is not None and len(text) <= 1200
+    shown = sum(line.startswith("- de_") for line in text.splitlines())
+    marker = next(line for line in text.splitlines() if line.startswith("…and "))
+    assert marker.startswith(f"…and {40 - shown} more dead ends:")
