@@ -24,6 +24,7 @@ from ..core.verifier import FINGERPRINTS_REL, confirm_fingerprints, current_fing
 from . import directive, git_hooks
 
 Mode = Literal["advisory", "enforced", "strict"]
+MODE_RANK = {"advisory": 0, "enforced": 1, "strict": 2}  # lowering the mode is a human decision (CLI)
 
 LEDGER_DIRS = ("invariants", "dead_ends", "adrs", "proposed", "retired", ".local")
 GITIGNORE_LINES = (
@@ -133,13 +134,31 @@ def _set_mode(root: Path, mode: Mode) -> None:
     text = "".join(lines)
     if mode == "strict":  # init's own non-strict defaults would loosen strict mode; edited values stay
         text = text.replace(NON_STRICT_HOOKS, STRICT_HOOKS).replace(NON_STRICT_TRUST, STRICT_TRUST)
+    else:  # leaving strict: undo only the lines init itself wrote; values a human edited stay
+        text = text.replace(STRICT_HOOKS, NON_STRICT_HOOKS).replace(STRICT_TRUST, NON_STRICT_TRUST)
     parse_config(text, str(path))
     atomic_write(path, text)
 
 
+def current_mode(root: Path) -> Mode | None:
+    """The mode in an existing, loadable config.toml, else None."""
+    if not (root / CONFIG_REL).is_file():
+        return None
+    try:
+        return load_config(root).mode
+    except Exception:  # noqa: BLE001 - a broken config is reported by init itself
+        return None
+
+
+def default_mode(current: Mode | None) -> Mode:
+    """No --mode given: keep enforced or strict as they are (never lowered silently); a new setup,
+    or an advisory one, is offered enforced, so re-running init with consent turns runs on."""
+    return current if current in ("enforced", "strict") else "enforced"
+
+
 def init(
     root: Path,
-    mode: Mode = "enforced",
+    mode: Mode | None = None,
     claude_md: bool = True,
     auto_run: bool | None = False,
     actor: str | None = None,
@@ -158,6 +177,8 @@ def init(
     (a `--mode strict` switch or an edit meanwhile changes it).
     """
     root = root.resolve()
+    current = current_mode(root)
+    mode = mode or default_mode(current)
     asked = auto_run is not None
     if auto_run is None:
         auto_run = trust.consent_given(Store(root)) if (root / CONFIG_REL).exists() else False
@@ -175,10 +196,14 @@ def init(
     created_config = not (root / CONFIG_REL).exists()
     _write_if_missing(root, config_rel, render_config(effective, found.runners), report)
 
-    # Consent given now, after an earlier "no" left the repo in advisory mode: switch the mode on.
-    if not created_config and auto_run and mode != "advisory" and load_config(root).mode == "advisory":
-        _set_mode(root, mode)
-        report.add(config_rel, f"updated (mode: {mode})")
+    # Switching modes on an existing config (§7.3, ADR-20261007-1b4c). Raising it needs automatic
+    # runs allowed on this machine; lowering it is checked as a human decision by the CLI.
+    if not created_config and current is not None and mode != current:
+        if mode == "advisory" or auto_run:
+            _set_mode(root, mode)
+            report.add(config_rel, f"updated (mode: {current} → {mode})")
+        else:
+            report.add(config_rel, f"kept (mode: {current}; {mode} needs automatic runs allowed here)")
 
     # Follow the config actually on disk, so re-running init after editing it stays consistent.
     cfg = load_config(root)
@@ -207,4 +232,8 @@ def init(
     report.trusted = trust.state(store, cfg).trusted
     if auto_run and cfg.mode != "advisory":
         report.hook = git_hooks.install_pre_commit(root)
+    elif cfg.mode == "advisory":  # advisory never runs tests automatically: remove SeamSpec's own hook
+        removed = git_hooks.uninstall_pre_commit(root)
+        if removed.status == "removed":
+            report.hook = removed
     return report

@@ -8,7 +8,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
-| 2026-10-07 | **Week 4 · skills** (PR `week-4/skills`): `/seamspec:supersede`, `/seamspec:checkpoint`, `/seamspec:context`, `/seamspec:status`, generated from templates like `lock` and `dead-end`; SPEC §15A.3 now mirrors all six templates. About 458 tokens always loaded for the six descriptions | ADR-20261007-8663 |
+| 2026-10-07 | **Week 4 · modes** (PR `week-4/modes`): `--mode` keeps enforced or strict by default (never lowered silently); raising needs consent; **lowering needs a human at a terminal** (an agent can't switch checks off); advisory removes SeamSpec's hook and `--gate` runs nothing; `doctor` checks strict mode's CI and CODEOWNERS; mode changes appear in the CI retirement summary | ADR-20261007-1b4c |
+| 2026-10-07 | **Week 4 · skills** (#35): `/seamspec:supersede`, `/seamspec:checkpoint`, `/seamspec:context`, `/seamspec:status`, generated from templates like `lock` and `dead-end`; SPEC §15A.3 now mirrors all six templates. About 458 tokens always loaded for the six descriptions | ADR-20261007-8663 |
 | 2026-10-06 | **Week 4 exit test passed:** #33 (a regression committed with `--no-verify`: CI failed naming `inv_4b4f5ea7`) and #34 (the owner's supersede: CI passed and listed `inv_e65a013c` LOCKED → SUPERSEDED). Both closed without merging | issue #4 |
 | 2026-10-06 | **Week 4 · CI workflow from `init`** (#32): `.github/workflows/seamspec.yml` (`doctor --ci` then `verify --all --ci`; read-only token; never `pull_request_target`; toolchain steps chosen from runners and lockfiles; never overwritten); `init --ci/--no-ci` by mode (advisory never, enforced asks, strict always plus a CODEOWNERS block) | ADR-20261006-d16b |
 | 2026-10-06 | **Full-run plan: condition E** (#31): the week-5 benchmark adds "rules written in `CLAUDE.md`" (no SeamSpec), to test whether SeamSpec's memory beats plain notes. The owner's decision | ADR-20261006-b270 |
@@ -43,31 +44,33 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 | 2026-10-05 | Design spec written, peer-reviewed, scope cut to Claude Code + pytest/vitest for v0.1 | `docs/SPEC.md` §22, §26 |
 | 2026-10-05 | Names claimed (PyPI, npm, GitHub org); landing page live at seamspec.github.io; GitHub milestones + tracking issues #1–#7 created | GitHub |
 
-## Where we stand (2026-10-06, after the rough benchmark)
+## Where we stand (2026-10-07, end of day)
 
-- **Works:** the core loop. A rule plus its test, human approval, then hooks and pre-commit block regressions; this repo's CI runs its own rules. Verified in real Claude Code sessions and dogfooded on this repo (#22).
-- **Easier to set up** (#19, #20): no venv activation needed, one question on a teammate's clone, and `seamspec init` installs the plugin (local scope, asks first).
-- **Proven, roughly:** the rough benchmark **passed** (ADR-20261006-b270):
-  - **Fewer broken rules:** 2 with SeamSpec enforced, against 9 without it and 6 with plain tests.
-  - **Every conflict surfaced:** with SeamSpec, the agent raised all 12 conflicts with old agreements through `request_supersede`.
-  - **Plain tests got rewritten:** without SeamSpec's protection, the agent changed the tests to match the new behavior.
-  - **The memory does most of the work:** advisory mode did as well as enforced mode.
-- **Designed, not built:** approvals in chat (ADR-20261006-c300, PROPOSED).
-- **Next, the owner decides the order:**
-  1. **Week 4 onboarding:** the CI workflow from `init`, `doctor`, the remaining skills, and positioning copy that leads with remembered agreements.
-  2. **Approvals in chat:** needs the owner's four answers and verification 2.
-  3. **The full benchmark run in week 5:** a third task, ≥ 5 runs per cell, a second model, uncommitted pending changes reported separately, and **condition E: rules written in `CLAUDE.md`** (ADR-20261006-b270, decision 3).
+- **Works:** the core loop, dogfooded on this repo (#22). `seamspec doctor` and `doctor --ci` (#30). The CI workflow from `init` (#32). All six chat skills (#35). Mode handling (PR #36, open).
+- **Proven, roughly:** the rough benchmark passed (ADR-20261006-b270).
+- **Week 4:** both exit criteria are met (#33 blocked a regression in CI, #34 listed a retirement). Left: merge #36 (modes) and dogfood on one real project.
+- **Blocked: GitHub Actions** for this private repo. The organization's Actions minutes or spending limit ran out on 2026-10-07: *"The job was not started because recent account payments have failed or your spending limit needs to be increased."*
+  - **Effect:** on #36 every job that ran passed, but `ci-ok` couldn't start. New pushes won't get CI until it's fixed.
+  - **The fix is the owner's:** organization **Settings → Billing & plans**.
+  - **Also proposed:** trim CI to use fewer minutes. macOS jobs count 10×; drop or limit macOS on PRs, and test 2 Python versions instead of 4.
+  - Copilot's review quota is also used up (since #24).
+- **Next, in order:**
+  1. Owner: fix Actions billing or the spending limit. Then re-run `ci-ok` on #36 and merge it.
+  2. A small CI-trimming PR (if the owner agrees).
+  3. Week 4's last item: dogfood on one real Python or TypeScript project (the owner picks it).
+  4. **Build approvals in chat** (ADR-20261006-c300) with the owner's answers to the four questions: dialog now, web page later; proposals, supersedes and dead ends in chat, runner config terminal-only; off by default in strict mode; one dialog test clicked by the owner. Mark c300 ACCEPTED when building starts.
+  5. Week 5: full benchmark with condition E (rules in `CLAUDE.md`), README, docs.
 
 ## In progress
 
-- **Week 4** (issue #4), slice by slice: `doctor` + `doctor --ci` (#30) → the CI workflow `init` installs → the remaining skills → mode handling → dogfooding on a real project.
+- **Week 4** (issue #4), slice by slice: `doctor` + `doctor --ci` (#30) → the CI workflow `init` installs (#32) → the remaining skills (#35) → mode handling (PR #36, waiting for CI billing) → dogfooding on a real project.
 
 ## Next (Week 4, issue #4)
 
 - [x] `seamspec doctor` (§16.5). Merged in #30
 - [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are merged (#30); the template `init` installs is next
-- [ ] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2): PR `week-4/skills`
-- [ ] `--mode advisory|enforced|strict` handling (§7.3)
+- [x] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2). Merged in #35
+- [ ] `--mode advisory|enforced|strict` handling (§7.3): PR `week-4/modes`
 - [ ] Dogfood on SeamSpec itself (done in #22) and at least one real project
 - Exit criteria: **met.** CI blocks a regression (#33) and lists retirements (#34) on test PRs; `doctor` is clean on the fixtures and on this repo
 

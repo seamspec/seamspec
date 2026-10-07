@@ -138,13 +138,15 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
     if (root / "CLAUDE.md").is_file() and directive.drift(root):
         report.add("warning", "directive",
                    "the SeamSpec block in CLAUDE.md is missing or outdated: rerun `seamspec init`")  # fmt: skip
-    if cfg.mode != "advisory":
-        hooks = _git(root, "rev-parse", "--git-path", "hooks")
-        hook = (root / hooks.strip() / "pre-commit") if hooks else None
-        text = hook.read_text(encoding="utf-8", errors="replace") if hook and hook.is_file() else ""
-        if hooks is not None and git_hooks.GATE not in text:
-            report.add("warning", "pre-commit hook",
-                       f"no git pre-commit hook runs `{git_hooks.GATE}` here: rerun `seamspec init`")  # fmt: skip
+    hooks = _git(root, "rev-parse", "--git-path", "hooks")
+    hook = (root / hooks.strip() / "pre-commit") if hooks else None
+    text = hook.read_text(encoding="utf-8", errors="replace") if hook and hook.is_file() else ""
+    if cfg.mode != "advisory" and hooks is not None and git_hooks.GATE not in text:
+        report.add("warning", "pre-commit hook",
+                   f"no git pre-commit hook runs `{git_hooks.GATE}` here: rerun `seamspec init`")  # fmt: skip
+    if cfg.mode == "advisory" and git_hooks.MARKER in text:
+        report.add("warning", "pre-commit hook", "advisory mode, but SeamSpec's pre-commit hook is still installed "
+                   "(it runs nothing in advisory mode): rerun `seamspec init` to remove it")  # fmt: skip
     for name in ("settings.json", "settings.local.json"):
         path = root / ".claude" / name
         try:
@@ -160,7 +162,18 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
 def _ledger_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], report: DoctorReport) -> None:
     from .store import Store
 
-    report.checks += ["integrity", "runner config", "approval provenance", "scope"]
+    report.checks += ["integrity", "runner config", "approval provenance", "scope", "mode"]
+    if cfg.mode == "strict":  # strict always has CI and CODEOWNERS (§7.3)
+        from ..installers import ci as ci_installer
+
+        if not (root / ci_installer.WORKFLOW_REL).is_file():
+            report.add("warning", "mode", f"strict mode without {ci_installer.WORKFLOW_REL}: rerun `seamspec init`")
+        owners = _read(root / ci_installer.CODEOWNERS_REL) or ""
+        if ci_installer.OWNERS_BEGIN not in owners:
+            report.add("warning", "mode", f"strict mode without the SeamSpec block in {ci_installer.CODEOWNERS_REL}")
+        elif "@your-team/leads" in owners:
+            report.add("warning", "mode",
+                       f"replace @your-team/leads in {ci_installer.CODEOWNERS_REL} with real reviewers")  # fmt: skip
     store = Store(root)
     tracked = (_git(root, "ls-files") or "").splitlines()
     for inv_id, data in sorted(records.items()):
@@ -219,9 +232,22 @@ def _read(path: Path) -> str | None:
         return None
 
 
-def retirement_summary(root: Path, base_ref: str, base: dict, now: dict) -> str:
+def _mode_at(root: Path, ref: str) -> str | None:
+    import tomllib
+
+    text = _file_at(root, ref, ".seamspec/config.toml")
+    try:
+        return str(tomllib.loads(text).get("mode", "enforced")) if text is not None else None
+    except tomllib.TOMLDecodeError:
+        return None
+
+
+def retirement_summary(root: Path, base_ref: str, base: dict, now: dict, mode: str | None = None) -> str:
     """Never fails: everything a reviewer must see, even when each change is valid (§16.5)."""
     lines = [f"## SeamSpec: ledger changes against `{base_ref}`", ""]
+    before = _mode_at(root, base_ref)
+    if mode and before and before != mode:
+        lines += [f"**Mode changed: {before} → {mode}**", ""]
     changes = []
     for rec_id in sorted(set(base) | set(now)):
         before = base.get(rec_id, {}).get("status", "(none)")
@@ -256,7 +282,7 @@ def run(root: Path, ci: bool = False, base_ref: str | None = None) -> DoctorRepo
         ref = base_ref or default_base()
         base = _forward_only(root, ref, records, report)
         if base is not None:
-            report.summary = retirement_summary(root, ref, base, records)
+            report.summary = retirement_summary(root, ref, base, records, cfg.mode)
     else:
         _local_checks(root, cfg, records, report)
     return report

@@ -117,7 +117,13 @@ def _echo_changed_tests(store: Store, ids: list[str]) -> None:
 
 @app.command()
 def init(
-    mode: Annotated[scaffold.Mode, typer.Option(help="advisory | enforced | strict (SPEC §7.3)")] = "enforced",
+    mode: Annotated[
+        scaffold.Mode | None,
+        typer.Option(
+            help="advisory | enforced | strict (SPEC §7.3). Default: keep enforced/strict as they are; "
+            "otherwise offer enforced. Lowering the mode needs a human at a terminal."
+        ),
+    ] = None,
     path: Annotated[Path, typer.Option(help="Repository root to set up.")] = Path("."),
     claude_md: Annotated[
         bool, typer.Option("--claude-md/--no-claude-md", help="Write the SeamSpec block into CLAUDE.md.")
@@ -149,9 +155,23 @@ def init(
     if not root.is_dir():
         raise _fail(f"{root} is not a directory")
 
+    current = scaffold.current_mode(root)
+    target = mode or scaffold.default_mode(current)
+    if current is not None and scaffold.MODE_RANK[target] < scaffold.MODE_RANK[current]:
+        # Lowering the mode switches checks off, so it's a human decision, like approving (ADR-20261007-1b4c).
+        try:
+            lifecycle.require_interactive()
+        except lifecycle.ApprovalError:
+            raise _fail(
+                f"Lowering the mode ({current} → {target}) turns SeamSpec's checks down, so a human must do it: "
+                "run this command yourself in a terminal."
+            ) from None
+        if _interactive() and not typer.confirm(f"Lower the mode from {current} to {target}?", default=False):
+            raise _fail("mode unchanged")
+
     auto_run: bool | None = False
     trust_shown: str | None = None
-    if mode != "advisory":
+    if target != "advisory":
         if accept_auto_run:
             auto_run = True
         elif _interactive():
@@ -176,7 +196,7 @@ def init(
                 " an earlier answer on this machine is kept."
             )
     try:
-        report = scaffold.init(root, mode=mode, claude_md=claude_md, auto_run=auto_run, trust_shown=trust_shown)
+        report = scaffold.init(root, mode=target, claude_md=claude_md, auto_run=auto_run, trust_shown=trust_shown)
     except (DirectiveError, ConfigError) as exc:
         raise _fail(str(exc)) from None
 
@@ -193,11 +213,11 @@ def init(
     for note in found.notes:
         typer.echo(f"  note: {note}")
     if report.hook is not None:
-        if report.hook.status in ("created", "updated", "unchanged"):
+        if report.hook.status in ("created", "updated", "unchanged", "removed"):
             typer.echo(f"  {report.hook.status:<9} git pre-commit hook ({report.hook.path})")
         else:
             typer.echo(f"  note: {report.hook.message}")
-    if not report.consent and mode != "advisory":
+    if not report.consent and target != "advisory":
         typer.echo("Automatic test runs are off (advisory mode). Re-run `seamspec init` to turn them on.")
     if not report.trusted and trust_shown is not None:
         typer.echo("The runner settings changed after they were shown (for example --mode strict switched")
@@ -622,6 +642,9 @@ def verify(
     if sum(map(bool, (all_, changed, proposed))) > 1:
         raise _fail("use only one of --all, --changed, --proposed")
 
+    if gate and not ci and cfg.mode == "advisory":  # advisory never runs tests automatically (§7.3)
+        typer.echo("SeamSpec is in advisory mode: the pre-commit check runs nothing.")
+        return
     if not ci:
         st = trust.state(store, cfg)
         if not st.trusted:
@@ -629,7 +652,7 @@ def verify(
                 raise _fail(f"This clone is not trusted ({st.reason}). Run `seamspec trust`.")
             typer.echo(f"This clone is not trusted ({st.reason}).")
             trust_cmd(show=False)
-        if gate and cfg.mode != "advisory" and not trust.consent_given(store):
+        if gate and not trust.consent_given(store):
             raise _fail("automatic test runs aren't allowed on this machine. Re-run `seamspec init`.")
 
     problems = journal.unjournaled_changes(store) if gate else []

@@ -153,3 +153,29 @@ def test_cli_exit_codes_and_step_summary(locked_repo: tuple[Path, str], monkeypa
     (root / f".seamspec/invariants/{inv_id}.json").unlink()
     bad = runner.invoke(app, ["doctor", "--ci", "--base", "base", "--json"])
     assert bad.exit_code == 1 and json.loads(bad.output)["ok"] is False
+
+
+# --- modes (ADR-20261007-1b4c) ---------------------------------------------------------------------
+
+
+def test_strict_mode_expects_ci_and_real_codeowners(locked_repo: tuple[Path, str]) -> None:
+    from seamspec.installers import ci, scaffold
+
+    root, _ = locked_repo
+    scaffold.init(root, mode="strict", auto_run=True, claude_md=False)
+    msgs = [f.message for f in doctor.run(root).findings if f.check == "mode"]
+    assert any("seamspec.yml" in m for m in msgs) and any("CODEOWNERS" in m for m in msgs)
+    cfg = load_config(root)
+    ci.install_workflow(root, cfg)
+    ci.install_codeowners(root, cfg)
+    msgs = [f.message for f in doctor.run(root).findings if f.check == "mode"]
+    assert msgs == [f"replace @your-team/leads in {ci.CODEOWNERS_REL} with real reviewers"]
+
+
+def test_a_mode_change_is_shown_to_reviewers(locked_repo: tuple[Path, str]) -> None:
+    from seamspec.installers import scaffold
+
+    root, _ = locked_repo
+    scaffold.init(root, mode="advisory", claude_md=False)
+    summary = doctor.run(root, ci=True, base_ref="base").summary or ""
+    assert "**Mode changed: enforced → advisory**" in summary
