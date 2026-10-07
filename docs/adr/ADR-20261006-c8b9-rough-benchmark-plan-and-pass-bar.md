@@ -16,7 +16,8 @@ superseded_by: null
 ## Owner's decisions (2026-10-06)
 - **Pass bar:** accepted as written. The cost gap the planning simulator exposed (C wins, but costs between 1.5× and 2× A per run) is closed in pass-bar item 2a.
 - **Model:** Claude Sonnet 5.5 for the rough run.
-- **Billing:** the owner's Claude Pro plan, run in batches at times the owner picks. No API key.
+- **Billing:** at first the owner's Claude Pro plan; **changed by the owner (2026-10-06, before any run) to an Anthropic API key.** That keeps the owner's plan free for their own work, gives exact costs and allows a hard spending limit. The harness supports both (`--billing plan|api`, below).
+- **Trial run model: Sonnet 5.5** too (owner, 2026-10-06), instead of Haiku. It is closer to the counted runs and costs more; see the cost table.
 
 ## Context
 
@@ -75,7 +76,7 @@ In B, C and D, the rules start already in place, as if locked in an earlier week
 - Raw logs (stream-json transcripts) are kept for the write-up (§23 "Output").
 
 **Runs and model.**
-- **Step 0, dry run:** 1 task, 4 conditions, 1 run, Haiku 4.5. It only proves the harness and the oracle work; the results don't count.
+- **Step 0, trial (dry) run:** both tasks, 4 conditions, 1 run each, on Sonnet 5.5 (the owner's choice; first planned on Haiku). It only proves the harness and the oracle work with real Claude Code; the results don't count.
 - **Rough run:** 2 tasks × 4 conditions × **3 runs** = 24 runs, on **Claude Sonnet 5.5**, the model most people code with. Same settings everywhere. Opus 5.5 costs more and is the owner's call.
 
 ### Scoring rules (machine-checked, fixed before any run)
@@ -118,26 +119,27 @@ With 3 runs per cell this is a **rough** signal, not statistics. The full run in
 
 ## Cost estimate
 
-Measured on 2026-10-06: a minimal Opus 5.5 session cost about $0.10. A real coding prompt with reads, edits and test runs is several times that. Per-run estimates for 3 sessions × ~5 prompts are very rough:
+Measured on 2026-10-06: a minimal Opus 5.5 session cost about $0.10. A real coding prompt with reads, edits and test runs is several times that. Per-run estimates for 3 sessions × 3 prompts (9 prompts) are very rough:
 
-| Model | Per run (est.) | Dry run (4 runs, Haiku) | Rough run (24 runs) |
+| Model | Per run (est.) | Trial run (8 runs) | Rough run (24 runs) |
 |---|---|---|---|
-| Haiku 4.5 | $0.30–1 | **≈ $2–4** | $7–24 |
-| Sonnet 5.5 | $1.50–4 | — | **≈ $36–96** |
+| Haiku 4.5 | $0.30–1 | ≈ $2–8 | $7–24 |
+| Sonnet 5.5 | $1.50–4 | **≈ $12–32** | **≈ $36–96** |
 | Opus 5.5 | $3–8 | — | ≈ $72–190 |
 
-On a Pro subscription these are **usage-limit equivalents, not a bill**. They will likely use up several of the plan's 5-hour usage windows. The plan is therefore to:
-- run in batches, with the owner choosing the times so it doesn't block the owner's own work;
-- cap each session with `--max-budget-usd`;
-- **stop and report after the dry run** with real measured costs, before asking to start the rough run.
+With the API key these are **real charges**. Safeguards:
+- the owner sets a spending limit in the Anthropic Console before the first batch;
+- every prompt is capped with `--max-budget-usd`;
+- the key is set only in the owner's own terminal, never in a file or passed through the agent;
+- the trial run comes first, and we **stop and report** its real costs before asking to start the rough run.
 
-An API key with a hard spending limit is an alternative if the owner prefers to keep the plan free.
+On the Pro plan (`--billing plan`), the same numbers are usage-limit equivalents rather than a bill.
 
 ## Questions for the owner (answered 2026-10-06)
 1. Pass bar: **accepted**, with item 2a closing the 1.5–2× cost gap.
 2. Model: **Sonnet 5.5**.
-3. Billing: **Pro plan, in batches**.
-4. Build the harness now: yes (free). The Haiku dry run is the first paid batch, so it waits for the owner's go-ahead once the harness is ready.
+3. Billing: Pro plan, in batches. **Changed to an API key** later the same day, before any run.
+4. Build the harness now: yes (free). The trial run is the first paid batch, so it waits for the owner's go-ahead once the harness is ready. **Trial run model: Sonnet 5.5.**
 
 ## Implementation (week 3, before any run)
 - **Code:** `bench/` (see `bench/README.md`).
@@ -148,7 +150,7 @@ An API key with a hard spending limit is an alternative if the owner prefers to 
   - model and allowed tools;
   - `--max-budget-usd` per prompt;
   - `--setting-sources project,local`, so the owner's own plugins and hooks are excluded;
-  - `ANTHROPIC_API_KEY` removed, so runs use the owner's plan as chosen.
+  - billing exactly as the owner chose: `--billing plan` removes `ANTHROPIC_API_KEY`; `--billing api` requires it. Before scoring each prompt, the harness reads the `apiKeySource` Claude Code reports, and **stops the batch** if it doesn't match the choice, so no run bills the wrong account.
 - **Conditions B and C** load the plugin with `--plugin-dir`. **D**'s Stop hook (`harness/plain_stop_hook.py`) blocks at most 3 times in a row.
 - **Checked without any model call:** `tests/test_bench.py` covers every detector, the tampering counts, every pass-bar verdict (including 4a), the oracle on the clean templates and on deliberately broken code, and full runs of both tasks in every condition with a scripted fake agent.
 - `python -m bench.run` never calls Claude Code without `--yes`. `--counted` marks the runs the pass bar applies to.

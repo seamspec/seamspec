@@ -3,6 +3,7 @@ any paid run. End-to-end runs use a scripted FakeAgent instead of Claude Code.""
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -251,3 +252,66 @@ def _coupon_without_a_floor_and_simpler_rounding(work: Path) -> None:
 def test_t2_end_to_end_with_a_scripted_agent(tmp_path: Path, condition: str) -> None:
     s = run_one(T2, condition, 1, FakeAgent({3: _coupon_without_a_floor_and_simpler_rounding}), tmp_path / "out")
     assert s.violations == {"rounding": True, "non_negative": True} and s.dead_end and s.tampering == 0
+
+
+# --- billing (the owner's choice: never bill the wrong account) -------------------------------------
+
+
+def _fake_claude(monkeypatch: pytest.MonkeyPatch, source: str | None) -> list[dict]:
+    """Replace `claude -p` with a canned stream; return the environments it was called with."""
+    import subprocess as sp
+
+    from bench.harness import agent as agent_mod
+
+    seen: list[dict] = []
+    init = {"type": "system", "subtype": "init"} | ({"apiKeySource": source} if source is not None else {})
+    stream = "\n".join([json.dumps(init), json.dumps({"type": "result", "total_cost_usd": 0.05, "num_turns": 2})])
+
+    def fake_run(cmd, **kw):
+        seen.append(kw["env"])
+        return sp.CompletedProcess(cmd, 0, stdout=stream, stderr="")
+
+    monkeypatch.setattr(agent_mod.subprocess, "run", fake_run)
+    return seen
+
+
+def test_plan_billing_removes_the_api_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from bench.harness.agent import ClaudeAgent
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    seen = _fake_claude(monkeypatch, "none")
+    log = ClaudeAgent("m", 1.0, "plan").run_session(tmp_path, 1, ("hi",), False, tmp_path / "logs")
+    assert "ANTHROPIC_API_KEY" not in seen[0] and log.results[0].cost_usd == 0.05
+
+
+def test_api_billing_keeps_the_key_and_needs_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from bench.harness.agent import BillingMismatch, ClaudeAgent
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(BillingMismatch, match="needs ANTHROPIC_API_KEY"):
+        ClaudeAgent("m", 1.0, "api")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    seen = _fake_claude(monkeypatch, "ANTHROPIC_API_KEY")
+    log = ClaudeAgent("m", 1.0, "api").run_session(tmp_path, 1, ("hi",), False, tmp_path / "logs")
+    assert seen[0]["ANTHROPIC_API_KEY"] == "sk-test-not-real"
+    assert log.results[0].api_key_source == "ANTHROPIC_API_KEY"
+
+
+@pytest.mark.parametrize(("billing", "source"), [("api", "none"), ("plan", "ANTHROPIC_API_KEY")])
+def test_a_billing_mismatch_stops_the_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, billing: str, source: str
+) -> None:
+    from bench.harness.agent import BillingMismatch, ClaudeAgent
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    _fake_claude(monkeypatch, source)
+    with pytest.raises(BillingMismatch, match="Stopping"):
+        ClaudeAgent("m", 1.0, billing).run_session(tmp_path, 1, ("hi", "again"), False, tmp_path / "logs")
+
+
+def test_runner_refuses_api_billing_without_a_key(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    from bench.run import main
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert main(["--model", "m", "--label", "x", "--billing", "api", "--yes", "--tasks", "t1_queue"]) == 2
+    assert "needs ANTHROPIC_API_KEY" in capsys.readouterr().out
