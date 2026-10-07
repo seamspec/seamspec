@@ -60,19 +60,20 @@ def require_interactive() -> None:
 
 
 def approver_identity(store: Store) -> str:
-    """git `user.name <user.email>`, falling back to the OS user name (§11.1)."""
-
-    def git(key: str) -> str:
-        try:
-            out = subprocess.run(["git", "config", key], cwd=store.root, capture_output=True, text=True, timeout=5)
-            return out.stdout.strip()
-        except (OSError, subprocess.TimeoutExpired):
-            return ""
-
-    name, email = git("user.name"), git("user.email")
-    if name and email:
-        return f"{name} <{email}>"
-    return name or getpass.getuser()
+    """The identity git records for commits here, `Name <email>` (§11.1). Asks git itself
+    (`git var GIT_AUTHOR_IDENT`), so env overrides and git's own fallback to the OS full name
+    apply; falls back to the OS user name when git can't say."""
+    try:
+        out = subprocess.run(
+            ["git", "var", "GIT_AUTHOR_IDENT"], cwd=store.root, capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        out = None
+    if out is not None and out.returncode == 0:
+        ident = out.stdout.strip().rsplit(" ", 2)[0]  # drop git's "<timestamp> <tz>"
+        if ident.endswith(">") and not ident.startswith("<"):
+            return ident
+    return getpass.getuser()
 
 
 # --- harness locations ---------------------------------------------------------------------------

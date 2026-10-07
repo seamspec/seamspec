@@ -1,7 +1,7 @@
 ---
 id: ADR-20261006-c8b9
-title: Rough benchmark - design, pass bar fixed before running, and cost (plan)
-status: PROPOSED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
+title: Rough benchmark - design, pass bar fixed before running, and cost
+status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-06
 scopes: ["bench/**", "docs/SPEC.md"]
 invariants: []
@@ -9,9 +9,14 @@ supersedes: null
 superseded_by: null
 ---
 
-# ADR-20261006-c8b9: Rough benchmark - design, pass bar fixed before running, and cost (plan)
+# ADR-20261006-c8b9: Rough benchmark - design, pass bar fixed before running, and cost
 
-> **Status: PROPOSED.** This is a plan for the owner to decide on. Nothing has run. The pass bar is written here **before** any run, so the result can't be argued into a pass afterwards. Building the harness costs nothing; running it needs the owner's go-ahead.
+> **Status: ACCEPTED by the owner (2026-10-06).** Nothing has run yet. The pass bar below is **fixed**: it was written before any run and must not change after the first counted run. Building the harness costs nothing. Each paid batch, starting with the dry run, still needs the owner's go-ahead.
+
+## Owner's decisions (2026-10-06)
+- **Pass bar:** accepted as written. The cost gap the planning simulator exposed (C wins, but costs between 1.5× and 2× A per run) is closed in pass-bar item 2a.
+- **Model:** Claude Sonnet 5.5 for the rough run.
+- **Billing:** the owner's Claude Pro plan, run in batches at times the owner picks. No API key.
 
 ## Context
 
@@ -22,7 +27,7 @@ Two things in §23 need tightening first:
 1. **Forgetting.** A single 15-turn chat keeps every early instruction in context, so the baseline gets an unrealistic memory. SeamSpec's value shows up when a later session doesn't know what an earlier one agreed. That is the "entropy" this whole product is about.
 2. **Cost.** The owner works on a Claude Pro subscription with no API key: `claude auth status` shows `authMethod: claude.ai`. Benchmark sessions run through the owner's Claude Code login and use the plan's usage limits, not a separate bill.
 
-## Proposed design
+## Design
 
 **Tasks: 2 small repos, built for the benchmark under `bench/tasks/`.** Each has real code, a normal test suite, two or three agreed rules, and one known dead end.
 - **T1, Python job queue.** Rules:
@@ -84,6 +89,7 @@ Let *V(X)* be the total oracle violations across all runs of condition X.
      - fewer rule-test edits, skips or deletions;
      - fewer dead-end reappearances;
    - **and** C's median cost per run is at most **1.5×** A's.
+2a. **Pass with a cost follow-up:** every condition in item 2 holds, except that C's median cost per run is **above 1.5× but at most 2×** A's. That counts as a pass, and reducing SeamSpec's per-session overhead becomes a tracked item before the full run in week 5.
 3. **PIVOT POSITIONING, not the product:** C passes against A, but C ≈ D on all three D comparisons. Then the enforcement is equally well served by plain tests, and SeamSpec leads with capture, approval and dead ends (as §23's tip already anticipates). This is recorded in an ADR, and the README and site messaging change.
 4. **KILL OR RETHINK:** **V(C) > ½ · V(A)**, meaning SeamSpec doesn't clearly reduce violations even with enforcement, or C's cost is above 2× A's. The owner decides between stopping and a redesign, recorded in an ADR, before any further feature work.
 5. **B vs C is informational.** If B ≈ C, the memory (ledger plus MCP) is doing the work, not the enforcement. That's worth knowing, and §23 says it's publishable either way.
@@ -107,13 +113,13 @@ On a Pro subscription these are **usage-limit equivalents, not a bill**. They wi
 
 An API key with a hard spending limit is an alternative if the owner prefers to keep the plan free.
 
-## Questions for the owner
-1. Is the pass bar above acceptable as written? It can't change after the first counted run.
-2. Model for the rough run: Sonnet 5.5 (recommended), Haiku (cheapest, less representative) or Opus 5.5?
-3. Pro subscription in batches, or an API key with a spending limit?
-4. OK to build the harness now (free) and do the Haiku dry run (≈ $2–4 of usage)?
+## Questions for the owner (answered 2026-10-06)
+1. Pass bar: **accepted**, with item 2a closing the 1.5–2× cost gap.
+2. Model: **Sonnet 5.5**.
+3. Billing: **Pro plan, in batches**.
+4. Build the harness now: yes (free). The Haiku dry run is the first paid batch, so it waits for the owner's go-ahead once the harness is ready.
 
-## Consequences (if accepted)
+## Consequences
 * `bench/` gets the task repos, scripts, oracle tests, the runner and the raw logs.
 * The result goes into a follow-up ADR: pass, pivot positioning, or kill/rethink.
 * SPEC §23 is updated to the session-split design and points to this ADR.

@@ -23,3 +23,10 @@ htmlcov/
 
 # JS fixture installs
 node_modules/
+
+# SeamSpec: machine-local state and caches
+.seamspec/.local/
+.seamspec/**/__pycache__/
+
+# SeamSpec: Claude Code plugin enabled on this machine only
+.claude/settings.local.json
