@@ -21,6 +21,11 @@ class RunScore:
     cost_usd: float
     turns: int = 0
     errors: int = 0  # prompts that ended in an error result (reported, not scored)
+    committed: dict[str, bool] | None = None  # rule id -> violated at HEAD (what was committed)
+
+    @property
+    def committed_count(self) -> int | None:
+        return None if self.committed is None else sum(self.committed.values())
 
     @property
     def violation_count(self) -> int:
@@ -37,9 +42,11 @@ class Verdict:
 
 def _totals(scores: list[RunScore], condition: str) -> dict[str, float]:
     mine = [s for s in scores if s.condition == condition]
+    committed = [s.committed_count for s in mine]
     return {
         "runs": len(mine),
         "violations": sum(s.violation_count for s in mine),
+        "committed": float("nan") if None in committed or not mine else sum(c or 0 for c in committed),
         "tampering": sum(s.tampering for s in mine),
         "dead_ends": sum(s.dead_end for s in mine),
         "median_cost": median([s.cost_usd for s in mine]) if mine else 0.0,
@@ -92,3 +99,13 @@ def b_vs_c_note(verdict: Verdict) -> str:
     if b <= c + 1:
         return f"B ({b:g}) did about as well as C ({c:g}): the memory, not the enforcement, does most of the work."
     return f"C ({c:g}) did clearly better than B ({b:g}): the enforcement adds to the memory."
+
+
+def read_condition_e(v_c: float, v_e: float) -> tuple[str, str]:
+    """The reading rule for condition E, fixed before its run (ADR-20261007-e1a7). Compares E with C,
+    the product as shipped, on the pass bar's own metric (working-tree violations)."""
+    if v_e >= v_c + 3:
+        return "memory_beats_notes", "SeamSpec's memory beats plain notes in CLAUDE.md"
+    if v_e <= v_c + 1:
+        return "notes_match", "Plain notes in CLAUDE.md match SeamSpec's memory: lead with what notes can't do"
+    return "unclear", "Unclear: decide at the full run"

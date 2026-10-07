@@ -52,3 +52,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261007-8663](ADR-20261007-8663-remaining-skills-v01.md) | The remaining v0.1 skills - supersede, checkpoint, context, status | ACCEPTED |
 | [ADR-20261007-1b4c](ADR-20261007-1b4c-mode-changes.md) | Changing the mode after init - keep by default, raise with consent, lower only by a human | ACCEPTED |
 | [ADR-20261007-d757](ADR-20261007-d757-trim-ci-minutes.md) | Trim SeamSpec's own CI to fit the Actions minutes of a private repo | ACCEPTED |
+| [ADR-20261007-e1a7](ADR-20261007-e1a7-quick-condition-e.md) | Quick condition E - rules written in CLAUDE.md, and how its result is read (fixed before running) | ACCEPTED |

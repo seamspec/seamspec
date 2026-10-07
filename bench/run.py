@@ -22,8 +22,8 @@ from pathlib import Path
 from .harness import score
 from .harness.agent import BILLING, ClaudeAgent, FakeAgent, StopBatch
 from .harness.prepare import CACHE, prepare
-from .harness.tasks import CONDITION_NAMES, CONDITIONS, TASK_IDS, Task, load
-from .harness.verdict import RunScore, b_vs_c_note, decide
+from .harness.tasks import CONDITION_NAMES, CONDITIONS, PASS_BAR_CONDITIONS, TASK_IDS, Task, load
+from .harness.verdict import RunScore, _totals, b_vs_c_note, decide
 
 RESULTS = Path(__file__).resolve().parent / "results"
 
@@ -39,6 +39,7 @@ def run_one(task: Task, condition: str, run: int, agent: ClaudeAgent | FakeAgent
         turns += sum(r.turns for r in log.results)
         errors += sum(r.is_error for r in log.results)
     passed = score.oracle(task, work)
+    landed = score.oracle(task, work, committed=True)
     return RunScore(
         task=task.id,
         condition=condition,
@@ -49,36 +50,48 @@ def run_one(task: Task, condition: str, run: int, agent: ClaudeAgent | FakeAgent
         cost_usd=round(cost, 4),
         turns=turns,
         errors=errors,
+        committed={rule: not ok for rule, ok in landed.items()},
     )
 
 
 def summary(scores: list[RunScore], counted: bool) -> str:
-    verdict = decide(scores)
+    present = {s.condition for s in scores}
+    verdict = decide(scores) if set(PASS_BAR_CONDITIONS) <= present else None
     lines = [
         "# Benchmark summary",
         "",
         "**Counted run.**" if counted else "**Dry run: checks the harness only. These numbers do not count.**",
         "",
-        "| Task | Cond. | Run | Violations | Tampering | Dead end | Cost (est.) | Turns | Errors |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Task | Cond. | Run | Violations | Committed | Tampering | Dead end | Cost (est.) | Turns | Errors |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for s in scores:
         broken = ", ".join(r for r, v in s.violations.items() if v) or "none"
+        landed = "n/a" if s.committed is None else (", ".join(r for r, v in s.committed.items() if v) or "none")
         dead = "yes" if s.dead_end else "no"
-        lines.append(f"| {s.task} | {s.condition} | {s.run} | {broken} | {s.tampering} | {dead}"
+        lines.append(f"| {s.task} | {s.condition} | {s.run} | {broken} | {landed} | {s.tampering} | {dead}"
                      f" | ${s.cost_usd:.2f} | {s.turns} | {s.errors} |")  # fmt: skip
-    lines += [
-        "",
-        "| Condition | Runs | Violations | Tampering | Dead ends | Median cost |",
-        "|---|---|---|---|---|---|",
-    ]
-    for c in CONDITIONS:
-        t = verdict.totals[c]
-        lines.append(f"| {c} · {CONDITION_NAMES[c]} | {t['runs']:g} | {t['violations']:g} | {t['tampering']:g}"
-                     f" | {t['dead_ends']:g} | ${t['median_cost']:.2f} |")  # fmt: skip
-    lines += ["", f"## Verdict: {verdict.title}", "", *[f"- {r}" for r in verdict.reasons],
-              f"- {b_vs_c_note(verdict)}"]  # fmt: skip
+    lines += ["", condition_table(scores)]
+    if verdict is None:
+        lines += ["", f"Pass bar not applied: it needs conditions {', '.join(PASS_BAR_CONDITIONS)} in one batch."]
+    else:
+        lines += ["", f"## Verdict: {verdict.title}", "", *[f"- {r}" for r in verdict.reasons],
+                  f"- {b_vs_c_note(verdict)}"]  # fmt: skip
     return "\n".join(lines) + "\n"
+
+
+def condition_table(scores: list[RunScore]) -> str:
+    """Per condition: violations (working tree, the pass bar's metric) and violations committed at HEAD."""
+    rows = ["| Condition | Runs | Violations | Committed | Tampering | Dead ends | Median cost |",
+            "|---|---|---|---|---|---|---|"]  # fmt: skip
+    for c in CONDITIONS:
+        t = _totals(scores, c)
+        if not t["runs"]:
+            continue
+        committed = "n/a" if t["committed"] != t["committed"] else f"{t['committed']:g}"  # NaN: not measured
+        rows.append(f"| {c} · {CONDITION_NAMES[c]} | {t['runs']:g} | {t['violations']:g} | {committed}"
+                    f" | {t['tampering']:g} | {t['dead_ends']:g} | ${t['median_cost']:.2f} |")  # fmt: skip
+    return "\n".join(rows)
 
 
 def main(argv: list[str] | None = None) -> int:

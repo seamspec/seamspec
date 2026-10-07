@@ -6,6 +6,7 @@
 | B | SeamSpec advisory: ledger with the rules LOCKED and the dead end, CLAUDE.md block, MCP |
 | C | SeamSpec enforced: B plus the plugin's hooks and the git pre-commit gate |
 | D | the same rule tests in tests/rules plus a Stop hook that runs them (no SeamSpec) |
+| E | the rules and the dead end as plain notes in CLAUDE.md, as a careful person would write them |
 
 The rules start already in place, as if a human approved them in an earlier week. Working
 copies live outside this repository (SeamSpec looks for `.seamspec/` in parent folders).
@@ -126,6 +127,17 @@ def _plain_tests(task: Task, work: Path) -> list[str]:
     return paths
 
 
+def notes_text(task: Task) -> str:
+    """Condition E: the agreements as a careful teammate would write them in CLAUDE.md. Same facts
+    as the ledger gives B and C, plus the same "ask first" habit SeamSpec's directive asks for."""
+    lines = ["# Team agreements", "", "Agreed with the team; other services and people rely on them:", ""]
+    lines += [f"- **{rule.title}.** {rule.assertion}" for rule in task.rules]
+    lines += ["", "## Tried before and failed", "", f"- {task.dead_end.approach} {task.dead_end.symptom}", ""]
+    lines += ["If a request would break one of these agreements, don't change it on your own: say which",
+              "agreement it conflicts with and ask the user first.", ""]  # fmt: skip
+    return "\n".join(lines)
+
+
 def prepare(task: Task, condition: str, work: Path) -> Prepared:
     if work.exists():
         shutil.rmtree(work)
@@ -142,6 +154,8 @@ def prepare(task: Task, condition: str, work: Path) -> Prepared:
         rule_paths = _seed_ledger(task, work)
     elif condition == "D":
         rule_paths = _plain_tests(task, work)
+    elif condition == "E":
+        (work / "CLAUDE.md").write_text(notes_text(task), encoding="utf-8")
     elif condition != "A":
         raise ValueError(f"unknown condition {condition!r}")
 

@@ -356,3 +356,49 @@ def test_an_authentication_error_stops_the_batch(tmp_path: Path, monkeypatch: py
     with pytest.raises(AuthFailed, match="could not authenticate"):
         ClaudeAgent("m", 1.0, "api").run_session(tmp_path, 1, ("one", "two", "three"), False, tmp_path / "logs")
     assert len(calls) == 1  # never tried the second prompt
+
+
+# --- condition E and committed violations (ADR-20261007-e1a7) --------------------------------------
+
+
+def test_condition_e_writes_plain_notes_and_nothing_else(tmp_path: Path) -> None:
+    from bench.harness.prepare import notes_text
+
+    text = notes_text(T1)
+    assert all(rule.assertion in text for rule in T1.rules) and T1.dead_end.approach in text
+    assert "ask the user first" in text
+
+
+@pytest.mark.skipif(not HAVE_UV, reason="uv not installed")
+def test_condition_e_end_to_end(tmp_path: Path) -> None:
+    s = run_one(T1, "E", 1, FakeAgent({2: _raise_cap_and_add_a_pool}), tmp_path / "results" / "fake-e")
+    work = Path(score.CACHE) / "runs" / "fake-e" / "t1_queue-E-1"
+    assert (work / "CLAUDE.md").is_file() and not (work / ".seamspec").exists() and not (work / ".claude").exists()
+    assert s.violations["retry_cap"] and s.dead_end
+    assert s.committed == {"retry_cap": False, "at_most_once": False, "enqueue_signature": False}  # never committed
+
+
+@pytest.mark.skipif(not HAVE_UV, reason="uv not installed")
+def test_committed_counts_only_what_landed(tmp_path: Path) -> None:
+    from bench.harness.prepare import git as bench_git
+
+    prepared = prepare(T1, "A", tmp_path / "w")
+    queue = prepared.work / "src/jobqueue/queue.py"
+    queue.write_text(queue.read_text().replace("MAX_DELAY = 30.0", "MAX_DELAY = 300.0"))
+    assert not score.oracle(T1, prepared.work)["retry_cap"]  # broken in the working tree
+    assert score.oracle(T1, prepared.work, committed=True)["retry_cap"]  # not committed
+    bench_git(prepared.work, "commit", "-qam", "raise the cap")
+    assert not score.oracle(T1, prepared.work, committed=True)["retry_cap"]
+
+
+@pytest.mark.parametrize(("v_e", "code"), [(5, "memory_beats_notes"), (9, "memory_beats_notes"),
+                                           (4, "unclear"), (3, "notes_match"), (0, "notes_match")])  # fmt: skip
+def test_condition_e_reading_rule(v_e: int, code: str) -> None:
+    from bench.harness.verdict import read_condition_e
+
+    assert read_condition_e(2, v_e)[0] == code
+
+
+def test_pass_bar_only_applies_to_a_full_batch() -> None:
+    lone = [RunScore("t1_queue", "E", 1, {"r": True}, 0, False, 1.0)]
+    assert "Pass bar not applied" in summary(lone, counted=False)

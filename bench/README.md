@@ -11,7 +11,18 @@ Do agents break fewer agreed behaviors with SeamSpec than without? Design, scori
 | `harness/` | Setup per condition, the agent driver, scoring, and the pass bar as code |
 | `results/` | Local output (git-ignored): `results.jsonl`, `summary.md`, raw session logs |
 
-Conditions: **A** nothing, **B** SeamSpec advisory, **C** SeamSpec enforced, **D** the same rule tests plus a plain Stop hook (no SeamSpec).
+Conditions:
+- **A:** nothing;
+- **B:** SeamSpec advisory;
+- **C:** SeamSpec enforced;
+- **D:** the same rule tests plus a plain Stop hook (no SeamSpec);
+- **E:** the same rules and dead end as plain notes in `CLAUDE.md` (ADR-20261007-e1a7).
+
+Every run is scored on the final working tree (the pass bar's metric), and also on what was **committed** at `HEAD`. To compare a batch with an earlier one (no model calls):
+
+```bash
+uv run python -m bench.compare --base rough-1 --with rough-1e
+```
 
 ```bash
 uv run python -m bench.run --tasks t1_queue,t2_prices --runs 1 --model claude-haiku-4-5-20251001 --label dry-run
