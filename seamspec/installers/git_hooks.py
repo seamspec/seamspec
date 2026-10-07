@@ -41,12 +41,19 @@ def render_hook(prefix: str) -> str:
         "# Runs every LOCKED SeamSpec invariant before each commit (SPEC §16.4).\n"
         "# GUI git clients often lack ~/.local/bin, where `uv tool` installs.\n"
         'PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder)\n'
+        f"{cd}"
+        "# A branch where SeamSpec was never set up (no config here or in HEAD) has nothing to check.\n"
+        "# A config that exists in HEAD but is missing here still runs the gate, and fails.\n"
+        "if [ ! -f .seamspec/config.toml ] && ! git cat-file -e HEAD:./.seamspec/config.toml 2>/dev/null; then\n"
+        '  echo "SeamSpec: not set up on this branch; nothing to check." >&2\n'
+        "  exit 0\n"
+        "fi\n"
         "if ! command -v seamspec >/dev/null 2>&1; then\n"
         '  echo "SeamSpec: the seamspec CLI is not installed (uv tool install seamspec)." >&2\n'
         '  echo "SeamSpec: install it, or delete this hook to stop checking." >&2\n'
         "  exit 1\n"
         "fi\n"
-        f"{cd}exec {GATE}\n"
+        f"exec {GATE}\n"
     )
 
 

@@ -903,7 +903,7 @@ Allow automatic test runs in this repository? [y/N]
 
 - Answering **No** installs everything in `advisory` mode.
 - Scripted setups must pass the explicit `--accept-auto-run` flag; a generic `--yes` does not imply consent.
-- Not a terminal and no `--accept-auto-run`: the answer is **No** (advisory mode), with a note saying how to turn runs on.
+- Not a terminal and no `--accept-auto-run`: **nobody was asked**. A new setup stays in `advisory` mode and records nothing; an answer recorded earlier on this machine is **kept**, never overwritten with a "no" nobody gave (dogfooding finding #7, ADR-20261006-0f6e).
 - **Changing your mind later:** re-running `seamspec init` with consent switches an advisory config to the requested mode, rewriting only the `mode` line. For `strict` it also restores the strict values of the `fail_closed` / `trust_level` lines that `init` itself wrote; values a human edited are left alone (ADR-20261005-8e80).
 - `init` also **trusts the clone** when it creates `config.toml` (whoever runs it just wrote those runner commands).
 - **A fresh clone gets one question** (ADR-20261005-9b8f). When `config.toml` already exists and this machine hasn't trusted it, the consent screen also lists the runner commands, env passthrough and number of locked tests (what `seamspec trust` shows) and asks *"Allow automatic test runs with these commands in this repository?"*. Yes records consent and trust; no records neither. The trust is **bound to what was shown**: if the runner settings on disk no longer hash the same when it is granted (e.g. `--mode strict` switched `trust_level`, or an edit while the prompt was open), nothing is trusted and `init` says to run `seamspec trust`. Committed config values are printed **escaped** on both trust screens (anything beyond plain characters is JSON-quoted), so a clone's config can't hide or repaint text with newlines or terminal escapes. `--accept-auto-run` is consent only: a scripted setup never trusts someone else's committed commands, so run `seamspec trust` at a terminal.
@@ -1904,14 +1904,22 @@ Installed by `init` (only with auto-run consent) into the repo's hooks directory
 # Runs every LOCKED SeamSpec invariant before each commit (SPEC §16.4).
 # GUI git clients often lack ~/.local/bin, where `uv tool` installs.
 PATH="${PATH:+$PATH:}$HOME/.local/bin"  # never an empty entry (= current folder)
+cd "$(git rev-parse --show-toplevel)/services/api" || exit 1   # only when .seamspec/ is in a subfolder
+# A branch where SeamSpec was never set up (no config here or in HEAD) has nothing to check.
+# A config that exists in HEAD but is missing here still runs the gate, and fails.
+if [ ! -f .seamspec/config.toml ] && ! git cat-file -e HEAD:./.seamspec/config.toml 2>/dev/null; then
+  echo "SeamSpec: not set up on this branch; nothing to check." >&2
+  exit 0
+fi
 if ! command -v seamspec >/dev/null 2>&1; then
   echo "SeamSpec: the seamspec CLI is not installed (uv tool install seamspec)." >&2
   echo "SeamSpec: install it, or delete this hook to stop checking." >&2
   exit 1
 fi
-cd "$(git rev-parse --show-toplevel)/services/api" || exit 1   # only when .seamspec/ is in a subfolder
 exec seamspec verify --all --gate
 ```
+
+The hook is installed in `.git/hooks`, so it runs on **every branch** of the clone. A branch where SeamSpec was never set up, with no config in the working tree or in `HEAD`, passes with a note. A config that is in `HEAD` but missing from the working tree still runs the gate, which fails (dogfooding #6, ADR-20261006-0f6e).
 
 `--gate` behavior: exit non-zero if any `LOCKED` invariant fails, an integrity or fingerprint check fails, or an invariant's status changed without a journal entry (§11.1); print `N items awaiting review` as a non-blocking reminder. Pre-commit has **no deadline**: it always runs the full set. In an untrusted clone it fails with "Run `seamspec trust`" instead of running anything (§12.4.6).
 
@@ -2107,7 +2115,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 - [`schemas.py`](../seamspec/core/schemas.py): loads the packaged schemas (§9.4); `validation_errors(name, data)` checks with Draft 2020-12 and a format checker. `doctor` (week 4) builds on it.
 - [`runners.py`](../seamspec/core/runners.py): v0.1 presets live as commented TOML in `templates/runners/{pytest,vitest}.toml`, used both to write `config.toml` and to build `RunnerCfg`s. `detect(root)` implements §12A.7; jest, go and cargo are detected and reported as *"support arrives in v0.2"*.
-- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. `init(..., auto_run, trust_shown)` grants trust when it creates the config, or, with consent, when `trust_shown` (the trust hash of what the human said yes to on a clone's combined consent-and-trust screen, §12.4.5) still matches the config on disk. `merge_gitignore(root, lines)` adds missing ignore lines (also used for the plugin's `.claude/settings.local.json`). CI arrives in week 4.
+- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, writes `.seamspec/.local/.gitignore` (`*`) so machine-local state stays out of git even on a branch whose `.gitignore` predates SeamSpec (dogfooding #8), and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. `init(..., auto_run, trust_shown)` grants trust when it creates the config, or, with consent, when `trust_shown` (the trust hash of what the human said yes to on a clone's combined consent-and-trust screen, §12.4.5) still matches the config on disk. `merge_gitignore(root, lines)` adds missing ignore lines (also used for the plugin's `.claude/settings.local.json`). CI arrives in week 4.
 - [`claude_plugin.py`](../seamspec/installers/claude_plugin.py): the Claude Code plugin install (§16.1). `precheck(root)` returns `skipped` (no `claude`, no checkout marketplace) or `unchanged` (already enabled here or at `user` scope), else `None`; `commands(source)` lists the two `claude plugin` invocations for the prompt; `enable(root)` runs them with `--json` and `--scope local`, reports `installed` / `failed` (with Claude Code's message). Whenever `.claude/settings.local.json` exists (installed, a manual install reported `unchanged`, or a `failed` install whose `marketplace add` already wrote it), it is added to `.gitignore`. `install(root)` = `precheck` then `enable`. Tests use a fake `claude`, plus one real `claude` run in a throwaway `CLAUDE_CONFIG_DIR` (every test gets one, so no test can touch the developer's Claude Code settings).
 - [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`.
 

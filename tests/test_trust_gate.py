@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -247,6 +248,37 @@ def test_hook_is_installed_and_idempotent(gated_repo: Path) -> None:
     assert os.access(hook, os.X_OK) and "seamspec verify --all --gate" in hook.read_text()
     assert 'PATH="${PATH:+$PATH:}$HOME/.local/bin"' in hook.read_text()  # GUI git clients, no empty entry (§16.4)
     assert git_hooks.install_pre_commit(gated_repo).status == "unchanged"
+
+
+def test_hook_skips_a_branch_without_seamspec_but_not_a_deleted_config(gated_repo: Path) -> None:
+    """Dogfooding #6: the hook lives in .git/hooks and so runs on every branch."""
+    root = gated_repo
+    assert commit(root, "set up seamspec").returncode == 0
+    git(root, "switch", "-q", "--orphan", "no-seamspec")  # a branch that never had SeamSpec
+    shutil.rmtree(root / ".seamspec", ignore_errors=True)  # what's left is ignored local state
+    (root / "README.md").write_text("hello\n")
+    skipped = commit(root, "unrelated work")
+    assert skipped.returncode == 0 and "not set up on this branch" in skipped.stderr
+    git(root, "switch", "-q", "-f", "main")
+    shutil.rmtree(root / ".seamspec")  # config in HEAD, deleted here: the gate must still run and fail
+    blocked = commit(root, "drop seamspec")
+    assert blocked.returncode != 0 and "not set up on this branch" not in blocked.stderr
+
+
+def test_scripted_init_keeps_an_earlier_consent(py_repo: Path) -> None:
+    """Dogfooding #7: re-running init with no terminal and no flag must not record a "no" nobody gave."""
+    store = Store(py_repo)
+    assert trust.consent_given(store)
+    result = runner.invoke(app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin"])
+    assert result.exit_code == 0 and "no consent asked" in result.output
+    assert trust.consent_given(store) and trust.execution_permitted(store, load_config(py_repo))[0]
+
+
+def test_scripted_init_of_a_new_repo_records_nothing(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("")
+    result = runner.invoke(app, ["init", "--path", str(tmp_path), "--no-claude-md", "--no-plugin"])
+    assert result.exit_code == 0 and load_config(tmp_path).mode == "advisory"
+    assert not (tmp_path / ".seamspec/.local/consent.json").exists()
 
 
 def test_foreign_hook_and_hook_managers_are_left_alone(git_repo: Path) -> None:

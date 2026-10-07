@@ -30,6 +30,7 @@ GITIGNORE_LINES = (
     ".seamspec/.local/",
     ".seamspec/**/__pycache__/",  # bytecode from SeamSpec's own pytest runs never belongs in the ledger
 )
+LOCAL_GITIGNORE = ".seamspec/.local/.gitignore"
 RUNNER_CONFIG_TEMPLATES = {
     ".seamspec/pytest.ini": "pytest.ini",
     ".seamspec/vitest.config.mjs": "vitest.config.mjs",
@@ -140,20 +141,26 @@ def init(
     root: Path,
     mode: Mode = "enforced",
     claude_md: bool = True,
-    auto_run: bool = False,
+    auto_run: bool | None = False,
     actor: str | None = None,
     trust_shown: str | None = None,
 ) -> InitReport:
     """Set up SeamSpec in `root`.
 
     `auto_run` is the human's answer to the consent screen (§12.4.5); the CLI asks, this function
-    never does. Without consent, `enforced` and `strict` fall back to `advisory`, and no pre-commit
-    hook is installed. Whoever creates the config with `init` also trusts this clone for it
-    (§12.4.6). On a clone, `trust_shown` is the trust hash of the runner settings the human said
-    yes to on the combined consent-and-trust screen; trust is granted only if what is on disk
-    now still hashes the same (a `--mode strict` switch or an edit meanwhile changes it).
+    never does. `None` means nobody was asked (no terminal, no flag): an answer this machine
+    recorded earlier is kept, never overwritten with a "no" nobody gave. Without consent,
+    `enforced` and `strict` fall back to `advisory`, and no pre-commit hook is installed.
+
+    Whoever creates the config with `init` also trusts this clone for it (§12.4.6). On a clone,
+    `trust_shown` is the trust hash of the runner settings the human said yes to on the combined
+    consent-and-trust screen; trust is granted only if what is on disk now still hashes the same
+    (a `--mode strict` switch or an edit meanwhile changes it).
     """
     root = root.resolve()
+    asked = auto_run is not None
+    if auto_run is None:
+        auto_run = trust.consent_given(Store(root)) if (root / CONFIG_REL).exists() else False
     found = detect(root)
     effective: Mode = mode if auto_run or mode == "advisory" else "advisory"
     report = InitReport(root=root, mode=effective, detection=found)
@@ -161,6 +168,8 @@ def init(
     base = root / ".seamspec"
     for d in LEDGER_DIRS:
         (base / d).mkdir(parents=True, exist_ok=True)
+    # Machine-local state stays out of git on every branch, even one whose .gitignore predates SeamSpec.
+    _write_if_missing(root, LOCAL_GITIGNORE, "# SeamSpec machine-local state: never commit.\n*\n", report)
 
     config_rel = CONFIG_REL.as_posix()
     created_config = not (root / CONFIG_REL).exists()
@@ -187,7 +196,8 @@ def init(
 
     store = Store(root)
     who = actor or approver_identity(store)
-    trust.record_consent(store, auto_run, who)
+    if asked:
+        trust.record_consent(store, auto_run, who)
     report.consent = auto_run
     shown_still_current = trust_shown is not None and trust_shown == trust.trust_hash(
         cfg, trust.locked_harnesses(store)

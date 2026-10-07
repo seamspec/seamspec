@@ -46,9 +46,12 @@ ADR-20261005-ae6e decision 5 planned that, from week 3, SeamSpec governs its own
    | 3 | The agent ran `seamspec verify --proposed A B C`; the flag is repeatable, but SPEC wrote `--proposed <id...>` and the skills said `<ids>` | SPEC §15 and the skill footer show `--proposed <id>`, repeated per id |
    | 4 | `seamspec review` run from the parent folder said only "No .seamspec/config.toml found" | The message names the folder it searched from and says to run SeamSpec inside the repository |
    | 5 | `approved_by` was the OS login `vamship`: with no `git config user.name`, git falls back to the OS full name, but SeamSpec read only `git config` and dropped the email | `approver_identity()` asks git for the identity it records (`git var GIT_AUTHOR_IDENT`); SPEC §11.1 updated. The six existing records keep `vamship`, because the agent doesn't edit approved records |
+   | 6 | The agent's commit on a new branch from `main`, which has no `.seamspec/` yet, was blocked: the hook lives in `.git/hooks` and runs on every branch | The hook passes with a note when no config exists in the working tree **or** in `HEAD`. A config in `HEAD` that is missing from the working tree still runs the gate and fails, so deleting the config doesn't switch the check off |
+   | 7 | Re-running `seamspec init` without a terminal and without `--accept-auto-run` recorded `auto_run: false`, silently revoking the owner's consent | "Nobody was asked" is now distinct from "no": an earlier answer is kept; a new setup records nothing and stays advisory |
+   | 8 | On that branch, whose `.gitignore` predates SeamSpec, `git add -A` staged `.seamspec/.local/` (consent, trust, journal). The blocked commit stopped it, and the files were restored | `init` writes `.seamspec/.local/.gitignore` (`*`), so local state is invisible to git on every branch |
 
 **Noted, not changed here:**
-- The six rules' origin text says "2026-10-07"; the correct date is 2026-10-06. It's the agent's mistake, inside owner-approved records, so it's left to the owner.
+- The six rules' origin text says "2026-10-07", which is the UTC date (SeamSpec's timestamps are UTC); the owner's local date was 2026-10-06. It's left as is, inside owner-approved records.
 - The owner's demo repo earlier failed with "Runner executable 'pytest' not found". The project-tool lookup from #19 should cover it if the demo has a `.venv`; to be rechecked.
 
 **Alternatives considered:**
@@ -61,4 +64,4 @@ The six rules in decision 1.
 ## Consequences
 * Every change to SeamSpec now passes its own pre-commit check. The plugin gives new sessions in this repo edit-time context and the Stop check.
 * `docs/adr/` remains the home of build decisions until v0.2.
-* SPEC §11.1, §15 and §16.1 are updated in the same PR.
+* SPEC §11.1, §12.4.5, §15, §16.1, §16.4 and §19.6a are updated in the same PR.

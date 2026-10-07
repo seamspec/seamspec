@@ -141,7 +141,7 @@ def init(
     if not root.is_dir():
         raise _fail(f"{root} is not a directory")
 
-    auto_run = False
+    auto_run: bool | None = False
     trust_shown: str | None = None
     if mode != "advisory":
         if accept_auto_run:
@@ -162,7 +162,11 @@ def init(
             if auto_run and untrusted is not None:  # bound to exactly what was shown (ADR-20261005-9b8f)
                 trust_shown = trust.trust_hash(untrusted, locked)
         else:
-            typer.echo("Not a terminal and no --accept-auto-run: setting up in advisory mode (no automatic runs).")
+            auto_run = None  # nobody was asked: keep this machine's earlier answer, if any
+            typer.echo(
+                "Not a terminal and no --accept-auto-run: no consent asked. A new setup stays in advisory mode;"
+                " an earlier answer on this machine is kept."
+            )
     try:
         report = scaffold.init(root, mode=mode, claude_md=claude_md, auto_run=auto_run, trust_shown=trust_shown)
     except (DirectiveError, ConfigError) as exc:
