@@ -1,0 +1,30 @@
+{
+  "schema_version": "1",
+  "id": "inv_4b4f5ea7",
+  "title": "No under-verification signal in test runs",
+  "assertion": "When SeamSpec runs tests it adds no environment variable that tells code it is being verified; the only variable it sets itself is PATH, for the project's own tools.",
+  "scope": {
+    "paths": [
+      "seamspec/core/verifier.py"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "prompt",
+    "text": "Owner (2026-10-07, dogfooding): \"installed the plugin, go ahead and propose the rules\". Candidate from SPEC §12.4.7.",
+    "ref": null
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_4b4f5ea7.py",
+    "harness_sha256": "9f8c0b4979c1d1c1f082b59fe94d34c0f8d825405b9e2c3e15681689eec79301",
+    "assertion_sha256": "efffbe46c66edfe42da268fab50b58f7fa8a405326d027ee331f924f1ff23475"
+  },
+  "adr_id": null,
+  "created_at": "2026-10-07T00:15:53.590909Z",
+  "approved_at": "2026-10-07T00:17:50.499992Z",
+  "approved_by": "vamship",
+  "superseded_by": null,
+  "status_reason": null
+}

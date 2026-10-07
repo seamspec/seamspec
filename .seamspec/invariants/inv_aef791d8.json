@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "id": "inv_aef791d8",
+  "title": "Scripted init never trusts a clone",
+  "assertion": "`seamspec init --accept-auto-run` without a human at a terminal never trusts an existing clone's committed runner commands.",
+  "scope": {
+    "paths": [
+      "seamspec/cli.py",
+      "seamspec/installers/scaffold.py",
+      "seamspec/core/trust.py"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "prompt",
+    "text": "Owner (2026-10-07, dogfooding): \"installed the plugin, go ahead and propose the rules\". Candidate from ADR-20261005-9b8f.",
+    "ref": null
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_aef791d8.py",
+    "harness_sha256": "fd3427f9dc94cd06b38b1c17612ba647ed0b1ed6f558a75b7016b51869d3103a",
+    "assertion_sha256": "375664a180129b80fc7a300b5a3ac8e85fdfed3ed94fd4c293b60b3c9880ea42"
+  },
+  "adr_id": null,
+  "created_at": "2026-10-07T00:15:53.752180Z",
+  "approved_at": "2026-10-07T00:17:58.395465Z",
+  "approved_by": "vamship",
+  "superseded_by": null,
+  "status_reason": null
+}
