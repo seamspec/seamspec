@@ -20,7 +20,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .harness import score
-from .harness.agent import BILLING, BillingMismatch, ClaudeAgent, FakeAgent
+from .harness.agent import BILLING, ClaudeAgent, FakeAgent, StopBatch
 from .harness.prepare import CACHE, prepare
 from .harness.tasks import CONDITION_NAMES, CONDITIONS, TASK_IDS, Task, load
 from .harness.verdict import RunScore, b_vs_c_note, decide
@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         agent = ClaudeAgent(args.model, args.budget_per_prompt, args.billing)
-    except BillingMismatch as exc:
+    except StopBatch as exc:
         print(f"Not started: {exc}")
         return 2
     out = RESULTS / args.label
@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             started = time.monotonic()
             try:
                 s = run_one(task, condition, run, agent, out)
-            except BillingMismatch as exc:
+            except StopBatch as exc:
                 print(f"Stopped: {exc}")
                 break
             scores.append(s)

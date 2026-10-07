@@ -192,6 +192,7 @@ So condition A could "remember" the rules from the code alone. In real projects 
    - **Target:** about one or more violations per A run, so V(A) ≥ 3 is likely across the 6 counted A runs.
    - **Only A is used for tuning,** never B, C or D, so the tasks can't be tuned toward a SeamSpec win.
    - Calibration runs are labelled and never counted.
+   - **Attempt 1 (20:52):** the new API key was rejected (`401 API key is invalid`). Claude Code retried each prompt for about 3 minutes before failing, and the harness kept going. Nothing was billed; the output was deleted. The harness now **stops the whole batch at the first authentication error** (`AuthFailed`, like `BillingMismatch`).
 
 ## Enforced Invariants
 None. The benchmark harness is test infrastructure; its detectors are unit-tested in `bench/`.

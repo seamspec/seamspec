@@ -41,8 +41,16 @@ ALLOWED_TOOLS = [
 BILLING = ("plan", "api")
 
 
-class BillingMismatch(RuntimeError):
-    """Claude Code would bill a different account than the owner chose: stop the batch."""
+class StopBatch(RuntimeError):
+    """Something that makes every remaining run pointless or unsafe: stop the whole batch."""
+
+
+class BillingMismatch(StopBatch):
+    """Claude Code would bill a different account than the owner chose."""
+
+
+class AuthFailed(StopBatch):
+    """Claude Code can't authenticate (e.g. an invalid API key): every further prompt would only retry and fail."""
 
 
 @dataclass
@@ -86,6 +94,25 @@ def api_key_source(lines: list[str]) -> str | None:
             continue
         if isinstance(event, dict) and event.get("type") == "system" and "apiKeySource" in event:
             return str(event["apiKeySource"])
+    return None
+
+
+def auth_failed(lines: list[str]) -> str | None:
+    """An authentication error in the stream (Claude Code's api_retry events, or the final result), else None."""
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        retry = event.get("type") == "system" and event.get("subtype") == "api_retry"
+        if retry and (event.get("error_status") in (401, 403) or event.get("error") == "authentication_failed"):
+            return f"authentication failed (HTTP {event.get('error_status')})"
+        if event.get("type") == "result" and event.get("is_error"):
+            text = str(event.get("result") or "")
+            if "authenticate" in text.lower() or "api key is invalid" in text.lower():
+                return text[:200]
     return None
 
 
@@ -135,6 +162,9 @@ class ClaudeAgent:
                 (log_dir / f"s{session}p{i}.stderr.txt").write_text(stderr, encoding="utf-8")
             result.api_key_source = api_key_source(stdout.splitlines())
             check_billing(self.billing, result.api_key_source)
+            failure = auth_failed(stdout.splitlines())
+            if failure:
+                raise AuthFailed(f"Claude Code could not authenticate: {failure}. Check the key, then rerun. Stopping.")
             final = parse_stream(stdout.splitlines())
             usage = final.get("usage") or {}
             result.cost_usd = float(final.get("total_cost_usd") or 0.0)
