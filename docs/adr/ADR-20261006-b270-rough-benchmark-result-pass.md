@@ -74,6 +74,9 @@ Full per-run results: [`docs/benchmark/rough-1.md`](../benchmark/rough-1.md).
        - if B and C beat E, the ledger, `get_constraints` and `request_supersede` add value beyond a notes file;
        - if E ≈ B, SeamSpec's distinct value narrows to capturing rules, human approval, protection against rewritten tests (C vs D) and dead-end memory. The positioning in decision 2 is then revisited.
      - The full run's pass bar, including how E enters it, is fixed in its own ADR before that run.
+     - **The quick E run (2026-10-07)** read "notes match SeamSpec's memory" (ADR-20261007-e1a7, result section).
+   - **add condition F, "decisions in ADRs only"** (owner, 2026-10-07): the repo has `docs/adr/` with the agreements as ADRs, plus realistic noise (older and superseded ADRs), and nothing points the agent at them. It tests the common real-world setup, where decisions live in ADRs that the agent may or may not read.
+   - **C is run with the session-start hook** (ADR-20261007-ac04), so the full run measures SeamSpec in its cheaper form against E and F.
 4. **Cost follow-up:** C costs 1.29× A per run, within the pass bar. Most of that is the extra MCP calls and context. It is tracked as a performance item, not a blocker.
 
 **Alternatives considered:**

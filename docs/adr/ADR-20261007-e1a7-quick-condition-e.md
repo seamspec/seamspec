@@ -40,6 +40,22 @@ The rough benchmark passed (ADR-20261006-b270), but B (SeamSpec advisory) did as
 ## Enforced Invariants
 None.
 
+## Result (2026-10-07)
+`rough-1e`: 6 runs, $4.84, no errors (`docs/benchmark/rough-1e.md`).
+
+| | A | B | C | D | **E** |
+|---|---|---|---|---|---|
+| Violations (working tree) | 9 | 1 | 2 | 6 | **0** |
+| Committed at HEAD | 9 | 0 | 0 | 6 | **0** |
+| Dead-end reappearances | 4 | 0 | 0 | 4 | **0** |
+| Median cost per run | $0.95 | $1.20 | $1.22 | $1.14 | **$0.78** |
+
+**Reading: notes match SeamSpec's memory** (V(E) = 0 ≤ V(C) + 1).
+- With a careful model and well-written notes that include "ask first", knowing the agreements was enough. The notes-only agent refused and asked in every T2 conflict, as SeamSpec's agent did.
+- E was about 36% cheaper per run than C.
+- Per decision 3, positioning shifts to what notes can't do: capturing agreements as they're made, human approval, tests that prove each rule and catch drift, protection against rewritten tests, CI for the whole team, and one source for every tool.
+- What follows for the product is decided in ADR-20261007-ac04.
+
 ## Consequences
 * The full run in week 5 still includes E side by side with A–D (b270, decision 3).
 * The result goes into an addendum to this ADR, or a short result ADR.
