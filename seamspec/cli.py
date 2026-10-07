@@ -529,6 +529,46 @@ def _verify_text(report: verifier.VerifyReport, problems: list[str]) -> str:
 
 
 @app.command()
+def doctor(
+    ci: Annotated[
+        bool, typer.Option("--ci", help="CI mode: also check the ledger against the base branch; skip local state.")
+    ] = False,
+    base: Annotated[
+        str | None,
+        typer.Option(help="Base ref for --ci (default: origin/$GITHUB_BASE_REF on pull requests, else HEAD~1)."),
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+) -> None:
+    """Check that SeamSpec is healthy here; --ci adds forward-only checks and the retirement summary (§16.5)."""
+    from .core import doctor as doctor_mod
+
+    try:
+        root = find_root()
+    except RootNotFound as exc:
+        raise _fail(str(exc)) from None
+    report = doctor_mod.run(root, ci=ci, base_ref=base)
+    if as_json:
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+    else:
+        typer.echo(f"SeamSpec doctor · {root}" + (" (CI)" if ci else ""))
+        for check in report.checks:
+            found = [f for f in report.findings if f.check == check]
+            if not found:
+                typer.echo(f"  ✓ {check}")
+            for f in found:
+                typer.echo(f"  {'✗' if f.level == 'error' else '!'} {check}: {f.message}")
+        errors = sum(f.level == "error" for f in report.findings)
+        warnings = len(report.findings) - errors
+        typer.echo(f"{errors} error(s), {warnings} warning(s)")
+        if report.summary:
+            typer.echo("\n" + report.summary)
+    if report.summary:
+        doctor_mod.write_step_summary(report.summary)
+    if not report.ok:
+        raise typer.Exit(1)
+
+
+@app.command()
 def verify(
     all_: Annotated[bool, typer.Option("--all", help="Run every LOCKED invariant (the default).")] = False,
     changed: Annotated[

@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-06 · **Current:** v0.1 · Week 3 (due 2026-10-25): Claude Code plugin, core loop end to end, rough benchmark · [Week 3 issue](https://github.com/seamspec/seamspec/issues/3)
+**Last updated:** 2026-10-06 · **Current:** v0.1 · Week 4: CI, doctor, remaining skills, dogfooding · [Week 4 issue](https://github.com/seamspec/seamspec/issues/4)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-06 | **Week 4 · doctor** (PR `week-4/doctor`): `seamspec doctor` (config, schemas naming the bad file, integrity, runner config, approval provenance, scopes; locally also the journal, CLAUDE.md block, pre-commit hook, allowlisted SeamSpec commands) and `doctor --ci`: rules only move forward (only by supersede, including tests re-hashed by an agent) plus a retirement summary in the job summary. This repo's CI runs it | ADR-20261006-9623 |
 | 2026-10-06 | **Rough benchmark: PASS** (PR `week-3/bench-result`). Counted run of 24 runs on Sonnet 5.5, $27.40: V(A)=9, V(B)=1, V(C)=2, V(D)=6. SeamSpec beat plain tests on violations, tampering (0 vs 6) and dead ends (0 vs 4), at 1.29× the cost. In every T2 run with SeamSpec, the agent surfaced both conflicts with `request_supersede`; with plain tests it rewrote the tests. B ≈ C: the memory and the protocol do most of the work. Decision: keep building, and lead positioning with remembered agreements. Benchmark total about $42.69 | ADR-20261006-b270, `docs/benchmark/rough-1.md` |
 | 2026-10-06 | **Benchmark calibration, part 2** (PR `week-3/bench-t2-conflicts`): the A-only check ($4.33) showed T1 breaking a rule in every run but T2 in none: Sonnet keeps behavior during refactors. T2's sessions 2–3 now bring conflicting requests from other teams (store credit below zero, a provider that rounds halves up), like T1's. The ADR adds a fairness note. Next: a T2-only A check (≈ $1.70) | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark: stop on authentication errors** (PR `fix/bench-stop-on-auth-error`): the first calibration attempt hit a rejected API key ($0, about 3 minutes wasted per prompt). The harness now stops the batch at the first 401 or 403 | ADR-20261006-c8b9 |
@@ -55,9 +56,18 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 3 is done** once the benchmark-result PR is merged. Then tick issue #3 and close the Week 3 milestone.
+- **Week 4** (issue #4), slice by slice: `doctor` + `doctor --ci` (PR `week-4/doctor`) → the CI workflow `init` installs → the remaining skills → mode handling → dogfooding on a real project.
 
-## Next (Week 3, issue #3)
+## Next (Week 4, issue #4)
+
+- [ ] `seamspec doctor` (§16.5): in review, PR `week-4/doctor`
+- [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are in PR `week-4/doctor`; the template `init` installs is next
+- [ ] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2)
+- [ ] `--mode advisory|enforced|strict` handling (§7.3)
+- [ ] Dogfood on SeamSpec itself (done in #22) and at least one real project
+- Exit criteria: CI blocks a regression and lists retirements on a test PR; `doctor` is clean on the fixtures
+
+## Done in Week 3 (issue #3, closed)
 
 - [x] Stop gate: deadline, retries, supersede escape, journal check (§16.1). Merged in #16
 - [x] Edit-time context + ledger protection (§7.2). Merged in #16; confirmed in a real session (PR `week-3/plugin`)

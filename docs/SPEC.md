@@ -1316,7 +1316,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
 | `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
 | `seamspec drain [--json] [--tidy]` *(v0.2)* | List pending braindump items; `--tidy` moves processed items below the marker |
-| `seamspec doctor [--ci]` | Validate schemas, hashes, runner config fingerprints, hook installation, host tiers, MCP token budget, `CLAUDE.md` directive drift (§18); `--ci` adds ledger-forward-only checks against the base branch and the retirement summary |
+| `seamspec doctor [--ci] [--base <ref>] [--json]` | Validate config, record schemas, hashes, runner config fingerprints, approval provenance and scopes. Locally it also checks the approval journal, `CLAUDE.md` directive drift (§18), the git pre-commit hook, and hosts allowlisting SeamSpec commands (§12.4.3). `--ci` replaces the local-state checks with ledger forward-only checks against the base branch and the retirement summary (§16.5). Exits 1 on any error; warnings never fail. v0.1 scope: ADR-20261006-9623 |
 | `seamspec mcp` | Run the MCP server (stdio) |
 | `seamspec trust [--show]` | Trust this clone for automatic test runs (interactive); `--show` prints the current trust state (§12.4.6) |
 | `seamspec hook <host> <event>` | Internal: host hook entry point (reads JSON on stdin) |
@@ -1981,7 +1981,9 @@ jobs:
 | Forward-only | A `LOCKED` invariant on the base branch is deleted or modified on this branch without transitioning to `SUPERSEDED` |
 | Harness protection | A `LOCKED` invariant's harness file changed without a supersede |
 | Approval provenance | A record is `LOCKED` but lacks `approved_at` / `approved_by` |
-| MCP budget | Tool definitions exceed the token budget (repo's own CI) |
+| MCP budget | Tool definitions exceed the token budget (repo's own CI). *v0.1: a test in SeamSpec's own suite (`test_mcp_server.py`), not a `doctor` check* |
+
+The base branch is `--base <ref>`, defaulting to `origin/$GITHUB_BASE_REF` on pull requests and `HEAD~1` otherwise. An unreadable base (e.g. a shallow checkout) is an error that names `fetch-depth: 0`. "Modified" means any of the record's `title`, `assertion`, `scope`, `verification`, `approved_at` or `approved_by` differs. That catches an agent that rewrites a test *and* its recorded hash, which the local integrity check alone can't see (ADR-20261006-9623).
 
 **Retirement summary** (never fails, always shown): `doctor --ci` lists every invariant whose status changed on this branch (e.g. `LOCKED → SUPERSEDED`), every change to `fingerprints.json`, and every new dead end, in the job summary. A `SUPERSEDED` transition is valid, so forward-only accepts it; the summary makes sure a human reviewer actually sees it (§7.1 layer 7).
 
@@ -2307,6 +2309,30 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
 - The project is resolved per call: `$SEAMSPEC_ROOT`, else walk up from the server's working directory. The plugin sets `SEAMSPEC_ROOT` to the project directory (§16.1).
 - **Token budget:** the five tool definitions serialize to about 4,000 characters (≈ 1,000 tokens), checked by a test against the 1,500-token target (§4.3).
 - MCP prompts for the workflow commands arrive with the skills in the plugin slice.
+
+### 19.11a `seamspec/core/doctor.py` — implemented (week 4)
+
+[`doctor.py`](../seamspec/core/doctor.py), CLI `seamspec doctor`. Behavior is §15 and §16.5 (ADR-20261006-9623); the contract:
+
+- `run(root, ci=False, base_ref=None) -> DoctorReport`, with `findings` (`level` error | warning, `check`, `message`), the `checks` that ran, `ok` (no errors), and the `summary` markdown (`--ci` only).
+- **Always:**
+  - config loads;
+  - every ledger file parses, passes its JSON Schema and matches its file name, with errors naming the file;
+  - `check_integrity` on LOCKED rules;
+  - `check_fingerprints`;
+  - LOCKED rules carry `approved_at` and `approved_by`;
+  - warning when a LOCKED or PROPOSED scope matches no tracked file.
+- **Local only:**
+  - `journal.unjournaled_changes` (skipped with a warning if a record is broken);
+  - `directive.drift` (warning);
+  - a pre-commit hook running the gate in enforced and strict mode (warning);
+  - `.claude/settings*.json` allowing `Bash(seamspec…)` (warning).
+- **`--ci` only:**
+  - forward-only against `base_ref` (default `default_base()`): a LOCKED rule at base may become SUPERSEDED, but not be deleted, moved back, or have `title`, `assertion`, `scope`, `verification`, `approved_at` or `approved_by` changed;
+  - its test file must equal the base's;
+  - `retirement_summary()` lists status changes, including new dead ends, and runner-config fingerprint changes. It never fails;
+  - `write_step_summary()` appends it to `$GITHUB_STEP_SUMMARY`.
+- Tested in `tests/test_doctor.py`. This repo's CI runs `seamspec doctor --ci` with `fetch-depth: 0`.
 
 ### 19.12 Example Harness (agent-generated, human-approved)
 
