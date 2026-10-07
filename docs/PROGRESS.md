@@ -54,7 +54,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1). Merged in #18
 - [ ] Setup friction: project tools without activation, one question on a clone (#19, merged); plugin install from `init` (#20, merged); approvals in chat (design: ADR-20261006-c300, PROPOSED, PR #21; build deferred until after the benchmark unless the owner says otherwise)
 - [ ] Dogfood: `seamspec init` on this repo; `docs/adr/` → `.seamspec/adrs/`
-- [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR
+- [ ] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR. Plan and pass bar proposed (ADR-20261006-c8b9, PR `week-3/benchmark-plan`): fresh sessions to model forgetting, held-out oracle tests, pass bar fixed before any run; waiting for the owner's go-ahead
 
 ## Done in Week 2 (issue #2, closed)
 

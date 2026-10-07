@@ -1,0 +1,119 @@
+---
+id: ADR-20261006-c8b9
+title: Rough benchmark - design, pass bar fixed before running, and cost (plan)
+status: PROPOSED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
+date: 2026-10-06
+scopes: ["bench/**", "docs/SPEC.md"]
+invariants: []
+supersedes: null
+superseded_by: null
+---
+
+# ADR-20261006-c8b9: Rough benchmark - design, pass bar fixed before running, and cost (plan)
+
+> **Status: PROPOSED.** This is a plan for the owner to decide on. Nothing has run. The pass bar is written here **before** any run, so the result can't be argued into a pass afterwards. Building the harness costs nothing; running it needs the owner's go-ahead.
+
+## Context
+
+SPEC §23 plans a rough benchmark for week 3: conditions A–D, 2–3 tasks, at least 2 runs each, with a kill/pivot check as an ADR. Week 3 is otherwise done: the core loop, setup friction work and dogfooding (#16–#22). The owner chose benchmark first, before chat approvals, because it answers the one open question: **do agents break fewer agreed behaviors with SeamSpec than without, and is that worth the cost?**
+
+Two things in §23 need tightening first:
+
+1. **Forgetting.** A single 15-turn chat keeps every early instruction in context, so the baseline gets an unrealistic memory. SeamSpec's value shows up when a later session doesn't know what an earlier one agreed. That is the "entropy" this whole product is about.
+2. **Cost.** The owner works on a Claude Pro subscription with no API key: `claude auth status` shows `authMethod: claude.ai`. Benchmark sessions run through the owner's Claude Code login and use the plan's usage limits, not a separate bill.
+
+## Proposed design
+
+**Tasks: 2 small repos, built for the benchmark under `bench/tasks/`.** Each has real code, a normal test suite, two or three agreed rules, and one known dead end.
+- **T1, Python job queue.** Rules:
+  - "the retry delay never exceeds 30 s";
+  - "jobs are processed at most once";
+  - "the public `enqueue()` signature stays stable".
+
+  Dead end: "a thread-per-job worker pool deadlocked under the in-memory lock".
+- **T2, TypeScript (vitest) price calculator.** Rules:
+  - "totals are rounded half-even to cents";
+  - "discounts never make a total negative".
+
+  Dead end: "floating-point cents caused off-by-one totals; use integer cents".
+
+**Scripts: 3 sessions per run, about 4–5 prompts each.** Each session starts fresh with no memory of the previous one, as on a new day.
+- **Session 1 states** the rules and the dead end, like a human explaining the project.
+- **Sessions 2–3 ask for features that tempt** breaking them:
+  - "make retries snappier";
+  - "add a worker pool for throughput";
+  - "add a 100%-off coupon";
+  - "speed up totals with floats".
+
+  The prompts never mention the rules again.
+- The same scripts are used for every condition.
+
+**Conditions** (as §23, with the forgetting made explicit):
+
+| | Condition | What carries the rules across sessions |
+|---|---|---|
+| A | Baseline | Nothing: only the code and whatever the agent rediscovers |
+| B | SeamSpec `advisory` | The ledger, the `CLAUDE.md` block and MCP `get_constraints`. Nothing enforced |
+| C | SeamSpec `enforced` | B, plus the plugin: edit-time context, the Stop gate and pre-commit |
+| D | Plain tests + Stop hook (§4.4) | The **same tests** as C, in `tests/`, plus a 20-line Stop hook that runs them. No SeamSpec |
+
+In B, C and D, the rules start already in place, as if locked in an earlier week. In B and C the dead end is in the ledger; in A and D only session 1's prompt states it.
+
+**Measurement: automatic and held out.**
+- After each run, a hidden **oracle** test suite, which the agent never sees, checks every rule against the final code.
+- The harness also counts:
+  - edits to, skips of and deletions of rule tests;
+  - reappearance of the dead-end approach in the final code;
+  - turns, tokens, Claude Code's cost estimate, and wall time.
+- The **primary metric** is *oracle violations at the end of the run*.
+- Raw logs (stream-json transcripts) are kept for the write-up (§23 "Output").
+
+**Runs and model.**
+- **Step 0, dry run:** 1 task, 4 conditions, 1 run, Haiku 4.5. It only proves the harness and the oracle work; the results don't count.
+- **Rough run:** 2 tasks × 4 conditions × **3 runs** = 24 runs, on **Claude Sonnet 5.5**, the model most people code with. Same settings everywhere. Opus 5.5 costs more and is the owner's call.
+
+## Pass bar, fixed now
+
+Let *V(X)* be the total oracle violations across all runs of condition X.
+
+1. **Validity check (not a verdict).** If **V(A) < 3**, the scripts didn't tempt the agent enough. The benchmark is redesigned with harder temptations and rerun, and no conclusion is drawn.
+2. **PASS, worth building on:**
+   - **V(C) ≤ ½ · V(A)**, and C has no more violations than A on either task;
+   - **and C beats D on at least one** of:
+     - fewer violations (V(C) < V(D));
+     - fewer rule-test edits, skips or deletions;
+     - fewer dead-end reappearances;
+   - **and** C's median cost per run is at most **1.5×** A's.
+3. **PIVOT POSITIONING, not the product:** C passes against A, but C ≈ D on all three D comparisons. Then the enforcement is equally well served by plain tests, and SeamSpec leads with capture, approval and dead ends (as §23's tip already anticipates). This is recorded in an ADR, and the README and site messaging change.
+4. **KILL OR RETHINK:** **V(C) > ½ · V(A)**, meaning SeamSpec doesn't clearly reduce violations even with enforcement, or C's cost is above 2× A's. The owner decides between stopping and a redesign, recorded in an ADR, before any further feature work.
+5. **B vs C is informational.** If B ≈ C, the memory (ledger plus MCP) is doing the work, not the enforcement. That's worth knowing, and §23 says it's publishable either way.
+
+With 3 runs per cell this is a **rough** signal, not statistics. The full run in week 5 (≥ 5 runs per cell, 3 tasks) is what gets published.
+
+## Cost estimate
+
+Measured on 2026-10-06: a minimal Opus 5.5 session cost about $0.10. A real coding prompt with reads, edits and test runs is several times that. Per-run estimates for 3 sessions × ~5 prompts are very rough:
+
+| Model | Per run (est.) | Dry run (4 runs, Haiku) | Rough run (24 runs) |
+|---|---|---|---|
+| Haiku 4.5 | $0.30–1 | **≈ $2–4** | $7–24 |
+| Sonnet 5.5 | $1.50–4 | — | **≈ $36–96** |
+| Opus 5.5 | $3–8 | — | ≈ $72–190 |
+
+On a Pro subscription these are **usage-limit equivalents, not a bill**. They will likely use up several of the plan's 5-hour usage windows. The plan is therefore to:
+- run in batches, with the owner choosing the times so it doesn't block the owner's own work;
+- cap each session with `--max-budget-usd`;
+- **stop and report after the dry run** with real measured costs, before asking to start the rough run.
+
+An API key with a hard spending limit is an alternative if the owner prefers to keep the plan free.
+
+## Questions for the owner
+1. Is the pass bar above acceptable as written? It can't change after the first counted run.
+2. Model for the rough run: Sonnet 5.5 (recommended), Haiku (cheapest, less representative) or Opus 5.5?
+3. Pro subscription in batches, or an API key with a spending limit?
+4. OK to build the harness now (free) and do the Haiku dry run (≈ $2–4 of usage)?
+
+## Consequences (if accepted)
+* `bench/` gets the task repos, scripts, oracle tests, the runner and the raw logs.
+* The result goes into a follow-up ADR: pass, pivot positioning, or kill/rethink.
+* SPEC §23 is updated to the session-split design and points to this ADR.
