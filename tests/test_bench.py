@@ -327,3 +327,32 @@ def test_runner_refuses_api_billing_without_a_key(monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert main(["--model", "m", "--label", "x", "--billing", "api", "--yes", "--tasks", "t1_queue"]) == 2
     assert "needs ANTHROPIC_API_KEY" in capsys.readouterr().out
+
+
+def test_an_authentication_error_stops_the_batch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Calibration attempt 1: an invalid key made every prompt retry for ~3 minutes, then fail. Stop at the first."""
+    import subprocess as sp
+
+    from bench.harness import agent as agent_mod
+    from bench.harness.agent import AuthFailed, ClaudeAgent
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    calls: list[list[str]] = []
+    stream = "\n".join(
+        [
+            json.dumps({"type": "system", "subtype": "init", "apiKeySource": "ANTHROPIC_API_KEY"}),
+            json.dumps(
+                {"type": "system", "subtype": "api_retry", "error_status": 401, "error": "authentication_failed"}
+            ),  # fmt: skip
+            json.dumps({"type": "result", "is_error": True, "result": "Failed to authenticate. API Error: 401"}),
+        ]
+    )
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return sp.CompletedProcess(cmd, 1, stdout=stream, stderr="")
+
+    monkeypatch.setattr(agent_mod.subprocess, "run", fake_run)
+    with pytest.raises(AuthFailed, match="could not authenticate"):
+        ClaudeAgent("m", 1.0, "api").run_session(tmp_path, 1, ("one", "two", "three"), False, tmp_path / "logs")
+    assert len(calls) == 1  # never tried the second prompt
