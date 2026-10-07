@@ -218,8 +218,9 @@ def _init_plugin(root: Path, wanted: bool | None) -> None:
             for args in claude_plugin.commands(source):
                 typer.echo(f"  claude plugin {' '.join(args)}")
             typer.echo(
-                f"It is enabled in {claude_plugin.SETTINGS_LOCAL}: just you, just this repository. Claude Code"
-                " also records the install under ~/.claude/plugins/ (nothing is turned on elsewhere)."
+                f"It would be enabled in {claude_plugin.SETTINGS_LOCAL}: just you, just this repository."
+                " Claude Code would also record the install in its config directory (normally"
+                " ~/.claude/plugins/); nothing is turned on elsewhere."
             )
             if not typer.confirm("Install the SeamSpec plugin for Claude Code in this repository?", default=True):
                 typer.echo("Claude Code plugin: not installed. Run `seamspec init --plugin` any time.")

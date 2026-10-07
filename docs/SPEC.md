@@ -1382,7 +1382,8 @@ Templates live in `seamspec/templates/commands/<name>.md`. **In v0.1 the frontma
 Rules for every SeamSpec command:
 - Never approve invariants and never edit files under `.seamspec/` directly.
 - `propose_invariant` never runs tests. After proposing, run `seamspec verify --proposed <id>`
-  with your shell tool; the user may be asked to allow it. Never try to work around that prompt.
+  (repeat `--proposed <id>` for each id) with your shell tool; the user may be asked to allow it.
+  Never try to work around that prompt.
 - If SeamSpec MCP tools are unavailable, use the CLI instead: `seamspec context <files>`,
   `seamspec propose --json -`, `seamspec dead-end --json -`, `seamspec verify --json`, `seamspec drain --json`.
 - End your reply with the SeamSpec summary block:
@@ -1721,7 +1722,7 @@ claude plugin marketplace add <seamspec checkout> --scope local
 claude plugin install seamspec@seamspec --scope local
 ```
 
-  - **`local` scope** enables the plugin in `<repo>/.claude/settings.local.json`: just this user, just this repository. Claude Code also records the marketplace and the install under `~/.claude/plugins/`; that turns nothing on in other projects. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it holds this machine's checkout path. The plugin loads in place from the checkout, so plugin edits apply at the next session or `/reload-plugins`.
+  - **`local` scope** enables the plugin in `<repo>/.claude/settings.local.json`: just this user, just this repository. Claude Code also records the marketplace and the install in its config directory (normally `~/.claude/plugins/`, or under `CLAUDE_CONFIG_DIR` when set); that turns nothing on in other projects. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it holds this machine's checkout path. The plugin loads in place from the checkout, so plugin edits apply at the next session or `/reload-plugins`.
   - **Asks first.** In a terminal, `init` shows both commands and asks *"Install the SeamSpec plugin for Claude Code in this repository? [Y/n]"*. `--plugin` installs without asking; `--no-plugin` skips. Without a terminal and without a flag it calls nothing and prints `seamspec init --plugin`.
   - **Skipped** with a note when `claude` isn't on `PATH`, or when the CLI isn't running from a checkout (a wheel install has no marketplace until the release). **Unchanged** when `claude plugin list` already shows it enabled for this repository (or at `user` scope).
   - Until the release (week 6, after the owner's go-ahead) the marketplace is the local checkout. A published GitHub marketplace, and with it `project` scope (committed `.claude/settings.json`, so teammates are prompted), comes with the release.
@@ -2019,8 +2020,8 @@ Re-running `init` updates only the block. `seamspec doctor` reports drift betwee
 ```markdown
 # SeamSpec Protocol
 
-This repository uses SeamSpec. Locked invariants are enforced by hooks, pre-commit, and CI —
-failing them will block you from finishing and block commits.
+This repository uses SeamSpec. Locked invariants are enforced by hooks and git pre-commit (and by
+CI where the SeamSpec workflow is installed): failing them blocks you from finishing and blocks commits.
 
 1. Before editing a file, call `get_constraints(files)` (or run `seamspec context <files>`).
    Respect every LOCKED invariant. Approaches listed as previously failed (dead ends) failed for
@@ -2141,7 +2142,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
   - `log_dead_end(...)` creates an `ACTIVE` dead end; `failure_symptom` is cut to 1,000 characters.
   - `request_supersede(...)` saves a request in `.seamspec/.local/requests/<inv_id>.json`. Only for `LOCKED` invariants; it changes no record.
 - **Human-only:** `approve`, `reject`, `supersede`, `retire_dead_end` call `require_interactive()` (stdin and stdout must be a TTY; `SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE=1` overrides it for scripts and tests, a speed bump, not a boundary).
-- `approve`: computes runner config fingerprints, moves the harness from `proposed/` into the runner's `harness_dir`, and runs it with those fingerprints. On failure the harness moves back and **nothing is written**. On success it records hashes, `LOCKED`, `approved_at`, `approved_by` (git `user.name <user.email>`), writes `fingerprints.json`, journals `PROPOSED → LOCKED` and sets the ADR to `ACCEPTED`.
+- `approve`: computes runner config fingerprints, moves the harness from `proposed/` into the runner's `harness_dir`, and runs it with those fingerprints. On failure the harness moves back and **nothing is written**. On success it records hashes, `LOCKED`, `approved_at`, `approved_by` (the identity git records, `git var GIT_AUTHOR_IDENT`, §11.1), writes `fingerprints.json`, journals `PROPOSED → LOCKED` and sets the ADR to `ACCEPTED`.
 - `reject` / `supersede` move the harness to `.seamspec/retired/<id>/` (the record keeps its hash) and journal the change. `reject(as_dead_end=True)` also records a dead end. `supersede` takes its reason and replacement from a pending request when none is given, and clears the request. The replacement still needs its own approval.
 - `harness_in_place(...)`: context manager that copies a `PROPOSED` harness to its runner location for one run (`verify --proposed`, red-green) and removes it afterwards.
 - `journal.unjournaled_changes(store)` implements the rules in §11.1 against `git HEAD` (works when `.seamspec/` sits in a subfolder of the git repo). No git or no commit means "everything is new".
@@ -2585,7 +2586,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 | 11 | Edit-time gate | **`context`** by default: add constraints with no permission decision. Deny once only for brand-new governed files or `gate_mode = "deny_once"`. Never return `allow` | A denial can push the agent to write through Bash, skipping the gate; `allow` would bypass the user's permission prompts | §7.2, §16.1, §19.10 |
 | 12 | "Under verification" flag | **None.** `SEAMSPEC_VERIFY` removed | A flag lets code behave differently under test (a defeat device) | §12.4.7, §19.7 |
 | 13 | Project test config | Runners use **SeamSpec's own config** (`.seamspec/pytest.ini`, `vitest.config.mjs`), fingerprinted; empty or all-skipped harnesses fail | Project config (`conftest.py`, `addopts`, `setupFiles`) could swap real code for stubs or skip tests | §9.5, §12.2, §12.3, §19.7 |
-| 14 | Silent status changes | **Approval journal** checked at Stop and pre-commit; **retirement summary** in CI; `approved_by` = git `user.name <user.email>` | Not tamper-proof, but it makes a silent retirement noisy; PR review is what stops it | §7.1, §11.1, §16.5, §19.8 |
+| 14 | Silent status changes | **Approval journal** checked at Stop and pre-commit; **retirement summary** in CI; `approved_by` = the identity git records for commits (`Name <email>`, ADR-20261006-0f6e) | Not tamper-proof, but it makes a silent retirement noisy; PR review is what stops it | §7.1, §11.1, §16.5, §19.8 |
 | 15 | Stop-hook timing | **One overall deadline** (240s) inside the hook timeout (300s); running out is an explicit `incomplete`; `fail_closed` errors go through the retry cap | Claude Code discards a timed-out hook's output, which would let the agent stop with no warning | §9.5, §12.2, §16.1, §19.7, §19.10 |
 | 16 | Red-green check | **In v0.1, as information in review**, not a gate | Characterization tests *should* pass on `HEAD`; a "no" on a new feature is still a strong hint | §11.4, §25 |
 

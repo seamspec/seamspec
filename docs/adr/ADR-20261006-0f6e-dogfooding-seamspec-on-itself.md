@@ -58,6 +58,8 @@ ADR-20261005-ae6e decision 5 planned that, from week 3, SeamSpec governs its own
 - *Exclude `.seamspec/adrs/` from ledger protection:* rejected. ADRs are part of the ledger, and a carve-out weakens the rule for every user.
 - *Move the ADRs and have the agent write them through the shell:* rejected (decision 2).
 
+4. **The six rules also run in CI** (from Copilot's review of PR #22). The `CLAUDE.md` block claimed CI enforcement, but this repo's CI never ran `seamspec verify`, so a commit made with `--no-verify`, or on another machine, could slip past the rules. A `seamspec` job (`uv run seamspec verify --all --ci`) now runs on every PR and is part of `ci-ok`. The generated directive no longer promises CI for every user: SeamSpec's own CI workflow arrives with `init` in week 4. It now says *"and by CI where the SeamSpec workflow is installed"*.
+
 ## Enforced Invariants
 The six rules in decision 1.
 
