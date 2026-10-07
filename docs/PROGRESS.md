@@ -9,7 +9,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 | Date | What | Where |
 |---|---|---|
 | 2026-10-06 | **Week 4 · CI workflow from `init`** (PR `week-4/ci-workflow`): `.github/workflows/seamspec.yml` (`doctor --ci` then `verify --all --ci`; read-only token; never `pull_request_target`; toolchain steps chosen from runners and lockfiles; never overwritten); `init --ci/--no-ci` by mode (advisory never, enforced asks, strict always plus a CODEOWNERS block) | ADR-20261006-d16b |
-| 2026-10-06 | **Week 4 · doctor** (PR `week-4/doctor`): `seamspec doctor` (config, schemas naming the bad file, integrity, runner config, approval provenance, scopes; locally also the journal, CLAUDE.md block, pre-commit hook, allowlisted SeamSpec commands) and `doctor --ci`: rules only move forward (only by supersede, including tests re-hashed by an agent) plus a retirement summary in the job summary. This repo's CI runs it | ADR-20261006-9623 |
+| 2026-10-06 | **Full-run plan: condition E** (#31): the week-5 benchmark adds "rules written in `CLAUDE.md`" (no SeamSpec), to test whether SeamSpec's memory beats plain notes. The owner's decision | ADR-20261006-b270 |
+| 2026-10-06 | **Week 4 · doctor** (#30): `seamspec doctor` (config, schemas naming the bad file, integrity, runner config, approval provenance, scopes; locally also the journal, CLAUDE.md block, pre-commit hook, allowlisted SeamSpec commands) and `doctor --ci`: rules only move forward (only by supersede, including tests re-hashed by an agent) plus a retirement summary in the job summary. This repo's CI runs it | ADR-20261006-9623 |
 | 2026-10-06 | **Rough benchmark: PASS** (PR `week-3/bench-result`). Counted run of 24 runs on Sonnet 5.5, $27.40: V(A)=9, V(B)=1, V(C)=2, V(D)=6. SeamSpec beat plain tests on violations, tampering (0 vs 6) and dead ends (0 vs 4), at 1.29× the cost. In every T2 run with SeamSpec, the agent surfaced both conflicts with `request_supersede`; with plain tests it rewrote the tests. B ≈ C: the memory and the protocol do most of the work. Decision: keep building, and lead positioning with remembered agreements. Benchmark total about $42.69 | ADR-20261006-b270, `docs/benchmark/rough-1.md` |
 | 2026-10-06 | **Benchmark calibration, part 2** (PR `week-3/bench-t2-conflicts`): the A-only check ($4.33) showed T1 breaking a rule in every run but T2 in none: Sonnet keeps behavior during refactors. T2's sessions 2–3 now bring conflicting requests from other teams (store credit below zero, a provider that rounds halves up), like T1's. The ADR adds a fairness note. Next: a T2-only A check (≈ $1.70) | ADR-20261006-c8b9 |
 | 2026-10-06 | **Benchmark: stop on authentication errors** (PR `fix/bench-stop-on-auth-error`): the first calibration attempt hit a rejected API key ($0, about 3 minutes wasted per prompt). The harness now stops the batch at the first 401 or 403 | ADR-20261006-c8b9 |
@@ -53,16 +54,16 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - **Next, the owner decides the order:**
   1. **Week 4 onboarding:** the CI workflow from `init`, `doctor`, the remaining skills, and positioning copy that leads with remembered agreements.
   2. **Approvals in chat:** needs the owner's four answers and verification 2.
-  3. **The full benchmark run in week 5:** a third task, ≥ 5 runs per cell, a second model, and uncommitted pending changes reported separately (ADR-20261006-b270, decision 3).
+  3. **The full benchmark run in week 5:** a third task, ≥ 5 runs per cell, a second model, uncommitted pending changes reported separately, and **condition E: rules written in `CLAUDE.md`** (ADR-20261006-b270, decision 3).
 
 ## In progress
 
-- **Week 4** (issue #4), slice by slice: `doctor` + `doctor --ci` (PR `week-4/doctor`) → the CI workflow `init` installs → the remaining skills → mode handling → dogfooding on a real project.
+- **Week 4** (issue #4), slice by slice: `doctor` + `doctor --ci` (#30) → the CI workflow `init` installs → the remaining skills → mode handling → dogfooding on a real project.
 
 ## Next (Week 4, issue #4)
 
-- [ ] `seamspec doctor` (§16.5): in review, PR `week-4/doctor`
-- [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are in PR `week-4/doctor`; the template `init` installs is next
+- [x] `seamspec doctor` (§16.5). Merged in #30
+- [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are merged (#30); the template `init` installs is next
 - [ ] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2)
 - [ ] `--mode advisory|enforced|strict` handling (§7.3)
 - [ ] Dogfood on SeamSpec itself (done in #22) and at least one real project

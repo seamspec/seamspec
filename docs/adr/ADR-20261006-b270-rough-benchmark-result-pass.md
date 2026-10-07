@@ -66,7 +66,14 @@ Full per-run results: [`docs/benchmark/rough-1.md`](../benchmark/rough-1.md).
    - add a third task (SPEC §23), including at least one with *implicit* conflicts like T1's, not only explicit ones like T2's;
    - run ≥ 5 runs per cell;
    - also try a less careful model, to test whether enforcement matters more there than in B ≈ C;
-   - report *uncommitted changes pending a supersede* as a separate number next to violations, while the fixed primary metric stays as it is.
+   - report *uncommitted changes pending a supersede* as a separate number next to violations, while the fixed primary metric stays as it is;
+   - **add condition E, "rules written in `CLAUDE.md`"** (owner's decision, 2026-10-06, after this result).
+     - E gets the same rules and dead ends as B and C, written as plain text in the repo's `CLAUDE.md`, with no SeamSpec, no tests and no hooks.
+     - B ≈ C suggests the memory does most of the work, so E tests whether SeamSpec's memory beats simply writing the agreements down.
+     - **How E is read:**
+       - if B and C beat E, the ledger, `get_constraints` and `request_supersede` add value beyond a notes file;
+       - if E ≈ B, SeamSpec's distinct value narrows to capturing rules, human approval, protection against rewritten tests (C vs D) and dead-end memory. The positioning in decision 2 is then revisited.
+     - The full run's pass bar, including how E enters it, is fixed in its own ADR before that run.
 4. **Cost follow-up:** C costs 1.29× A per run, within the pass bar. Most of that is the extra MCP calls and context. It is tracked as a performance item, not a blocker.
 
 **Alternatives considered:**
