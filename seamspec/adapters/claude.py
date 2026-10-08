@@ -220,13 +220,19 @@ RULES_HEADING_SHORT = ("SeamSpec: rules in force in this repository, titles only
                        "rule). A human approved each rule, and each has a test that must keep passing:")  # fmt: skip
 
 
+def _flat(text: str) -> str:
+    """One line: a record's own line breaks must not turn into extra summary entries (Copilot, #41)."""
+    return " ".join(text.split())
+
+
 def _clip(text: str, limit: int = 100) -> str:
+    text = _flat(text)
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
 def _area(paths: list[str]) -> str:
     """The folder a scope is about: the first path's part before any glob, e.g. src/billing/** -> src/billing."""
-    first = paths[0] if paths else ""
+    first = _flat(paths[0]) if paths else ""
     plain = first.split("*", 1)[0].split("?", 1)[0].split("[", 1)[0].rstrip("/")
     if "." in plain.rsplit("/", 1)[-1]:  # a file: its folder
         plain = plain.rsplit("/", 1)[0] if "/" in plain else ""
@@ -255,15 +261,17 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
         tail.append(f"SeamSpec: {waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
 
     def scope(r: Invariant | DeadEnd) -> str:
-        return ", ".join(r.scope.paths)
+        return ", ".join(_flat(p) for p in r.scope.paths)
 
     full = ([RULES_HEADING] if locked else []) + [
-        f"- {r.id} · {r.title}: {r.assertion} (scope: {scope(r)})" for r in locked
+        f"- {r.id} · {_flat(r.title)}: {_flat(r.assertion)} (scope: {scope(r)})" for r in locked
     ]  # fmt: skip
     full += ([DEAD_HEADING] if dead else []) + [
-        f"- {d.id}: {d.approach} Why it failed: {d.failure_symptom}" for d in dead
+        f"- {d.id}: {_flat(d.approach)} Why it failed: {_flat(d.failure_symptom)}" for d in dead
     ]
-    one_line = ([RULES_HEADING_SHORT] if locked else []) + [f"- {r.id} · {r.title} (scope: {scope(r)})" for r in locked]
+    one_line = ([RULES_HEADING_SHORT] if locked else []) + [
+        f"- {r.id} · {_flat(r.title)} (scope: {scope(r)})" for r in locked
+    ]
     one_line += ([DEAD_HEADING] if dead else []) + [f"- {d.id}: {_clip(d.approach)} (scope: {scope(d)})" for d in dead]
     by_area: dict[str, list[int]] = {}
     for r in locked:
