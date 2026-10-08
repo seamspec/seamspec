@@ -317,7 +317,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 |---|---|---|---|
 | `advisory` | MCP config + rules file | Prompt-based (labeled honestly) | Trying SeamSpec; hosts without hooks |
 | `enforced` *(default)* | + host hooks + git pre-commit + **CI workflow (offered; `--ci` / `--no-ci`)** | In-session + commit-time + PR | Daily individual use |
-| `strict` | + CI workflow (always), `fail_closed = true`, `trust_level = "harness"`, CODEOWNERS entry for `.seamspec/` | Everything above, hooks fail closed (retry-capped), any new upstream test needs re-trust | Teams, shared repos |
+| `strict` | + CI workflow (always), `fail_closed = true`, `trust_level = "harness"`, `chat_approvals = false`, CODEOWNERS entry for `.seamspec/` | Everything above, hooks fail closed (retry-capped), any new upstream test needs re-trust | Teams, shared repos |
 
 **CI by mode** (ADR-20261005-c41d): `init` in `enforced` mode asks *"Add a CI workflow (.github/workflows/seamspec.yml)? [Y/n]"*; `--ci` / `--no-ci` answer it for scripts. `strict` always installs it, plus CODEOWNERS. `advisory` never does. The workflow is the same in every mode (§16.5).
 
@@ -327,7 +327,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 - **No `--mode`:** keeps `enforced` or `strict` as they are, so they're never lowered silently. A new or advisory setup is offered `enforced`, so re-running `init` with consent turns automatic runs on.
 - **Raising the mode** needs automatic runs allowed on this machine (the consent screen). Otherwise the config is kept and `init` says why. Consent is only asked when raising the mode or setting up: lowering it, or choosing advisory, asks nothing and keeps this machine's earlier answer.
 - **Lowering the mode** (strict → enforced, or anything → advisory) switches checks off, so it's a **human decision**, like approving. `init` needs an interactive terminal and asks *"Lower the mode from … to …?"*. Like approving, this is a **speed bump, not a boundary**: an agent with an unrestricted shell could still edit `config.toml` or call the Python API. The backstop is review, since `doctor --ci` shows the change.
-- **Rewrites are minimal.** Only the `mode` line changes, plus, when entering or leaving `strict`, the `fail_closed` / `trust_level` lines that `init` itself wrote. Values a human edited stay.
+- **Rewrites are minimal.** Only the `mode` line changes, plus, when entering or leaving `strict`, the `fail_closed` / `trust_level` / `chat_approvals` lines that `init` itself wrote. Values a human edited stay.
 - **Switching to `advisory`** removes SeamSpec's own pre-commit hook, never anyone else's. The `seamspec verify --gate` check also runs nothing in advisory mode.
 - **Switching to `strict`** adds the CI workflow and the CODEOWNERS block.
 - **In review:** `doctor --ci` shows a mode change at the top of the retirement summary, so a PR that lowers enforcement is visible.
@@ -502,12 +502,15 @@ max_pending = 10               # project-wide cap on PROPOSED invariants awaitin
 run_proposed = "auto"          # auto | host | ask | never — how proposed (unapproved) tests may run (v0.1: host | never; ask = v0.2)
 env_passthrough = []           # extra env vars tests may see, e.g. ["DATABASE_URL"]
 trust_level = "runners"        # runners | harness — strict mode defaults to harness
+
+[review]                       # §11.5 Approvals in chat
+chat_approvals = true          # approve, reject and supersede in a chat dialog too — strict mode defaults to false
 ```
 
 - Commands are **argv lists**, never shell strings.
 - `{each}` expands the runner's `each` template once per harness (default `["{path}"]`); `{report}` is the report file SeamSpec reads afterwards. `{harnesses}` is accepted as an alias for `{each}`. Full key reference: §12A.3.
 - The agent never supplies a command; it supplies a **runner name** that must exist in config.
-- **Mode-dependent defaults:** in `strict` mode, `hooks.fail_closed` defaults to `true` and `execution.trust_level` to `"harness"`. `seamspec init --mode strict` writes those values into `config.toml`; if a key is missing, the config loader applies the same strict defaults. An explicit value in `config.toml` always wins (§19.2), and `doctor` warns when a `strict` repo has loosened either one.
+- **Mode-dependent defaults:** in `strict` mode, `hooks.fail_closed` defaults to `true`, `execution.trust_level` to `"harness"` and `review.chat_approvals` to `false`. `seamspec init --mode strict` writes those values into `config.toml`; if a key is missing, the config loader applies the same strict defaults. An explicit value in `config.toml` always wins (§19.2), and `doctor` warns when a `strict` repo has loosened either one.
 
 ---
 
@@ -574,7 +577,8 @@ trust_level = "runners"        # runners | harness — strict mode defaults to h
     "approved_at": { "type": ["string", "null"], "format": "date-time" },
     "approved_by": { "type": ["string", "null"] },
     "superseded_by": { "type": ["string", "null"], "pattern": "^inv_[a-f0-9]{8}$" },
-    "status_reason": { "type": ["string", "null"], "description": "Why rejected or superseded" }
+    "status_reason": { "type": ["string", "null"], "description": "Why rejected or superseded" },
+    "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human made the decision that set the status; null means the terminal (ADR-20261006-c300)" }
   },
   "allOf": [
     {
@@ -640,7 +644,8 @@ trust_level = "runners"        # runners | harness — strict mode defaults to h
   "approved_at": "2026-10-03T08:20:41Z",
   "approved_by": "Maya Rao <12345+maya@users.noreply.github.com>",
   "superseded_by": null,
-  "status_reason": null
+  "status_reason": null,
+  "decided_via": "terminal"
 }
 ```
 
@@ -674,6 +679,7 @@ trust_level = "runners"        # runners | harness — strict mode defaults to h
     "related_invariant": { "type": ["string", "null"], "pattern": "^inv_[a-f0-9]{8}$" },
     "status": { "enum": ["ACTIVE", "RETIRED"] },
     "retired_reason": { "type": ["string", "null"], "description": "e.g. 'Fixed upstream in redis-py 6.2'" },
+    "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human retired it; null means the terminal (ADR-20261006-c300)" },
     "created_at": { "type": "string", "format": "date-time" }
   },
   "allOf": [
@@ -734,7 +740,7 @@ ADRs are created as `PROPOSED` alongside their invariants and become `ACCEPTED` 
 stateDiagram-v2
     [*] --> PROPOSED: propose_invariant (agent) / seamspec propose (human)
     PROPOSED --> PROPOSED: updated harness (replace_id)
-    PROPOSED --> LOCKED: seamspec approve (human, TTY, harness passing)
+    PROPOSED --> LOCKED: seamspec approve or chat dialog (human, harness passing)
     PROPOSED --> REJECTED: seamspec reject (human, reason)
     LOCKED --> SUPERSEDED: supersede approved (human) with replacement
     SUPERSEDED --> [*]
@@ -745,7 +751,7 @@ stateDiagram-v2
 |---|---|---|---|
 | → `PROPOSED` | Agent or human | Valid schema; runner exists; harness written by SeamSpec; fewer than `proposals.max_pending` invariants already `PROPOSED` (agent only; humans and `replace_id` updates are exempt). **Nothing is executed**; verification is `pending` until run through a consented path (§12.4) | Record + harness + draft ADR created |
 | `PROPOSED` → `PROPOSED` | Agent | `replace_id` points to a `PROPOSED` record | Harness/assertion updated; verification reset to `pending` |
-| `PROPOSED` → `LOCKED` | **Human only** | Interactive TTY; human has been shown the full harness **and its red-green result** (§11.4); harness passes when run at approval | Harness moved from `.seamspec/proposed/` into the runner's `harness_dir`; hashes computed; runner config fingerprints confirmed (§12.2); `approved_at/by` set; ADR → `ACCEPTED` |
+| `PROPOSED` → `LOCKED` | **Human only** | Interactive TTY, or the human's answer in a SeamSpec chat dialog (§11.5); human has been shown the full harness **and its red-green result** (§11.4); harness passes when run at approval | Harness moved from `.seamspec/proposed/` into the runner's `harness_dir`; hashes computed; runner config fingerprints confirmed (§12.2); `approved_at/by` set; ADR → `ACCEPTED` |
 | `PROPOSED` → `REJECTED` | Human | Reason given | `review` then asks *"Also record as dead end? [y/N]"* (default **No**); `reject --dead-end` does the same non-interactively. Never automatic |
 | `LOCKED` → `SUPERSEDED` | **Human only** | Pending supersede request or explicit command; replacement invariant (may be `null` for pure retirement, with reason) | Old record keeps history; excluded from verification; ADR → `SUPERSEDED` |
 
@@ -753,7 +759,7 @@ stateDiagram-v2
 
 **Why rejection doesn't auto-create a dead end.** People reject proposals for different reasons: bad wording, wrong scope, or a genuinely wrong approach. Only the last one is a dead end, so the human decides with one key. When they say yes, the dead end gets the proposal's scope, `approach` = the assertion, and `failure_symptom` = the rejection reason.
 
-**Approval journal.** Every status change made through the CLI (`approve`, `reject`, `supersede`, `retire`) appends a line to `.seamspec/.local/journal.jsonl`: record id, old → new status, actor, time. At Stop and pre-commit, SeamSpec compares the status of every record in `.seamspec/invariants/` with `HEAD` and **flags any change that has no journal entry** (e.g. an agent editing `inv_x.json` to `SUPERSEDED` with Bash). The comparison rules (ADR-20261005-c41d, corrected in ADR-20261005-9c1a):
+**Approval journal.** Every status change made through the CLI (`approve`, `reject`, `supersede`, `retire`) or a chat dialog appends a line to `.seamspec/.local/journal.jsonl`: record id, old → new status, actor, time, `via` (`terminal` or `chat`) and, for chat, the client's name and version. The record itself gets `decided_via`, so a reviewer sees *"decided in chat"* in the diff. Events that aren't status changes (a refused chat review, a blocked settings change) are journaled as `{"event": …}` lines, which the comparison below ignores. At Stop and pre-commit, SeamSpec compares the status of every record in `.seamspec/invariants/` with `HEAD` and **flags any change that has no journal entry** (e.g. an agent editing `inv_x.json` to `SUPERSEDED` with Bash). The comparison rules (ADR-20261005-c41d, corrected in ADR-20261005-9c1a):
 
 | Record at `HEAD` | Record now | Needs a journal entry? |
 |---|---|---|
@@ -792,13 +798,31 @@ Dead ends skip approval, but they still steer the agent, so a wrong one could ke
 
 An agent grading its own work is the core weakness of agent-written tests, and rubber-stamping in review is the biggest risk after test quality. So `seamspec review` shows, for each proposal, whether its test **fails without the change**:
 
-- **When:** only inside `seamspec review`, which is already a consented path (§12.4.2), and only **after** the reviewer has seen the full test and answered *"Run it now to check it fails without your change? [Y/n]"* (ADR-20261005-b7e2).
+- **When:** only inside `seamspec review`, which is already a consented path (§12.4.2), and only **after** the reviewer has seen the full test and answered *"Run it now to check it fails without your change? [Y/n]"* (ADR-20261005-b7e2). In a chat review (§11.5) it's a choice in the proposal's dialog, followed by its own *"Run this test on your machine?"* dialog showing the test, and it needs a trusted clone.
 - **How:** the proposed test runs on the **working tree first**, then against **`HEAD`** in a temporary detached `git worktree`. That worktree gets SeamSpec's *current* `config.toml` and runner config files (so both runs use the same runner) and links to the project's `.venv` / `venv` / `node_modules`, since a fresh worktree has none. It works when `.seamspec/` sits in a subfolder of the git repo, and the worktree is always removed.
 - **Result:** `fails without your change: yes | no | n/a`, with one line of explanation:
   - `yes`: passes on the working tree and fails on `HEAD`.
   - `no`: passes on both. That's fine for a characterization test of behavior that already existed; on a brand-new feature it's a strong hint the test checks nothing.
   - `n/a`: the check couldn't give an answer: the test fails on the working tree (approval would be refused anyway), there's no git repo or no commit yet, the runner is missing, or the HEAD copy couldn't be prepared.
 - It is **information, not a gate.** v0.1 supports pytest and vitest.
+
+### 11.5 Approvals in Chat (ADR-20261006-c300)
+
+The human can review in the chat instead of a terminal. The agent calls the MCP tool `open_review(ids?)` (usually after the human says yes to *"review it here?"*). SeamSpec then shows **one form dialog per item**, in the same order as `seamspec review`: dead ends recorded since the last review, supersede requests, proposed rules. The agent passes only ids, never the text shown, and it can't answer the dialogs; it gets back only the outcomes (e.g. *"inv_… approved (LOCKED)"*, *"inv_… rejected (reason)"*).
+
+| Item | Choices | Needs a reason | Result |
+|---|---|---|---|
+| Proposed rule | skip / approve / reject / redgreen | reject (the agent sees it); *also record as dead end* box | approve runs the test and locks the rule, as `seamspec approve` does; redgreen asks before running (§11.4) |
+| Supersede request | skip / supersede / decline | decline (the agent sees it) | supersede retires the rule; a PROPOSED replacement is offered next, for its own approval |
+| New dead end | skip / keep / wrong | wrong | wrong retires it; keep and wrong mark it as seen |
+
+- **Dialog text** comes from the ledger: the rule, scope, runner, quoted origin, the **full test**, the red-green result, and for a supersede the old rule, the request's reason and the replacement. Every dialog starts *"From SeamSpec, not the agent. The agent can't answer this dialog."*, and agent-written text is marked line by line (`│`) so it can't pass for SeamSpec's own words.
+- **Same rules as the terminal:** approval runs the test and refuses a failing one; while runner config is unconfirmed, *approve* isn't offered and the dialog says to use `seamspec review`. Runner config changes stay terminal-only.
+- **An answer applies only to what was shown.** The sealed state keeps a digest of the dialog (text and choices). Before acting, SeamSpec renders the dialog again from disk; if anything changed (the test, the request's reason, the record), the answer isn't applied and the human sees the new version with a note.
+- **Only when a human can answer:** the client must declare form dialogs on protocol 2026-07-28 or later (Claude Code does), else `no_dialogs`. A closed dialog stops the review, and nothing else changes. An item skipped or declined isn't offered again in that session unless the agent asks for it by id; it still counts in `still_waiting`. One call shows at most 8 dialogs, then asks to be called again.
+- **No hook may answer for the human.** Claude Code lets an `Elicitation` hook answer a dialog without showing it, and an `ElicitationResult` hook rewrite the answer. Before each dialog and again before acting on an answer, SeamSpec looks for such a hook that could match its server (`plugin:seamspec:seamspec`) in every place it can read (§19.11b) and **refuses chat approvals** while one exists, naming it and pointing to `seamspec review`. The plugin's `ConfigChange` hook blocks a settings or skill change that adds one mid-session (§16.1). Each dialog's choices carry a random 4-character code (e.g. `approve-7kq2`), and *skip* comes first: a hook that sends a fixed answer fails validation and the review stops; one that picks the first choice changes nothing. A hook written against SeamSpec specifically can still read the form, so the scan, not the code, is the guard.
+- **Strict mode:** off by default (`[review] chat_approvals = false`); an explicit value wins.
+- **The limit is the terminal's:** an agent with an unrestricted shell can bypass this, as it can bypass the TTY check. Approvals stay visible in review: `decided_via` in the committed record, the journal's `via` and client, CODEOWNERS and CI (§11.1, §16.5).
 
 ---
 
@@ -871,6 +895,8 @@ Hosts (Claude Code, Cursor, VS Code) normally ask before the agent runs shell co
 | Agent runs `seamspec verify --proposed <id>` with its shell tool | The proposed test + project code | Agent | **Host's own shell permission prompt / allowlist** |
 | `run_proposed = "ask"`, or `"auto"` on a client that supports elicitation | The proposed test, after the user clicks *Run* | Agent | Explicit per-run approval in the host UI |
 | Human runs `seamspec review` / `approve` | The test the human was just shown | Agent, reviewed | Explicit approval at an interactive terminal |
+| Human approves in a chat dialog (`open_review`, §11.5) | The test the human was just shown | Agent, reviewed | Explicit approval in a SeamSpec dialog only the human answers |
+| Human picks *redgreen* in a chat dialog | The proposed test, on the working tree and `HEAD` | Agent | Its own *"Run this test on your machine?"* dialog showing the test, plus repo trust |
 | Human runs `seamspec verify` | Requested tests | — | Explicit: the human typed it |
 | Stop hook | **LOCKED tests only** (+ the project code they import) | Approved | One-time auto-run consent + repo trust |
 | git pre-commit | **LOCKED tests only** | Approved | Auto-run consent + repo trust + the human chose to commit |
@@ -879,9 +905,9 @@ Hosts (Claude Code, Cursor, VS Code) normally ask before the agent runs shell co
 #### 12.4.3 Rules
 
 1. **MCP never executes unapproved code.** `propose_invariant` writes the harness and returns `verify: { status: "pending", run: "seamspec verify --proposed <id>" }`. The MCP `verify` tool only accepts `changed` / `all`, which run `LOCKED` tests.
-2. **Proposed tests run only through a consented path:** the agent's shell tool (host permissions apply), MCP elicitation (`ask` mode), or the human.
+2. **Proposed tests run only through a consented path:** the agent's shell tool (host permissions apply), MCP elicitation (`ask` mode, or a chat review's *"Run this test?"* dialog), or the human.
 3. **Automatic runs only execute approved, integrity-checked tests**, and only in trusted clones with auto-run consent recorded.
-4. **Approval is consent to future runs.** `seamspec review` shows the full harness *before* the approve keypress, not hidden behind a "view" key.
+4. **Approval is consent to future runs.** `seamspec review` shows the full harness *before* the approve keypress, not hidden behind a "view" key; a chat dialog shows it above the choices.
 5. **Hooks never run proposed tests.**
 6. **`seamspec init` never allowlists SeamSpec commands in any host.** If a user allowlists `seamspec verify` themselves, proposed tests run without prompts; that is their informed choice, and `doctor` reports it.
 
@@ -1218,6 +1244,7 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 | `log_dead_end(...)` | Record a failed approach (`ACTIVE`, no approval needed) | `seamspec dead-end --json -` |
 | `request_supersede(invariant_id, reason, replacement?)` | Ask the human to retire/replace a locked invariant | `seamspec supersede --request` |
 | `verify(scope)` | Run `LOCKED` invariant tests (`changed` / `all`). **Never runs proposed tests** | `seamspec verify` |
+| `open_review(ids?)` | Show the human SeamSpec's review dialogs in the chat; returns only the outcomes (§11.5) | `seamspec review` |
 | `braindump_pending(dismiss?)` | List unprocessed braindump items; optionally dismiss items as `todo` / `exploration` | `seamspec drain` |
 
 **Signatures:**
@@ -1250,6 +1277,10 @@ log_dead_end(scope_paths: list[str], approach: str, failure_symptom: str,
 request_supersede(invariant_id: str, reason: str, replacement_id: str | None = None) -> { request_id }
 
 verify(scope: "changed" | "all" = "all") -> VerifyReport     # LOCKED tests only
+
+open_review(ids: list[str] | None = None)
+  -> { reviewed: list[str], still_waiting: int, message?: str }     # after the dialogs; the agent never answers them
+  | { error: "chat_approvals_off" | "no_dialogs", message: str }   # fall back to `seamspec review`
 
 braindump_pending(dismiss: list[{ item_id: str, as: "todo" | "exploration" }] = []) -> { pending: list[Item] }
 ```
@@ -1808,6 +1839,12 @@ exec seamspec mcp "$@"
         "matcher": "startup|clear|compact",
         "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/seamspec-hook hook claude session-start", "timeout": 10 }]
       }
+    ],
+    "ConfigChange": [
+      {
+        "matcher": "user_settings|project_settings|local_settings|skills",
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/seamspec-hook hook claude config-change", "timeout": 10 }]
+      }
     ]
   }
 }
@@ -1815,6 +1852,7 @@ exec seamspec mcp "$@"
 
 - The matcher is a plain list of tool names. Per the hooks reference (checked 2026-10-05), a matcher made only of letters, digits and `|` is an **exact list**, not a regex, so `Edit` doesn't also match `NotebookEdit`. `MultiEdit` is kept for older Claude Code versions (ADR-20261005-5009).
 - `SessionStart` ships in v0.1 with the **agreements summary** (ADR-20261007-ac04). The braindump nudge (§13.9) joins it in v0.2. `resume` and `fork` are left out because those sessions already carry the earlier context.
+- `ConfigChange` guards approvals in chat (§11.5, ADR-20261006-c300). `policy_settings` is left out because Claude Code can't block it.
 - The Stop hook's `timeout` (300s) is deliberately larger than `verify.stop_deadline_seconds` (240s): Claude Code **discards the output of a timed-out hook**, so a hook that times out would let the agent stop with no warning. SeamSpec must always finish and decide before that happens.
 
 **`SessionStart` behavior** (`seamspec hook claude session-start`; ADR-20261007-ac04). It reads stdin JSON (`session_id`, `cwd`, `source`) and builds a short summary **from the ledger**. The ledger stays the single source: SeamSpec writes no notes file and adds nothing to `CLAUDE.md`. The summary contains:
@@ -1829,7 +1867,9 @@ Only the rules are described as human-approved: dead ends appear under their own
 2. **One line each:** otherwise every rule as `id · title (scope: …)` under a heading that says the full rule comes from `get_constraints`, and every dead end as its id, its approach (clipped to 100 characters) and scope.
 3. **Counts by area:** if even that is too long, the number of rules and dead ends in force, a pointer to `get_constraints`, and one line per area: the folder of each record's first scope path, made of the whole path segments before the first one holding a glob (`src/billing/**` and `src/billing/gen*.py` → `src/billing`, `.github/**` → `.github`). A path with no glob is its own area if it's a folder (one that exists, or written with a trailing `/`), else its file's folder. If the area list is too long too, only the totals.
 
-The closing instructions (ask first, pending reviews) follow every level. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. A real session confirmed that this context reaches the model (2026-10-08: the model listed every rule id; without the plugin it listed none). In v0.2 the braindump nudge (§13.9) is added to the same text.
+The closing instructions (ask first, pending reviews) follow every level. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. A real session confirmed that this context reaches the model (2026-10-08: the model listed every rule id; without the plugin it listed none). In v0.2 the braindump nudge (§13.9) is added to the same text. When chat approvals are on, it also records the dialog hooks that exist at session start (`.local/hookguard-baseline.json`, for `ConfigChange` below), whatever the `source`.
+
+**`ConfigChange` behavior** (`seamspec hook claude config-change`; ADR-20261006-c300). Only when `review.chat_approvals` is on. It reads `source` and `file_path`, checks that file (settings JSON, or a skill's frontmatter) for an `Elicitation` / `ElicitationResult` hook that could match SeamSpec's server, and returns `{"decision": "block"}` for one that wasn't there at session start. Hooks present at session start are left alone, since chat approvals are refused while they exist and blocking every later edit of that file would only hurt. Claude Code shows no message for a blocked change, so the block is journaled (`config_change_blocked`). Verified in a real session: the blocked hook never ran (ADR-20261006-c300, verification 4).
 
 ```json
 {
@@ -2202,7 +2242,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
   - `propose_invariant(...)` writes the harness to `.seamspec/proposed/<id>/<runner filename>` and the record as `PROPOSED`, and **runs nothing**. It returns `queue_full` at `proposals.max_pending` (`replace_id` updates and `by_human=True` are exempt). An optional `adr_draft` creates a `PROPOSED` ADR and links it.
   - `log_dead_end(...)` creates an `ACTIVE` dead end; `failure_symptom` is cut to 1,000 characters.
   - `request_supersede(...)` saves a request in `.seamspec/.local/requests/<inv_id>.json`. Only for `LOCKED` invariants; it changes no record.
-- **Human-only:** `approve`, `reject`, `supersede`, `retire_dead_end` call `require_interactive()` (stdin and stdout must be a TTY; `SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE=1` overrides it for scripts and tests, a speed bump, not a boundary).
+- **Human-only:** `approve`, `reject`, `supersede`, `retire_dead_end` call `require_interactive(via)` (stdin and stdout must be a TTY; `SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE=1` overrides it for scripts and tests, a speed bump, not a boundary). `retire_dead_end` is journaled too (`ACTIVE → RETIRED`). They take `via="terminal" | "chat"`: only the chat review (§11.5) passes `"chat"`, which skips the TTY check because the human answered SeamSpec's dialog. `via` is written to the record's `decided_via` and, with the chat `client`, to the journal. `journal.note(store, event, **fields)` records events that aren't status changes.
 - `approve`: computes runner config fingerprints, moves the harness from `proposed/` into the runner's `harness_dir`, and runs it with those fingerprints. On failure the harness moves back and **nothing is written**. On success it records hashes, `LOCKED`, `approved_at`, `approved_by` (the identity git records, `git var GIT_AUTHOR_IDENT`, §11.1), writes `fingerprints.json`, journals `PROPOSED → LOCKED` and sets the ADR to `ACCEPTED`.
 - `reject` / `supersede` move the harness to `.seamspec/retired/<id>/` (the record keeps its hash) and journal the change. `reject(as_dead_end=True)` also records a dead end. `supersede` takes its reason and replacement from a pending request when none is given, and clears the request. The replacement still needs its own approval.
 - `harness_in_place(...)`: context manager that copies a `PROPOSED` harness to its runner location for one run (`verify --proposed`, red-green) and removes it afterwards.
@@ -2226,7 +2266,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 [`redgreen.py`](../seamspec/core/redgreen.py), [`review.py`](../seamspec/review.py)
 
 - `redgreen.check(store, cfg, inv) -> RedGreen(verdict: "yes" | "no" | "n/a", detail)`, per §11.4. It never writes to the ledger; the proposed test is placed temporarily and removed. "Couldn't run" is decided by `RunnerResult.could_not_run` (missing runner executable or unknown runner), never by matching test output; filesystem errors while preparing the `HEAD` copy give `n/a`.
-- `review.run(store, cfg)`: the flow in §15. It is prompt-driven (one-letter answers, re-asked on anything else) rather than a full-screen TUI, so it works in any terminal and can be tested end to end. Items appear oldest first (proposals and dead ends by `created_at`, supersede requests by `requested_at`; ties broken by id). It records `.seamspec/.local/review.json` (`last_review_at`), which decides which dead ends count as new. The cursor is the time the review **started**, so dead ends created during the review stay new. If you quit part-way through the dead-end list, it only advances past the ones you actually answered.
+- `review.run(store, cfg)`: the flow in §15. It is prompt-driven (one-letter answers, re-asked on anything else) rather than a full-screen TUI, so it works in any terminal and can be tested end to end. Items appear oldest first (proposals and dead ends by `created_at`, supersede requests by `requested_at`; ties broken by id). It records `.seamspec/.local/review.json` (`last_review_at`), which decides which dead ends count as new. The cursor is the time the review **started**, so dead ends created during the review stay new. If you quit part-way through the dead-end list, it only advances past the ones you actually answered. A chat review marks the dead ends it showed and the human answered (`mark_dead_end_seen`, `seen_dead_ends` in the same file), and `pending()` leaves them out.
 - `lifecycle.approve(..., confirm_config=None)` refuses when runner config fingerprints don't match. To confirm, a caller passes the fingerprints of **exactly the bytes it showed the human** (`review.show_config_changes()` returns them); if the files changed again after display, approval is refused. `review`'s own confirmation step applies the same check before writing `fingerprints.json`.
 
 ### 19.8c `seamspec/core/commands.py` — implemented (weeks 3–4)
@@ -2335,12 +2375,13 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
 
 [`claude.py`](../seamspec/adapters/claude.py), [`session.py`](../seamspec/core/session.py), [`tree.py`](../seamspec/core/tree.py). Behavior is §7.2 and §16.1; the contract:
 
-- `seamspec hook claude pre-tool-use|stop|session-start` reads the payload on stdin and prints the decision JSON, or nothing. **The exit code is always 0**, so a SeamSpec crash can never be read as a block (exit 2). A `cwd` outside any SeamSpec project produces no output.
+- `seamspec hook claude pre-tool-use|stop|session-start|config-change` reads the payload on stdin and prints the decision JSON, or nothing. **The exit code is always 0**, so a SeamSpec crash can never be read as a block (exit 2). A `cwd` outside any SeamSpec project produces no output.
 - `pre_tool_use`: only `Edit` / `Write` / `MultiEdit` / `NotebookEdit` (path from `file_path` or `notebook_path`, relative paths resolved against `cwd`). The order of checks: ledger protection (`deny`, in every gate mode) → constraints → once per `(file, ledger revision)` per session → `additionalContext` **without** a permission decision, or `deny` once for a brand-new file or `gate_mode = "deny_once"`.
 - `stop`: auto-run consent + trust (`execution_permitted`) → journal check → skip when the tree fingerprint equals the last green one → run LOCKED rules within `verify.stop_deadline_seconds` (and save `last_verify.json`) → green allows; `incomplete` allows with a warning unless `fail_closed`; failures covered by pending supersede requests allow with a message; anything else blocks, up to `max_stop_retries` per user prompt, then allows with a warning.
 - Errors fail open (`systemMessage` on Stop, nothing on PreToolUse). With `fail_closed`, Stop errors block through the same retry cap.
 - `SessionState` (`.seamspec/.local/sessions/<session>.json`) holds the acknowledged context keys, the retry counts per prompt and the last green fingerprint.
 - `session_start` (week 4, ADR-20261007-ac04): for `source` `startup`, `clear` or `compact`, it returns `additionalContext` with `session_summary(store)`, a summary of LOCKED rules (the only items described as human-approved), active dead ends under a "recorded, not approved" heading, the "ask first" instruction and the number of pending reviews. It stays within `SESSION_MAX_CHARS` (3,000) by shrinking detail in three levels, never by dropping records: full text; else one line per record (rule `id · title (scope)`, dead end with a clipped approach); else counts per area (`_area()`: the whole path segments of the first scope path before the first one holding a glob; with no glob, the path if it's a folder, else its file's folder), with totals only as the last resort. Record fields are flattened to one line (`_flat()`), so a title, assertion or dead end with line breaks stays one entry. It returns nothing for an empty ledger or for `resume` / `fork`. It runs in every mode; errors fail open with no output.
+- `config_change` (week 4, ADR-20261006-c300): when `review.chat_approvals` is on and `source` is user, project or local settings or skills, it checks the changed file with `hookguard.check_file` (or does a full scan without `file_path`) and returns `{"decision": "block"}` for a dialog hook that isn't in `.local/hookguard-baseline.json`, which `session_start` writes. Blocks are journaled. Errors fail open, like the other hooks.
 - `tree.tree_fingerprint(root)`: `HEAD` plus the content of every changed or untracked, non-ignored file; `None` outside git, in which case runs are never skipped.
 - Tests: `tests/test_claude_adapter.py` feeds payloads in the documented shape and runs real pytest underneath. It's mutation-checked: returning `allow` with context, or removing the retry cap, fails it.
 
@@ -2348,12 +2389,29 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
 
 [`mcp_server.py`](../seamspec/mcp_server.py). Built on the MCP Python SDK **2.x** (`mcp>=2,<3`) (`mcp.server.mcpserver.MCPServer`, the 2.x name for what 1.x called `FastMCP`) (ADR-20261005-cc29). Started with `seamspec mcp` (stdio).
 
-- **Tools (v0.1):** `get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`, with the signatures in §14.1; `adr` is an object `{context, decision, consequences}`. Errors come back as `{"error": ..., "message": ...}`: `not_a_seamspec_project`, `invalid`, `queue_full`, `not_permitted`.
+- **Tools (v0.1):** `get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`, `open_review`, with the signatures in §14.1; `adr` is an object `{context, decision, consequences}`. Errors come back as `{"error": ..., "message": ...}`: `not_a_seamspec_project`, `invalid`, `queue_full`, `not_permitted`, `chat_approvals_off`, `no_dialogs`.
 - `get_constraints` also returns `summary` (the rendered text, §19.6), `adrs` (`id`, `title`, `status` of decision records scoped to the files or linked from a matching rule; rejected and superseded ones left out), and `runners`: the runners whose `paths` match the files, with `test_location` and, for pytest and vitest, an `import_hint` (§12A.6–7).
 - `verify` runs LOCKED rules only, and only where `execution_permitted` holds (not advisory, consent given, clone trusted); otherwise `not_permitted`. It saves `last_verify.json`.
 - **Resources:** `seamspec://adrs` (one line per ADR) and `seamspec://adrs/{adr_id}` (full Markdown).
 - The project is resolved per call: `$SEAMSPEC_ROOT`, else walk up from the server's working directory. The plugin sets `SEAMSPEC_ROOT` to the project directory (§16.1).
-- **Token budget:** the five tool definitions serialize to about 4,000 characters (≈ 1,000 tokens), checked by a test against the 1,500-token target (§4.3).
+- **Token budget:** the six tool definitions serialize to about 4,600 characters (≈ 1,150 tokens), checked by a test against the 1,500-token target (§4.3).
+- **Dialog state** (`open_review`) rides the client between rounds as `request_state`, which the SDK seals (AES-GCM, a key held only by the server process) so neither the agent nor the client can forge it; it expires after an hour (`RequestStateSecurity.ephemeral(ttl=3600)`).
+
+### 19.11b `seamspec/chat_review.py`, `core/hookguard.py` — implemented (week 4)
+
+[`chat_review.py`](../seamspec/chat_review.py), [`hookguard.py`](../seamspec/core/hookguard.py). Behavior is §11.5; the contract:
+
+- `chat_review.step(store, cfg, ids, request_state, answers, client, project_dirs)` is one round: scan for hooks, act on the answer to the last dialog, skip items decided elsewhere meanwhile, then return the next dialog as an `InputRequiredResult` (protocol 2026-07-28) or the outcomes. `can_show_dialogs(protocol_version, capabilities)` checks the client.
+- An answer counts only when its `decision` is one of the choices that dialog offered, code included; anything else stops the review and is journaled (`chat_answer_rejected`). It's applied only if the dialog, rendered again from disk, still has the digest stored in the sealed state (`_unchanged`).
+- `hookguard.scan(project_dirs, launch_args=None) -> list[str]` returns the hooks that could answer or change SeamSpec's dialogs (empty: none found). It reads:
+  - user settings (`$CLAUDE_CONFIG_DIR` or `~/.claude`), and `.claude/settings.json` / `settings.local.json` in each project folder and every folder above it;
+  - managed settings (`/Library/Application Support/ClaudeCode/`, `/etc/claude-code/`, including `managed-settings.d/`);
+  - every enabled plugin, where it lives (its installed copy, and the folder of a folder marketplace): `hooks/hooks.json`, the `hooks` field of `plugin.json`, and its skills and agents;
+  - skill and agent files under the config folder and each `.claude/` (their frontmatter can carry hooks; any mention of `Elicitation` there counts);
+  - the command lines of the processes that started SeamSpec (`--settings`, `--plugin-dir`, or an inline mention of `Elicitation`). Where they can't be read (Windows, or `ps` failing) that is itself a problem, so chat approvals are refused there for now.
+- **Fails closed:** a file that exists but can't be read (settings, `installed_plugins.json`, `known_marketplaces.json`, a marketplace manifest, a plugin's `plugin.json`) is a problem, unlike a missing one; so is an enabled plugin SeamSpec can't find.
+- `hookguard.matcher_matches(matcher)` follows Claude Code's rules: missing, empty or `*` match all; only letters, digits, `_`, `-`, spaces, `,` and `|` give exact names; anything else is an unanchored regex. Anything it can't evaluate, and any file it can't read, counts as a match.
+- **Not visible:** settings pushed from a server, and hooks set up in places not listed above. Those are covered by provenance (§11.5).
 - MCP prompts for the workflow commands arrive with the skills in the plugin slice.
 
 ### 19.11a `seamspec/core/doctor.py` — implemented (week 4)
@@ -2413,12 +2471,13 @@ Good harnesses test **observable behavior** (inputs → outputs, invariants over
 | Agent edits a locked test to make it pass | Harness SHA-256 integrity check (in-session, pre-commit, CI); runner config fingerprints; empty or all-skipped harnesses fail; edit protection for `.seamspec/**`, harness globs and runner config; CI forward-only check; CODEOWNERS |
 | Project code detects it is under test ("defeat device") | No "under verification" variable is ever set; SeamSpec's own runner config; scrubbed environment. Not fully preventable; stated as a limit; human PR review (§12.2, §12.4.7) |
 | Agent self-approves or silently retires a rule | TTY requirement (speed bump); approval journal checked at Stop and pre-commit; CI retirement summary and approval-provenance check; CODEOWNERS review (§11.1, §16.5) |
+| A hook answers or rewrites a chat approval dialog | Chat approvals refused while any visible hook could match SeamSpec's server, checked before each dialog and before acting on the answer; `ConfigChange` blocks new ones mid-session; per-dialog codes defeat fixed answers; `decided_via` and the journal keep it visible; off by default in strict mode (§11.5) |
 | Secrets from BRAINDUMP leak into git *(v0.2)* | BRAINDUMP gitignored by default; redaction before copying `origin.text` |
 | Prompt injection via ledger text (malicious invariant in a PR) | Ledger content rendered as quoted data with framing; CODEOWNERS review of `.seamspec/`; max lengths on text fields |
 | Concurrent agents corrupt records | One file per record; atomic writes; file lock |
 | Hook crash bricks the agent | Fail open by default; CI as backstop; `fail_closed` opt-in, and even then retry-capped (§16.1 step 10) |
 | Runaway Stop-hook loops (cost) | `stop_hook_active` + per-session retry cap, on the error path too |
-| Agent runs arbitrary code by "proposing a test", bypassing host shell permissions | MCP never executes unapproved code; proposed tests live in `.seamspec/proposed/` and run only via the agent's permission-checked shell tool, MCP elicitation *(v0.2)*, or the human (§12.4) |
+| Agent runs arbitrary code by "proposing a test", bypassing host shell permissions | MCP never executes unapproved code; proposed tests live in `.seamspec/proposed/` and run only via the agent's permission-checked shell tool, MCP elicitation (a chat review's *"Run this test?"* dialog; `run_proposed = "ask"` in v0.2), or the human (§12.4) |
 | Cloned repo ships malicious tests or runner commands | Trust-on-first-use (`seamspec trust`); re-prompt when runner commands change; hooks run nothing until trusted (§12.4.6) |
 | Tests read secrets from the environment | Environment scrubbing with an explicit passthrough allowlist (§12.4.7) |
 | Fork PR runs malicious tests in CI | `pull_request` only (never `pull_request_target`), read-only token, no secrets in the verify job (§16.5) |

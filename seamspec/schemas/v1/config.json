@@ -139,6 +139,18 @@
       "title": "ProtectCfg",
       "type": "object"
     },
+    "ReviewCfg": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_approvals": {
+          "default": true,
+          "title": "Chat Approvals",
+          "type": "boolean"
+        }
+      },
+      "title": "ReviewCfg",
+      "type": "object"
+    },
     "RunnerCfg": {
       "additionalProperties": false,
       "properties": {
@@ -291,6 +303,9 @@
     },
     "protect": {
       "$ref": "#/$defs/ProtectCfg"
+    },
+    "review": {
+      "$ref": "#/$defs/ReviewCfg"
     },
     "runners": {
       "additionalProperties": {

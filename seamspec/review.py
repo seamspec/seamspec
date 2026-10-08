@@ -81,26 +81,54 @@ def show_config_changes(store: Store, cfg: Config) -> dict[str, str]:
     return shown
 
 
-def _last_review(store: Store) -> datetime | None:
-    path = store.local / STATE
+def _state(store: Store) -> dict:
     try:
-        return datetime.fromisoformat(json.loads(path.read_text(encoding="utf-8"))["last_review_at"])
-    except (OSError, ValueError, KeyError, TypeError):
+        data = json.loads((store.local / STATE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _last_review(store: Store) -> datetime | None:
+    try:
+        return datetime.fromisoformat(_state(store)["last_review_at"])
+    except (ValueError, KeyError, TypeError):
         return None
 
 
+def _seen_dead_ends(store: Store) -> set[str]:
+    """Dead ends a human already kept or retired in a chat review (ADR-20261006-c300)."""
+    seen = _state(store).get("seen_dead_ends")
+    return {s for s in seen if isinstance(s, str)} if isinstance(seen, list) else set()
+
+
 def _save_review(store: Store, cursor: datetime) -> None:
-    """`cursor`: dead ends created after it count as new next time."""
-    atomic_write(store.local / STATE, json.dumps({"last_review_at": cursor.isoformat()}) + "\n")
+    """`cursor`: dead ends created after it count as new next time. Chat-seen ones after it stay seen."""
+    data: dict = {"last_review_at": cursor.isoformat()}
+    keep = sorted(d.id for d in store.load_all("de") if d.id in _seen_dead_ends(store) and d.created_at > cursor)
+    if keep:
+        data["seen_dead_ends"] = keep
+    atomic_write(store.local / STATE, json.dumps(data) + "\n")
+
+
+def mark_dead_end_seen(store: Store, de_id: str) -> None:
+    """A chat review showed this dead end and the human answered keep or wrong: it's no longer new."""
+    data = _state(store)
+    data["seen_dead_ends"] = sorted(_seen_dead_ends(store) | {de_id})
+    atomic_write(store.local / STATE, json.dumps(data) + "\n")
 
 
 def pending(store: Store) -> tuple[list[DeadEnd], list[requests.SupersedeRequest], list[Invariant]]:
     since = _last_review(store)
+    seen = _seen_dead_ends(store)
     dead_ends = sorted(
         (
             d
             for d in store.load_all("de")
-            if isinstance(d, DeadEnd) and d.status == "ACTIVE" and (since is None or d.created_at > since)
+            if isinstance(d, DeadEnd)
+            and d.status == "ACTIVE"
+            and (since is None or d.created_at > since)
+            and d.id not in seen
         ),
         key=lambda d: (d.created_at, d.id),  # oldest first, like proposals
     )

@@ -20,8 +20,22 @@ JOURNAL = "journal.jsonl"
 BASELINE_ABSENT = "PROPOSED"  # a record new since HEAD starts from PROPOSED: proposing needs no entry
 
 
-def append(store: Store, record_id: str, old: str, new: str, actor: str) -> None:
+def append(
+    store: Store, record_id: str, old: str, new: str, actor: str, via: str = "terminal", client: str | None = None
+) -> None:
+    """`via`: where the human decided (terminal or chat); `client`: the chat host, e.g. "claude-code 2.1.292"."""
     line = {"id": record_id, "from": old, "to": new, "actor": actor, "at": utcnow().isoformat().replace("+00:00", "Z")}
+    line["via"] = via
+    if client:
+        line["client"] = client
+    with open(store.local / JOURNAL, "a", encoding="utf-8") as f:
+        f.write(json.dumps(line) + "\n")
+
+
+def note(store: Store, event: str, **fields: object) -> None:
+    """An event that isn't a status change (e.g. a refused chat review). `entries()` skips these lines."""
+    line = {"event": event, **{k: v for k, v in fields.items() if v is not None}}
+    line["at"] = utcnow().isoformat().replace("+00:00", "Z")
     with open(store.local / JOURNAL, "a", encoding="utf-8") as f:
         f.write(json.dumps(line) + "\n")
 

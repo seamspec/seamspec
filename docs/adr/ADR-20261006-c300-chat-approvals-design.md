@@ -1,9 +1,9 @@
 ---
 id: ADR-20261006-c300
 title: Approvals in chat through an MCP form dialog, with hook guards (design)
-status: PROPOSED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
+status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-06
-scopes: ["seamspec/mcp_server.py", "seamspec/review.py", "seamspec/core/lifecycle.py", "seamspec-plugin/hooks/**"]
+scopes: ["seamspec/mcp_server.py", "seamspec/chat_review.py", "seamspec/core/hookguard.py", "seamspec/review.py", "seamspec/core/lifecycle.py", "seamspec-plugin/hooks/**"]
 invariants: []
 supersedes: null
 superseded_by: null
@@ -11,7 +11,7 @@ superseded_by: null
 
 # ADR-20261006-c300: Approvals in chat through an MCP form dialog, with hook guards (design)
 
-> **Status: PROPOSED.** This is a design for the owner to decide on. Nothing is built yet. Verifications 1, 3 and 4 have been run (results below). Verification 2 and the questions at the end are still open.
+> **Status: ACCEPTED** (2026-10-08). The owner answered the four questions below (all as recommended) and the design is built (PR `week-4/chat-approvals`). Verification 2 (how the dialog looks in the CLI and the desktop app) is the owner's one click-through, after the merge. "Built as" at the end lists what changed while building it.
 
 ## Context
 
@@ -117,17 +117,32 @@ Any chat channel must be **no weaker than this in practice**, and must stay **vi
 | 3b | The same hook written from outside the session 8 s in, with the `ConfigChange` guard blocking | `ConfigChange` fired (`local_settings`) and blocked. The injected hook **never ran**; the dialog ended as `cancel` | $0.11 |
 | 4 | Control: same as 3b without the block | The injected hook **ran mid-session and approved** (accept / approve) | $0.11 |
 
-## Questions for the owner
+## Questions for the owner (answered 2026-10-08)
 
-1. Option A now, B (local review page) in v0.2: agreed?
-2. In scope for chat: proposals, supersede requests and dead ends; runner config stays terminal-only. Agreed?
-3. Strict mode: chat approvals off by default. Agreed?
-4. OK to run verification 2 (you click a sample dialog once in the CLI and once in the desktop app, ≈ $0.02)?
+1. Option A now, B (local review page) in v0.2: **agreed.**
+2. In scope for chat: proposals, supersede requests and dead ends; runner config stays terminal-only. **Agreed.**
+3. Strict mode: chat approvals off by default. **Agreed.**
+4. OK to run verification 2 (you click a sample dialog once in the CLI and once in the desktop app, ≈ $0.02)? **Yes**, once it's built.
 
 ## Enforced Invariants
-To be proposed when built: "the agent never supplies dialog text", "chat approval refuses when an Elicitation hook could match", "approved_via is recorded".
+To be proposed for this repo after the merge (the owner can approve them in the new dialogs, which doubles as verification 2): "the agent never supplies dialog text", "chat approval refuses when an Elicitation hook could match", "decided_via is recorded".
 
 ## Consequences (if accepted)
 * Approvals happen without leaving the chat, in the desktop app, IDE chat and CLI alike.
 * Schema v1 gains an optional `approved_via`; `config.toml` gains `[review] chat_approvals`. Both are additive.
 * SPEC §7.3, §9, §11.1, §11.4, §12.4.3–§12.4.4, §14.1, §16.1, §19 and §20 are updated in the implementation PR.
+
+## Built as (2026-10-08)
+
+What changed from the design above while building it, and why:
+
+* **`decided_via`, not `approved_via`.** Rejecting, superseding and retiring a dead end can happen in chat too, so every human decision records where it was made: `decided_via: "terminal" | "chat"` on invariants and dead ends (`null` = before the field existed, i.e. the terminal). The journal gets `via` and the client's name and version.
+* **The SDK's own resolver form isn't used.** Verification 1 found `Resolve(...)` parameters; they suit a fixed set of questions, but a review is a sequence that depends on the answers (red-green asks a second question, a supersede can add its replacement). `open_review` returns `InputRequiredResult` itself, one dialog per round, with its state in `request_state`. The SDK seals that state (AES-GCM, a key held only by the server process), so it can't be forged; the expiry is raised from 10 minutes to an hour so a human can read a long test.
+* **At most 8 dialogs per call** (clients cap the rounds of one call; the SDK's own client stops at 10). Then the tool asks to be called again.
+* **The hook scan runs at the start of every round**, so before each dialog *and* before acting on the answer it brings back. A hook added while the human reads the dialog is caught there even if `ConfigChange` missed it.
+* **More places scanned** than the list above: skill and agent frontmatter can carry hooks (hooks reference), so `.claude/skills/`, `.claude/agents/` and plugins' skills and agents are read too; so are the command lines Claude Code was started with (`--settings`, `--plugin-dir`), which covers part of the "plugins loaded for one session" limit. Project settings are read in the project folder and every folder above it.
+* **`ConfigChange` only blocks new hooks.** Blocking every change to a file that already holds such a hook would stop the user from editing their own settings, while chat approvals are already refused. So `SessionStart` records the hooks present at the start (`.local/hookguard-baseline.json`) and `ConfigChange` blocks only ones not in it. The baseline is agent-writable, which is acceptable: the per-round scan doesn't use it.
+* ***skip* is the first choice** of every dialog, so a hook that picks the first option changes nothing.
+* **The replaced-proposal diff (finding #7) isn't in the dialog yet:** the ledger keeps no earlier version. It stays an open question in PROGRESS.
+* **From Copilot's review of PR #43:** an answer applies only if the dialog, rendered again from disk, is unchanged (a digest in the sealed state), so a test or request changed while the dialog is open is shown again rather than approved unseen; unreadable plugin metadata and an enabled plugin that can't be found count as problems; where Claude Code's launch arguments can't be read (Windows for now), chat approvals are refused; dead-end retirements are journaled like the other decisions.
+* **`run_proposed = "ask"`** (§12.4.4) still waits for v0.2; the only "Run this test?" dialog in v0.1 is red-green's, which has the same guards.

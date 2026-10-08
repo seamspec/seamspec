@@ -7,7 +7,7 @@ description: Show where SeamSpec stands in this repository. Mode, rules by statu
 Run `seamspec status --json` with your shell tool and summarize it in plain language: the mode,
 how many rules are LOCKED, PROPOSED, SUPERSEDED and REJECTED, active dead ends, what is waiting
 for the user's review, and the result of the last verify. If something is waiting, say exactly
-what the user should run next (usually `seamspec review`).
+what the user should do next (usually `seamspec review`, or `open_review` to decide in chat).
 
 ---
 Rules for every SeamSpec command:

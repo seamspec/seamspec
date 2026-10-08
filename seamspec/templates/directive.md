@@ -13,7 +13,8 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
 5. Never edit files under `.seamspec/` directly; use SeamSpec tools.
-6. Only humans approve invariants. Remind the user to run `seamspec review` when proposals are pending.
+6. Only humans approve invariants. When proposals are pending, offer to open the review in chat
+   (`open_review`; only the user answers its dialogs) or remind them to run `seamspec review`.
 7. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
    the SeamSpec summary block.
 8. Users don't have to type commands. Treat plain requests as the matching workflow command:

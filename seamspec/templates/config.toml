@@ -28,3 +28,5 @@ max_pending = 10               # project-wide cap on PROPOSED invariants awaitin
 run_proposed = "auto"          # auto | host | ask | never (v0.1: auto = host)
 env_passthrough = []           # extra env vars tests may see, e.g. ["DATABASE_URL"]
 {{execution_extra}}
+[review]
+{{review_extra}}

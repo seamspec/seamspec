@@ -23,6 +23,7 @@
     "related_invariant": { "type": ["string", "null"], "pattern": "^inv_[a-f0-9]{8}$" },
     "status": { "enum": ["ACTIVE", "RETIRED"] },
     "retired_reason": { "type": ["string", "null"], "description": "e.g. 'Fixed upstream in redis-py 6.2'" },
+    "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human retired it; null means the terminal (ADR-20261006-c300)" },
     "created_at": { "type": "string", "format": "date-time" }
   },
   "allOf": [
