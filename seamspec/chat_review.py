@@ -14,7 +14,8 @@ Guards (all from the ADR):
    each dialog and again before acting on an answer. Each dialog's choices carry a random code, so a
    hook that sends a fixed answer fails validation and the review stops.
 2. Only when a human can answer: the client must declare form dialogs; a closed dialog stops the
-   review; an item skipped or declined isn't offered again in this session unless asked for by id.
+   review (a declined one too: the desktop app declines unseen); an item the human skips isn't offered
+   again in this session unless asked for by id.
 3. Provenance: records get `decided_via`, the journal gets `via` and the client's name.
 5. Same rules as the terminal: runner config changes still need `seamspec review` in a terminal,
    and approving still runs the test. Red-green runs only after its own "run this test?" yes, and
@@ -45,7 +46,7 @@ HEADER = "From SeamSpec, not the agent. The agent can't answer this dialog."
 FALLBACK = "Ask the user to run `seamspec review` in a terminal."
 KIND_NAMES = {"de": "Dead end", "sup": "Supersede request", "inv": "Proposed rule"}
 
-_declined: set[str] = set()  # skipped or declined in this server process, i.e. this session
+_declined: set[str] = set()  # skipped in this server process, i.e. this session
 
 
 def _code() -> str:
@@ -226,7 +227,7 @@ def _apply(store: Store, cfg: Config, state: dict[str, Any], answer: object, cli
         raise Stop("The dialog was closed, so the review stopped. Nothing else changed.")
     if answer.action == "decline":  # the form's own Decline button, or an app that declines unseen
         journal.note(store, "chat_dialog_declined", item=item_id, client=client)
-        raise Stop("The dialog was declined, so the review stopped and nothing changed. If no dialog "
+        raise Stop("The dialog was declined, so the review stopped. Nothing else changed. If no dialog "
                    f"appeared, this app can't show SeamSpec's dialogs. {FALLBACK}")  # fmt: skip
     content = answer.content or {}
     allowed = {f"{c}-{state['code']}": c for c in _choices(store, cfg, state)}

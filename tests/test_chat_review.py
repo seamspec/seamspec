@@ -209,6 +209,14 @@ def test_a_changed_supersede_reason_is_shown_again(project: Path) -> None:
     assert "Remove the cap entirely" in human.shown[1][0] and inv(project, old).status == InvStatus.LOCKED
 
 
+def test_a_decline_keeps_decisions_already_made(project: Path) -> None:
+    """Copilot, #44: stopping a review never undoes what it already decided."""
+    first, second = propose(project)["id"], propose(project)["id"]
+    out = review(Human(pick("approve"), closed("decline")))
+    assert out["reviewed"] == [f"{first}: approved (LOCKED)"] and "Nothing else changed" in out["message"]
+    assert inv(project, first).status == InvStatus.LOCKED and inv(project, second).status == InvStatus.PROPOSED
+
+
 # --- red-green, supersede requests, dead ends --------------------------------------------------------
 
 

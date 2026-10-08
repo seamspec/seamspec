@@ -27,7 +27,7 @@ Approval in SeamSpec means the human has seen the full test (SPEC §12.4.3 rule 
 ## Decision
 
 1. **`[review] chat_approvals` defaults to `false` in every mode** (it was `true`, except in strict mode). `init` writes `chat_approvals = false` with a comment saying why. A project can still turn it on, accepting what its client shows. The `ConfigChange` hook and the session-start baseline only act when it's on, as before.
-2. **A declined dialog stops the review.** It used to count as *skip* and go on to the next item, which turned an app that declines unseen into "the human skipped everything". Now the review stops, changes nothing, journals `chat_dialog_declined`, and tells the agent: *"If no dialog appeared, this app can't show SeamSpec's dialogs."* The form's own *skip* choice is still how a human skips and goes on.
+2. **A declined dialog stops the review.** It used to count as *skip* and go on to the next item, which turned an app that declines unseen into "the human skipped everything". Now the review stops (decisions already made in it stay; nothing else changes), journals `chat_dialog_declined`, and tells the agent: *"If no dialog appeared, this app can't show SeamSpec's dialogs."* The form's own *skip* choice is still how a human skips and goes on.
 3. **The skills and the protocol block point to `seamspec review` in a terminal again,** naming the desktop app's terminal panel. They mention `open_review` only for projects that turned chat approvals on.
 4. **Everything else in ADR-20261006-c300 stays:** the tool, the hook guards, `decided_via` and the journal fields, and the answer-to-content binding. When Claude Code shows the whole message (or another client does), the default can flip back after another click-through.
 
