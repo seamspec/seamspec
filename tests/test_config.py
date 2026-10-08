@@ -59,8 +59,8 @@ def test_strict_defaults_apply_when_unset() -> None:
     cfg = parse_config('mode = "strict"\n')
     assert cfg.hooks.fail_closed is True
     assert cfg.execution.trust_level == "harness"
-    assert cfg.review.chat_approvals is False  # ADR-20261006-c300
-    assert parse_config('mode = "enforced"\n').review.chat_approvals is True
+    assert cfg.review.chat_approvals is False  # off in every mode (ADR-20261008-5d1e)
+    assert parse_config('mode = "enforced"\n').review.chat_approvals is False
 
 
 def test_explicit_value_beats_strict_default() -> None:
@@ -74,7 +74,7 @@ def test_strict_written_by_init_is_explicit() -> None:
     cfg = parse_config(render_config("strict", ["pytest"]))
     assert cfg.hooks.fail_closed is True and cfg.execution.trust_level == "harness"
     assert cfg.review.chat_approvals is False
-    assert parse_config(render_config("enforced", ["pytest"])).review.chat_approvals is True
+    assert parse_config(render_config("enforced", ["pytest"])).review.chat_approvals is False
 
 
 def test_unknown_key_is_an_error() -> None:

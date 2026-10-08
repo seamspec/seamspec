@@ -12,6 +12,7 @@ import pytest
 from seamspec.adapters import claude
 from seamspec.core import hookguard
 from seamspec.core.store import Store
+from seamspec.installers import scaffold
 
 from .test_claude_adapter import set_config
 
@@ -139,6 +140,13 @@ def test_launch_args_read_the_parent_processes() -> None:
 # --- ConfigChange ----------------------------------------------------------------------------------
 
 
+@pytest.fixture
+def git_repo(git_repo: Path) -> Path:
+    """These hooks only act when chat approvals are on (off by default, ADR-20261008-5d1e)."""
+    set_config(git_repo, scaffold.REVIEW_LINE, "chat_approvals = true\n")
+    return git_repo
+
+
 def config_change(root: Path, path: Path | None, source: str = "local_settings") -> dict[str, Any] | None:
     payload: dict[str, Any] = {"session_id": "s1", "cwd": str(root), "source": source}
     if path is not None:
@@ -172,6 +180,6 @@ def test_hooks_present_at_session_start_are_left_alone(git_repo: Path) -> None:
 
 
 def test_config_change_is_off_without_chat_approvals(git_repo: Path) -> None:
-    set_config(git_repo, "[review]\nchat_approvals = true", "[review]\nchat_approvals = false")
+    set_config(git_repo, "chat_approvals = true", "chat_approvals = false")
     settings = write(git_repo / ".claude" / "settings.local.json", hook_doc())
     assert config_change(git_repo, settings) is None

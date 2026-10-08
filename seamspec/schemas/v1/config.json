@@ -143,7 +143,7 @@
       "additionalProperties": false,
       "properties": {
         "chat_approvals": {
-          "default": true,
+          "default": false,
           "title": "Chat Approvals",
           "type": "boolean"
         }

@@ -18,9 +18,9 @@ A LOCKED SeamSpec invariant needs to change: $ARGUMENTS
 5. Call `request_supersede(invariant_id, reason, replacement_id)`.
 6. Never edit or delete the old rule's test, and don't commit code that breaks the old rule:
    the pre-commit check and CI keep enforcing it until the human approves the supersede.
-7. Tell the user the change needs their approval. Offer to open the review here: if they say yes,
-   call `open_review` (SeamSpec shows them a dialog; you never answer it). Otherwise, or if it
-   reports it can't, they run `seamspec review` in a terminal.
+7. Tell the user the change needs their approval with `seamspec review` in a terminal (in the
+   Claude desktop app, its terminal panel). Only if this project turned on
+   `[review] chat_approvals` may you offer `open_review` instead; you never answer its dialogs.
 
 ---
 Rules for every SeamSpec command:

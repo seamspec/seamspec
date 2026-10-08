@@ -11,6 +11,8 @@ superseded_by: null
 
 # ADR-20261006-c300: Approvals in chat through an MCP form dialog, with hook guards (design)
 
+> **Amended by ADR-20261008-5d1e:** verification 2 failed in both Claude Code apps, so chat approvals are off by default, and a declined dialog stops the review.
+>
 > **Status: ACCEPTED** (2026-10-08). The owner answered the four questions below (all as recommended) and the design is built (PR `week-4/chat-approvals`). Verification 2 (how the dialog looks in the CLI and the desktop app) is the owner's one click-through, after the merge. "Built as" at the end lists what changed while building it.
 
 ## Context
@@ -101,7 +103,7 @@ Any chat channel must be **no weaker than this in practice**, and must stay **vi
 | # | What | Status |
 |---|---|---|
 | 1 | SDK round trip | **Done** (free; stdio, SDK client, protocol 2026-07-28) |
-| 2 | How Claude Code renders a long message with code in a form dialog, **in the CLI and in the desktop app** | **Open:** needs the owner to click through a sample dialog once in each (≈ $0.02) |
+| 2 | How Claude Code renders a long message with code in a form dialog, **in the CLI and in the desktop app** | **Done (2026-10-08), failed:** the CLI folds the message to about three lines and hides the test; the desktop app showed no dialog and declined each one. Chat approvals are now off by default (ADR-20261008-5d1e) |
 | 3 | `claude -p` with an unanswered dialog | **Done:** returns `cancel` |
 | 4 | Hook guards | **Done** (5 sessions on Claude Opus 5.5, $0.70 total, 2026-10-06, throwaway repo, plugins loaded with `--plugin-dir`) |
 

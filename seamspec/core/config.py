@@ -102,8 +102,10 @@ class ProposalsCfg(_Strict):
 
 
 class ReviewCfg(_Strict):
-    # Approve, reject and supersede in a chat dialog (ADR-20261006-c300). Off by default in strict mode.
-    chat_approvals: bool = True
+    # Approve, reject and supersede in a chat dialog (ADR-20261006-c300). Off by default in every mode
+    # until Claude Code shows the whole dialog: the CLI folds it to a few lines, the desktop app
+    # declines it unseen (verification 2, ADR-20261008-5d1e).
+    chat_approvals: bool = False
 
 
 class ExecutionCfg(_Strict):
@@ -134,8 +136,6 @@ class Config(_Strict):
                 self.hooks.fail_closed = True
             if "trust_level" not in self.execution.model_fields_set:
                 self.execution.trust_level = "harness"
-            if "chat_approvals" not in self.review.model_fields_set:
-                self.review.chat_approvals = False
         return self
 
 

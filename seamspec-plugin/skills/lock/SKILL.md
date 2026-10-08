@@ -24,9 +24,9 @@ Protect this behavior as a SeamSpec invariant: $ARGUMENTS
    `seamspec verify --proposed <id>` (the user may be asked to allow this).
 5. If the test fails: fix the test only if the test is wrong; if the code is wrong, report
    the bug and do not keep the proposal. Retry a fixed test with `replace_id`, then run it again.
-6. Tell the user the rule is only proposed: it is locked when they approve it. Offer to open the
-   review here: if they say yes, call `open_review` (SeamSpec shows them a dialog; you never answer
-   it). Otherwise, or if it reports it can't, they run `seamspec review` in a terminal.
+6. Tell the user the rule is only proposed: it is locked when they approve it with `seamspec review`
+   in a terminal (in the Claude desktop app, its terminal panel). Only if this project turned on
+   `[review] chat_approvals` may you offer `open_review` instead; you never answer its dialogs.
 
 ---
 Rules for every SeamSpec command:
