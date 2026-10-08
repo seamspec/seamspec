@@ -34,6 +34,18 @@
           }
         ]
       }
+    ],
+    "ConfigChange": [
+      {
+        "matcher": "user_settings|project_settings|local_settings|skills",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/seamspec-hook hook claude config-change",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

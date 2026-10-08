@@ -30,8 +30,10 @@ def test_hooks_point_at_executable_wrappers() -> None:
         '"${CLAUDE_PLUGIN_ROOT}"/scripts/seamspec-hook hook claude pre-tool-use',
         '"${CLAUDE_PLUGIN_ROOT}"/scripts/seamspec-hook hook claude stop',
         '"${CLAUDE_PLUGIN_ROOT}"/scripts/seamspec-hook hook claude session-start',
+        '"${CLAUDE_PLUGIN_ROOT}"/scripts/seamspec-hook hook claude config-change',
     ]
     assert hooks["SessionStart"][0]["matcher"] == "startup|clear|compact"  # resume/fork keep earlier context
+    assert hooks["ConfigChange"][0]["matcher"] == "user_settings|project_settings|local_settings|skills"
     stop_timeout = hooks["Stop"][0]["hooks"][0]["timeout"]
     assert stop_timeout == 300  # must stay above verify.stop_deadline_seconds (240), SPEC §16.1
     for script in ("seamspec-hook", "seamspec-mcp"):

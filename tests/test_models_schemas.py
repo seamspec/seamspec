@@ -30,6 +30,14 @@ def test_dead_ends_validate() -> None:
         assert DeadEnd.model_validate(as_json(de)) == de
 
 
+@pytest.mark.parametrize("via", ["terminal", "chat", None])
+def test_decided_via_validates(via: str | None) -> None:
+    """Where a human decided (ADR-20261006-c300); None is a record from before the field existed."""
+    inv = make_invariant(status=InvStatus.LOCKED, decided_via=via)
+    de = make_dead_end(status="RETIRED", retired_reason="Fixed upstream", decided_via=via)
+    assert validation_errors("invariant", as_json(inv)) == [] and validation_errors("dead_end", as_json(de)) == []
+
+
 def test_locked_with_null_approval_fails_both() -> None:
     data = as_json(make_invariant(status=InvStatus.LOCKED))
     data["approved_by"] = None
@@ -75,6 +83,7 @@ def test_retired_dead_end_needs_reason() -> None:
         lambda d: d["origin"].update(type="chat"),
         lambda d: d["verification"].update(harness_sha256="short"),
         lambda d: d.update(created_at="not a date"),
+        lambda d: d.update(decided_via="email"),
     ],
 )
 def test_bad_invariants_fail_both(mutate) -> None:

@@ -24,7 +24,7 @@ from typing_extensions import TypedDict  # pydantic needs this one on Python < 3
 from . import adr, journal, requests, verifier
 from .config import Config
 from .hashing import sha256_file, sha256_text
-from .models import DeadEnd, Invariant, InvStatus, Origin, Scope, Verification, utcnow
+from .models import DeadEnd, Invariant, InvStatus, Origin, Scope, Verification, Via, utcnow
 from .redact import redact
 from .store import Store, atomic_write
 
@@ -51,8 +51,12 @@ class AdrDraft(TypedDict):
 # --- identity and interactivity ------------------------------------------------------------------
 
 
-def require_interactive() -> None:
-    """Human-only transitions need a terminal. A speed bump, not a security boundary (§19.8)."""
+def require_interactive(via: Via = "terminal") -> None:
+    """Human-only transitions need a terminal, or a chat dialog the human answered (`via="chat"`,
+    ADR-20261006-c300; only the MCP `open_review` tool passes it). A speed bump, not a security
+    boundary (§19.8)."""
+    if via == "chat":
+        return
     if os.environ.get("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE") == "1":
         return
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -287,6 +291,8 @@ def approve(
     inv_id: str,
     actor: str | None = None,
     confirm_config: dict[str, str] | None = None,
+    via: Via = "terminal",
+    client: str | None = None,
 ) -> ApprovalResult:
     """PROPOSED → LOCKED. The caller has shown the human the full harness (§12.4.3 rule 4).
 
@@ -294,7 +300,7 @@ def approve(
     confirmed, the caller must pass `confirm_config`: the fingerprints of exactly the bytes it showed
     the human (`review.show_config_changes`). If the files changed again after that, approval is
     refused, so an unseen version can never be confirmed."""
-    require_interactive()
+    require_interactive(via)
     inv = _get_inv(store, inv_id)
     if inv.status != InvStatus.PROPOSED:
         raise ApprovalError(f"{inv_id} is {inv.status.value}, not PROPOSED")
@@ -335,6 +341,7 @@ def approve(
             "status": InvStatus.LOCKED,
             "approved_at": utcnow(),
             "approved_by": who,
+            "decided_via": via,
             "verification": staged.verification.model_copy(
                 update={"harness_sha256": sha256_file(final), "assertion_sha256": sha256_text(inv.assertion)}
             ),
@@ -342,7 +349,7 @@ def approve(
     )
     locked = Invariant.model_validate(locked.model_dump())
     store.save(locked)
-    journal.append(store, inv.id, "PROPOSED", "LOCKED", who)
+    journal.append(store, inv.id, "PROPOSED", "LOCKED", who, via, client)
     if locked.adr_id:
         with contextlib.suppress(KeyError):
             adr.set_status(store, locked.adr_id, "ACCEPTED")
@@ -350,10 +357,17 @@ def approve(
 
 
 def reject(
-    store: Store, cfg: Config, inv_id: str, reason: str, as_dead_end: bool = False, actor: str | None = None
+    store: Store,
+    cfg: Config,
+    inv_id: str,
+    reason: str,
+    as_dead_end: bool = False,
+    actor: str | None = None,
+    via: Via = "terminal",
+    client: str | None = None,
 ) -> dict[str, Any]:
     """PROPOSED → REJECTED, optionally recording the approach as a dead end (§11.1)."""
-    require_interactive()
+    require_interactive(via)
     if not reason.strip():
         raise LifecycleError("a reason is required")
     inv = _get_inv(store, inv_id)
@@ -365,11 +379,12 @@ def reject(
         update={
             "status": InvStatus.REJECTED,
             "status_reason": reason.strip(),
+            "decided_via": via,
             "verification": inv.verification.model_copy(update={"harness_path": harness}),
         }
     )
     store.save(Invariant.model_validate(rejected.model_dump()))
-    journal.append(store, inv.id, "PROPOSED", "REJECTED", who)
+    journal.append(store, inv.id, "PROPOSED", "REJECTED", who, via, client)
     if inv.adr_id:
         with contextlib.suppress(KeyError):
             adr.set_status(store, inv.adr_id, "REJECTED")
@@ -394,10 +409,12 @@ def supersede(
     reason: str | None = None,
     replacement_id: str | None = None,
     actor: str | None = None,
+    via: Via = "terminal",
+    client: str | None = None,
 ) -> dict[str, Any]:
     """LOCKED → SUPERSEDED, by explicit command or by approving a pending request (§11.2).
     The replacement, if any, still needs its own approval."""
-    require_interactive()
+    require_interactive(via)
     inv = _get_inv(store, inv_id)
     if inv.status != InvStatus.LOCKED:
         raise LifecycleError(f"{inv_id} is {inv.status.value}, not LOCKED")
@@ -416,11 +433,12 @@ def supersede(
             "status": InvStatus.SUPERSEDED,
             "status_reason": reason,
             "superseded_by": replacement_id,
+            "decided_via": via,
             "verification": inv.verification.model_copy(update={"harness_path": harness}),
         }
     )
     store.save(Invariant.model_validate(retired.model_dump()))
-    journal.append(store, inv.id, "LOCKED", "SUPERSEDED", who)
+    journal.append(store, inv.id, "LOCKED", "SUPERSEDED", who, via, client)
     requests.clear(store, inv_id)
     if inv.adr_id:
         with contextlib.suppress(KeyError):
@@ -428,9 +446,9 @@ def supersede(
     return {"id": inv_id, "status": "SUPERSEDED", "superseded_by": replacement_id}
 
 
-def retire_dead_end(store: Store, de_id: str, reason: str) -> dict[str, Any]:
+def retire_dead_end(store: Store, de_id: str, reason: str, via: Via = "terminal") -> dict[str, Any]:
     """ACTIVE → RETIRED, e.g. once a library upgrade makes the approach valid again (§11.3)."""
-    require_interactive()
+    require_interactive(via)
     if not reason.strip():
         raise LifecycleError("a reason is required")
     de = store.get(de_id)
@@ -438,7 +456,11 @@ def retire_dead_end(store: Store, de_id: str, reason: str) -> dict[str, Any]:
         raise LifecycleError(f"{de_id} is not a dead end")
     if de.status != "ACTIVE":
         raise LifecycleError(f"{de_id} is already {de.status}")
-    store.save(DeadEnd.model_validate({**de.model_dump(), "status": "RETIRED", "retired_reason": reason.strip()}))
+    store.save(
+        DeadEnd.model_validate(
+            {**de.model_dump(), "status": "RETIRED", "retired_reason": reason.strip(), "decided_via": via}
+        )
+    )
     return {"id": de_id, "status": "RETIRED"}
 
 

@@ -206,6 +206,7 @@ def test_strict_and_back_only_touches_lines_init_wrote(tmp_path: Path) -> None:
     scaffold.init(tmp_path, mode="strict", auto_run=True)
     cfg = load_config(tmp_path)
     assert cfg.mode == "strict" and cfg.hooks.fail_closed and cfg.execution.trust_level == "harness"
+    assert cfg.review.chat_approvals is False
     scaffold.init(tmp_path, mode="enforced", auto_run=True)
     assert (tmp_path / ".seamspec/config.toml").read_text() == original  # exactly as before
     # a value a human edited is left alone

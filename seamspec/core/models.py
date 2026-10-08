@@ -26,6 +26,9 @@ class _Record(BaseModel):
     model_config = ConfigDict(extra="forbid")  # schemas use additionalProperties: false
 
 
+Via = Literal["terminal", "chat"]  # where a human made the decision that set the status (ADR-20261006-c300)
+
+
 class InvStatus(StrEnum):
     PROPOSED = "PROPOSED"
     LOCKED = "LOCKED"
@@ -66,6 +69,7 @@ class Invariant(_Record):
     approved_by: str | None = None
     superseded_by: str | None = Field(default=None, pattern=INV_ID)
     status_reason: str | None = None
+    decided_via: Via | None = None  # None: decided in the terminal, before this field existed
 
     @model_validator(mode="after")
     def _status_requirements(self) -> Invariant:
@@ -96,6 +100,7 @@ class DeadEnd(_Record):
     related_invariant: str | None = Field(default=None, pattern=INV_ID)
     status: Literal["ACTIVE", "RETIRED"] = "ACTIVE"
     retired_reason: str | None = None
+    decided_via: Via | None = None
     created_at: AwareDatetime = Field(default_factory=utcnow)
 
     @model_validator(mode="after")

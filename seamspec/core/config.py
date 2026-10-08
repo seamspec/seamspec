@@ -101,6 +101,11 @@ class ProposalsCfg(_Strict):
     max_pending: int = Field(default=10, ge=1)  # project-wide PROPOSED backlog cap
 
 
+class ReviewCfg(_Strict):
+    # Approve, reject and supersede in a chat dialog (ADR-20261006-c300). Off by default in strict mode.
+    chat_approvals: bool = True
+
+
 class ExecutionCfg(_Strict):
     run_proposed: Literal["auto", "host", "ask", "never"] = "auto"
     env_passthrough: list[str] = Field(default_factory=list)
@@ -119,6 +124,7 @@ class Config(_Strict):
     commands: CommandsCfg = Field(default_factory=CommandsCfg)
     proposals: ProposalsCfg = Field(default_factory=ProposalsCfg)
     execution: ExecutionCfg = Field(default_factory=ExecutionCfg)
+    review: ReviewCfg = Field(default_factory=ReviewCfg)
 
     @model_validator(mode="after")
     def _strict_defaults(self) -> Config:
@@ -128,6 +134,8 @@ class Config(_Strict):
                 self.hooks.fail_closed = True
             if "trust_level" not in self.execution.model_fields_set:
                 self.execution.trust_level = "harness"
+            if "chat_approvals" not in self.review.model_fields_set:
+                self.review.chat_approvals = False
         return self
 
 

@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core import journal, verifier
+from ..core import hookguard, journal, verifier
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
 from ..core.models import DeadEnd, Invariant, InvStatus
@@ -28,7 +28,7 @@ from ..core.requests import pending_supersede_ids
 from ..core.root import find_root, to_rel
 from ..core.scope import effective_protected_paths, matches
 from ..core.session import SessionState
-from ..core.store import Store
+from ..core.store import Store, atomic_write
 from ..core.tree import changed_files, tree_fingerprint
 from ..core.trust import execution_permitted
 
@@ -300,7 +300,13 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
 
 
 def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:
-    """Context, not enforcement: runs in every mode and never runs tests."""
+    """Context, not enforcement: runs in every mode and never runs tests. Also notes the dialog hooks
+    that exist at session start, so ConfigChange only blocks ones added during the session."""
+    if cfg.review.chat_approvals:
+        try:
+            _save_hook_baseline(store, hookguard.scan(_project_dirs(payload, store)))
+        except OSError as exc:  # never at the cost of the summary
+            print(f"seamspec: couldn't record dialog hooks: {exc}", file=sys.stderr)
     if payload.get("source", "startup") not in SESSION_SOURCES:
         return None
     text = session_summary(store)
@@ -309,7 +315,53 @@ def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[st
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
 
 
-HANDLERS = {"pre-tool-use": pre_tool_use, "stop": stop, "session-start": session_start}
+# --- ConfigChange: no new hook may answer SeamSpec's dialogs mid-session (ADR-20261006-c300, guard 1) ----------
+
+CONFIG_SOURCES = ("user_settings", "project_settings", "local_settings", "skills")  # policy_settings can't be blocked
+HOOK_BASELINE = "hookguard-baseline.json"
+
+
+def _project_dirs(payload: dict[str, Any], store: Store) -> list[Path]:
+    return [store.root, Path(payload.get("cwd") or store.root)]
+
+
+def _save_hook_baseline(store: Store, problems: list[str]) -> None:
+    atomic_write(store.local / HOOK_BASELINE, json.dumps(problems, indent=2) + "\n")
+
+
+def _hook_baseline(store: Store) -> set[str]:
+    try:
+        data = json.loads((store.local / HOOK_BASELINE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return {p for p in data if isinstance(p, str)} if isinstance(data, list) else set()
+
+
+def config_change(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:
+    """Block a settings or skill change that adds a hook able to answer or rewrite SeamSpec's dialogs.
+    Hooks that were there at session start are left alone: chat approvals are refused while they exist.
+    Claude Code shows no message for a blocked change, so it's recorded in the journal."""
+    if not cfg.review.chat_approvals or payload.get("source") not in CONFIG_SOURCES:
+        return None
+    changed = payload.get("file_path")
+    if changed:
+        problems = hookguard.check_file(Path(changed))
+    else:
+        problems = hookguard.scan(_project_dirs(payload, store), launch_args=[])
+    new = [p for p in problems if p not in _hook_baseline(store)]
+    if not new:
+        return None
+    journal.note(store, "config_change_blocked", source=payload.get("source"), file=changed, problems=new)
+    return {"decision": "block", "reason": "SeamSpec: this change adds a hook that could answer its approval "
+            "dialogs: " + "; ".join(new)}  # fmt: skip
+
+
+HANDLERS = {
+    "pre-tool-use": pre_tool_use,
+    "stop": stop,
+    "session-start": session_start,
+    "config-change": config_change,
+}
 
 
 def main(event: str, stdin: str | None = None) -> str:

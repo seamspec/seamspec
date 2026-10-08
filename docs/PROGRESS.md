@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-08 | **Approvals in chat** (PR `week-4/chat-approvals`): a new MCP tool, `open_review`, shows the human SeamSpec's own dialogs for proposed rules, supersede requests and new dead ends, so approving no longer needs a terminal. The agent passes only ids and gets only the outcomes. Every decision records where it was made (`decided_via`, plus `via` and the client in the journal). Guards: chat approvals are refused while any hook SeamSpec can see could answer or rewrite its dialogs (checked before each dialog and before acting on the answer); the plugin's new `ConfigChange` hook blocks such hooks added mid-session; each dialog's choices carry a random code; *skip* comes first. Red-green asks its own "run this test?" and needs a trusted clone. Off by default in strict mode (`[review] chat_approvals`). Lock and supersede skills now offer it; the terminal stays the fallback. ADR c300 **ACCEPTED** with the owner's answers. Left: verification 2, the owner clicks through the dialogs once in the CLI and once in the desktop app | ADR-20261006-c300 |
 | 2026-10-08 | **Session-start hook confirmed in a real session** (Claude Haiku 5.5, plan login, no tools, ~$0.16 estimated for 2 sessions): in a fresh clone of this repo with the plugin loaded from the checkout, the model listed all 6 rule ids from the SessionStart context exactly; the same question without the plugin got "NONE". A plugin installed from this folder (`seamspec init --plugin`) is read live, so it has the hook as soon as the checkout does | ADR-20261007-ac04 |
 | 2026-10-07 | **Session-start hook** (PR `week-4/session-start-hook`): at session start (and after `/clear` or compaction), the plugin adds a short summary built from the ledger: approved rules, dead ends, "ask first", pending reviews. It stays within 3,000 characters (about 450 tokens for this repo's 6 rules) by shrinking detail, not dropping rules: full text, else one line per rule, else counts per area with a pointer to `get_constraints`. It runs in every mode, writes no files and leaves `CLAUDE.md` alone | ADR-20261007-ac04 |
 | 2026-10-07 | **Quick condition E result** (`rough-1e`, 6 runs, $4.84): rules written in `CLAUDE.md` broke **0** rules, against 2 for SeamSpec enforced, and cost about 36% less. The pre-set reading is **"notes match SeamSpec's memory"**: the notes-only agent also refused the conflicting requests and asked. **Decision:** the ledger stays the single source, with no notes files and nothing added to `CLAUDE.md`. A session-start hook will add the current agreements from the ledger. Positioning: approved agreements, proven by tests and CI, put in front of every agent. The full run adds F (ADRs only) | ADR-20261007-e1a7, ADR-20261007-ac04, `docs/benchmark/rough-1e.md` |
@@ -50,22 +51,16 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 | 2026-10-05 | Design spec written, peer-reviewed, scope cut to Claude Code + pytest/vitest for v0.1 | `docs/SPEC.md` §22, §26 |
 | 2026-10-05 | Names claimed (PyPI, npm, GitHub org); landing page live at seamspec.github.io; GitHub milestones + tracking issues #1–#7 created | GitHub |
 
-## Where we stand (2026-10-07, end of day)
+## Where we stand (2026-10-08)
 
-- **Works:** the core loop, dogfooded on this repo (#22). `seamspec doctor` and `doctor --ci` (#30). The CI workflow from `init` (#32). All six chat skills (#35). Mode handling (PR #36, open).
-- **Proven, roughly:** the rough benchmark passed (ADR-20261006-b270).
-- **Week 4:** both exit criteria are met (#33 blocked a regression in CI, #34 listed a retirement). Left: merge #36 (modes) and dogfood on one real project.
-- **Blocked: GitHub Actions** for this private repo. The organization's Actions minutes or spending limit ran out on 2026-10-07: *"The job was not started because recent account payments have failed or your spending limit needs to be increased."*
-  - **Effect:** on #36 every job that ran passed, but `ci-ok` couldn't start. New pushes won't get CI until it's fixed.
-  - **The fix is the owner's:** organization **Settings → Billing & plans**.
-  - **Also proposed:** trim CI to use fewer minutes. macOS jobs count 10×; drop or limit macOS on PRs, and test 2 Python versions instead of 4.
-  - Copilot's review quota is also used up (since #24).
+- **Works:** the core loop, dogfooded on this repo (#22). `doctor` and `doctor --ci` (#30). The CI workflow from `init` (#32). All six chat skills (#35). Mode handling (#36, #37). The session-start summary (#41, confirmed in a real session, #42). Approvals in chat (PR `week-4/chat-approvals`).
+- **Proven, roughly:** the rough benchmark passed (ADR-20261006-b270); condition E showed plain notes match SeamSpec's memory with a careful model, which led to the session-start hook (ADR-20261007-ac04).
+- **Week 4:** both exit criteria are met (#33, #34). Left: dogfood on one real project.
 - **Next, in order:**
-  1. Owner: fix Actions billing or the spending limit. Then re-run `ci-ok` on #36 and merge it.
-  2. A small CI-trimming PR (if the owner agrees).
-  3. Week 4's last item: dogfood on one real Python or TypeScript project (the owner picks it).
-  4. **Build approvals in chat** (ADR-20261006-c300) with the owner's answers to the four questions: dialog now, web page later; proposals, supersedes and dead ends in chat, runner config terminal-only; off by default in strict mode; one dialog test clicked by the owner. Mark c300 ACCEPTED when building starts.
-  5. Week 5: full benchmark with conditions E (rules in `CLAUDE.md`) and F (decisions in ADRs only), C with the session-start hook, a second model and implicit conflicts; then README and docs.
+  1. Owner: verification 2 for approvals in chat, after the merge. In a session in this repo, say "let me review": click through the dialogs once in the CLI and once in the desktop app (≈ $0.02 each). The three rules ADR c300 lists can be proposed first, so the click-through approves real items.
+  2. Week 4's last item: dogfood on one real Python or TypeScript project (the owner picks it).
+  3. Week 5: full benchmark with conditions E (rules in `CLAUDE.md`) and F (decisions in ADRs only), C with the session-start hook, a second model and implicit conflicts; then README and docs.
+  4. v0.2: a "critical" rule marking that always shows in full at session start; a local review page (ADR c300 option B).
 
 ## In progress
 
@@ -86,7 +81,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] Edit-time context + ledger protection (§7.2). Merged in #16; confirmed in a real session (PR `week-3/plugin`)
 - [x] MCP server: 5 tools + 2 resources (§14). Merged in #17
 - [x] Plugin `seamspec-plugin/` + wrappers; skills `/seamspec:lock`, `/seamspec:dead-end` (§15A, §16.1). Merged in #18
-- [x] Setup friction: project tools without activation, one question on a clone (#19); plugin install from `init` (#20); approvals in chat designed (ADR-20261006-c300, PROPOSED, #21; build deferred until after the benchmark unless the owner says otherwise)
+- [x] Setup friction: project tools without activation, one question on a clone (#19); plugin install from `init` (#20); approvals in chat designed (ADR-20261006-c300, #21) and built (PR `week-4/chat-approvals`)
 - [x] Dogfood: `seamspec init` on this repo (enforced, 6 owner-approved rules, plugin enabled). `docs/adr/` stays for now (ADR-20261006-0f6e). #22
 - [x] Rough benchmark A/B/C/D (§23); kill/pivot check as an ADR: **PASS** (ADR-20261006-b270). Plan **accepted** by the owner (ADR-20261006-c8b9, #23): pass bar fixed, Claude Sonnet 5.5, billed to an API key (owner's change). Harness built (#24). Trial done ($8.88, harness verdict "redo": tasks too easy). Calibrated (#26). Next: A-only calibration check, then the counted rough run
 
@@ -105,7 +100,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - **Publishing to PyPI / npm:** waits for the owner's explicit go-ahead after thorough testing; no early pre-release (ADR-20261005-3adc). Try it meanwhile with `uv tool install --force --editable <path-to-repo>`.
 - Before the repo goes public: remove references to the unpublished `Idea.md` from SPEC.md.
 - **Proposal history on replace** (hands-on finding #7): `propose_invariant(replace_id=…)` overwrites the original rule text and origin. Keep the earlier version and show the diff in `seamspec review`?
-- **Approvals in chat** (hands-on finding #8): design proposed in ADR-20261006-c300. Four questions for the owner there (option A now / B later, what's in scope, strict default, OK for verification runs).
+- **Approvals in chat** (hands-on finding #8): built (ADR-20261006-c300, ACCEPTED). Open: how the dialog looks with a long test in the CLI and the desktop app (verification 2, the owner's click-through).
 
 ## How to pick up this work
 

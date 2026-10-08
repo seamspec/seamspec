@@ -1,7 +1,7 @@
 """SeamSpec MCP server (SPEC §14): a thin, typed interface over the core for agents.
 
-v0.1: 5 tools (`get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`)
-and 2 resources (`seamspec://adrs`, `seamspec://adrs/{adr_id}`). Every tool has a CLI equivalent.
+v0.1: 6 tools (`get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`,
+`open_review`) and 2 resources (`seamspec://adrs`, `seamspec://adrs/{adr_id}`). Every tool has a CLI equivalent.
 Tool descriptions stay short: their definitions sit in the model's context in every session.
 
 The MCP server never runs unapproved code (§12.4.3): `propose_invariant` only writes, and `verify`
@@ -14,9 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.request_state import RequestStateSecurity
+from mcp_types import InputRequiredResult
 from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
+from . import chat_review
 from .core import adr, lifecycle, tree, verifier
 from .core.config import Config, ConfigError, load_config
 from .core.context import constraints_for
@@ -29,10 +32,14 @@ from .core.trust import execution_permitted
 INSTRUCTIONS = (
     "SeamSpec keeps this repo's human-approved rules (LOCKED invariants), each backed by a test, and "
     "approaches that already failed (dead ends). Call get_constraints before editing files. Propose "
-    "rules for behavior worth protecting; only humans approve them (`seamspec review`)."
+    "rules for behavior worth protecting; only humans approve them (`seamspec review`, or the "
+    "open_review dialogs)."
 )
 
-mcp = MCPServer(name="seamspec", instructions=INSTRUCTIONS)
+# Dialog state rides the client between rounds, sealed by the SDK; an hour leaves time to read a test.
+mcp = MCPServer(
+    name="seamspec", instructions=INSTRUCTIONS, request_state_security=RequestStateSecurity.ephemeral(ttl=3600)
+)
 
 
 class AdrDraft(TypedDict):
@@ -198,6 +205,29 @@ def verify(scope: Literal["changed", "all"] = "all") -> dict[str, Any]:
                 if not r.passed
             ],
         }
+
+    return _with_services(run)
+
+
+@mcp.tool()
+def open_review(ctx: Context, ids: list[str] | None = None) -> dict[str, Any] | InputRequiredResult:
+    """Show the user SeamSpec's review dialogs (proposed rules, supersede requests, new dead ends) so they
+    can decide in chat. Only the user answers; you get the outcomes. Call it when the user wants to review."""
+
+    def run(svc: Services) -> dict[str, Any] | InputRequiredResult:
+        if not svc.cfg.review.chat_approvals:
+            return {"error": "chat_approvals_off", "message": "Chat approvals are off here ([review] chat_approvals). "
+                    + chat_review.FALLBACK}  # fmt: skip
+        if not chat_review.can_show_dialogs(ctx.protocol_version, ctx.client_capabilities):
+            return {
+                "error": "no_dialogs",
+                "message": "This chat can't show SeamSpec's dialogs. " + chat_review.FALLBACK,
+            }
+        params = ctx.session.client_params
+        info = params.client_info if params else None
+        client = f"{info.name} {info.version}" if info else None
+        return chat_review.step(svc.store, svc.cfg, ids, ctx.request_state, ctx.input_responses, client,
+                                [svc.root, Path.cwd()])  # fmt: skip
 
     return _with_services(run)
 

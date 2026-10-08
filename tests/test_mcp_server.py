@@ -19,7 +19,7 @@ from seamspec.mcp_server import mcp
 
 from .test_lifecycle import PASS, propose
 
-TOOLS = ["get_constraints", "propose_invariant", "log_dead_end", "request_supersede", "verify"]
+TOOLS = ["get_constraints", "propose_invariant", "log_dead_end", "request_supersede", "verify", "open_review"]
 TOKEN_BUDGET = 1500  # SPEC §4.3: tool definitions cost context in every session
 
 
