@@ -352,7 +352,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 | Edit-time context (§7.2) | ✅ `PreToolUse` `additionalContext` | ✅ `PreToolUse` (deny-once fallback: `permissionDecision: "deny"`) | ✅ `preToolUse` (deny-once fallback: `permission: "deny"`) | ❌ |
 | Ledger protection | ✅ | ✅ | ✅ | ❌ |
 | Completion gate | ✅ `Stop` + `decision: block` | ✅ `Stop` + `decision: block` | ✅ `stop` + `followup_message` (auto-continue, capped by `loop_limit`) | ❌ |
-| Session-start nudge (§13.9) *(v0.2)* | ✅ `SessionStart` | ✅ `SessionStart` | ✅ `sessionStart` (local agents) | Directive fallback |
+| Session-start agreements summary *(v0.1, ADR-20261007-ac04)* + braindump nudge (§13.9) *(v0.2)* | ✅ `SessionStart` | ✅ `SessionStart` | ✅ `sessionStart` (local agents) | Directive fallback |
 | git pre-commit | ✅ | ✅ | ✅ | ✅ |
 | CI gate | ✅ | ✅ | ✅ | ✅ |
 | **Ships in** | **v0.1** | v0.2 | v0.2 | v0.1 (MCP + CLI + git/CI) |
@@ -1805,8 +1805,8 @@ exec seamspec mcp "$@"
     ],
     "SessionStart": [
       {
-        "matcher": "startup|clear",
-        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/seamspec-hook hook claude session-start", "timeout": 5 }]
+        "matcher": "startup|clear|compact",
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/seamspec-hook hook claude session-start", "timeout": 10 }]
       }
     ]
   }
@@ -1814,21 +1814,31 @@ exec seamspec mcp "$@"
 ```
 
 - The matcher is a plain list of tool names. Per the hooks reference (checked 2026-10-05), a matcher made only of letters, digits and `|` is an **exact list**, not a regex, so `Edit` doesn't also match `NotebookEdit`. `MultiEdit` is kept for older Claude Code versions (ADR-20261005-5009).
-- `SessionStart` (the braindump nudge, §13.9) ships with BRAINDUMP in v0.2.
+- `SessionStart` ships in v0.1 with the **agreements summary** (ADR-20261007-ac04). The braindump nudge (§13.9) joins it in v0.2. `resume` and `fork` are left out because those sessions already carry the earlier context.
 - The Stop hook's `timeout` (300s) is deliberately larger than `verify.stop_deadline_seconds` (240s): Claude Code **discards the output of a timed-out hook**, so a hook that times out would let the agent stop with no warning. SeamSpec must always finish and decide before that happens.
 
-**`SessionStart` behavior** (v0.2; `seamspec hook claude session-start`): implements §13.9. Reads stdin JSON (`session_id`, `source`), computes the counts, and prints nothing when nothing is waiting. Otherwise:
+**`SessionStart` behavior** (`seamspec hook claude session-start`; ADR-20261007-ac04). It reads stdin JSON (`session_id`, `cwd`, `source`) and builds a short summary **from the ledger**. The ledger stays the single source: SeamSpec writes no notes file and adds nothing to `CLAUDE.md`. The summary contains:
+- each LOCKED rule on one line: id, title, assertion and scope;
+- each active dead end: the approach, and why it failed;
+- the "ask first" instruction (`request_supersede`);
+- how many items wait for the user's review.
+
+Only the rules are described as human-approved: dead ends appear under their own heading, *"recorded, not approved"*. Each record's text is collapsed onto one line, so line breaks in a record can't add entries to the summary. It prints nothing when the ledger is empty, or when `source` is `resume` or `fork`. The text stays within 3,000 characters, and **detail shrinks before anything is dropped** (no rule silently disappears):
+
+1. **Full:** every rule with its assertion and scope, every dead end with its reason, if that fits.
+2. **One line each:** otherwise every rule as `id · title (scope: …)` under a heading that says the full rule comes from `get_constraints`, and every dead end as its id, its approach (clipped to 100 characters) and scope.
+3. **Counts by area:** if even that is too long, the number of rules and dead ends in force, a pointer to `get_constraints`, and one line per area: the folder of each record's first scope path, made of the whole path segments before the first one holding a glob (`src/billing/**` and `src/billing/gen*.py` → `src/billing`, `.github/**` → `.github`). A path with no glob is its own area if it's a folder (one that exists, or written with a trailing `/`), else its file's folder. If the area list is too long too, only the totals.
+
+The closing instructions (ask first, pending reviews) follow every level. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. In v0.2 the braindump nudge (§13.9) is added to the same text.
 
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "SeamSpec: BRAINDUMP.md has 4 new notes. Ask the user once whether to sort them now (same as /seamspec:drain). Do not drain without a yes.\nSeamSpec: 3 items await human review. Remind the user to run `seamspec review` when they pause."
+    "additionalContext": "SeamSpec: rules in force in this repository. A human approved each rule, and each has a test that must keep passing:\n- inv_90c10824 · Retry delay never exceeds 60 seconds: … (scope: src/queue/**)\nSeamSpec: approaches tried before that failed (recorded, not approved); don't retry unless the reason no longer applies:\n- de_8dff69ca: … Why it failed: …\nIf a request conflicts with one of these rules, don't change it on your own: call `request_supersede` and ask the user first. For the full rules on a file, call `get_constraints`.\nSeamSpec: 3 item(s) wait for the user's review: remind them to run `seamspec review`."
   }
 }
 ```
-
-Never blocks, never runs tests; any error → exit 0 with no output.
 
 **`PreToolUse` behavior** (`seamspec hook claude pre-tool-use`):
 
@@ -2321,15 +2331,16 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
     return items
 ```
 
-### 19.10 `seamspec/adapters/claude.py`, `core/session.py` — implemented (week 3)
+### 19.10 `seamspec/adapters/claude.py`, `core/session.py` — implemented (weeks 3–4)
 
 [`claude.py`](../seamspec/adapters/claude.py), [`session.py`](../seamspec/core/session.py), [`tree.py`](../seamspec/core/tree.py). Behavior is §7.2 and §16.1; the contract:
 
-- `seamspec hook claude pre-tool-use|stop` reads the payload on stdin and prints the decision JSON, or nothing. **The exit code is always 0**, so a SeamSpec crash can never be read as a block (exit 2). A `cwd` outside any SeamSpec project produces no output.
+- `seamspec hook claude pre-tool-use|stop|session-start` reads the payload on stdin and prints the decision JSON, or nothing. **The exit code is always 0**, so a SeamSpec crash can never be read as a block (exit 2). A `cwd` outside any SeamSpec project produces no output.
 - `pre_tool_use`: only `Edit` / `Write` / `MultiEdit` / `NotebookEdit` (path from `file_path` or `notebook_path`, relative paths resolved against `cwd`). The order of checks: ledger protection (`deny`, in every gate mode) → constraints → once per `(file, ledger revision)` per session → `additionalContext` **without** a permission decision, or `deny` once for a brand-new file or `gate_mode = "deny_once"`.
 - `stop`: auto-run consent + trust (`execution_permitted`) → journal check → skip when the tree fingerprint equals the last green one → run LOCKED rules within `verify.stop_deadline_seconds` (and save `last_verify.json`) → green allows; `incomplete` allows with a warning unless `fail_closed`; failures covered by pending supersede requests allow with a message; anything else blocks, up to `max_stop_retries` per user prompt, then allows with a warning.
 - Errors fail open (`systemMessage` on Stop, nothing on PreToolUse). With `fail_closed`, Stop errors block through the same retry cap.
 - `SessionState` (`.seamspec/.local/sessions/<session>.json`) holds the acknowledged context keys, the retry counts per prompt and the last green fingerprint.
+- `session_start` (week 4, ADR-20261007-ac04): for `source` `startup`, `clear` or `compact`, it returns `additionalContext` with `session_summary(store)`, a summary of LOCKED rules (the only items described as human-approved), active dead ends under a "recorded, not approved" heading, the "ask first" instruction and the number of pending reviews. It stays within `SESSION_MAX_CHARS` (3,000) by shrinking detail in three levels, never by dropping records: full text; else one line per record (rule `id · title (scope)`, dead end with a clipped approach); else counts per area (`_area()`: the whole path segments of the first scope path before the first one holding a glob; with no glob, the path if it's a folder, else its file's folder), with totals only as the last resort. Record fields are flattened to one line (`_flat()`), so a title, assertion or dead end with line breaks stays one entry. It returns nothing for an empty ledger or for `resume` / `fork`. It runs in every mode; errors fail open with no output.
 - `tree.tree_fingerprint(root)`: `HEAD` plus the content of every changed or untracked, non-ignored file; `None` outside git, in which case runs are never skipped.
 - Tests: `tests/test_claude_adapter.py` feeds payloads in the documented shape and runs real pytest underneath. It's mutation-checked: returning `allow` with context, or removing the retry cap, fails it.
 

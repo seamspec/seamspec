@@ -23,7 +23,7 @@ from typing import Any
 from ..core import journal, verifier
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
-from ..core.models import Invariant, InvStatus
+from ..core.models import DeadEnd, Invariant, InvStatus
 from ..core.requests import pending_supersede_ids
 from ..core.root import find_root, to_rel
 from ..core.scope import effective_protected_paths, matches
@@ -204,7 +204,112 @@ def _on_error(event: str, payload: dict[str, Any], store: Store | None, cfg: Con
     return {"systemMessage": msg} if event == "stop" else None
 
 
-HANDLERS = {"pre-tool-use": pre_tool_use, "stop": stop}
+# --- SessionStart: the agreements in force, before the first prompt (ADR-20261007-ac04) ---------------
+
+SESSION_SOURCES = ("startup", "clear", "compact")  # resume/fork already carry the earlier context
+SESSION_MAX_CHARS = 3000  # the summary stays small however large the ledger grows
+
+
+RULES_HEADING = ("SeamSpec: rules in force in this repository. A human approved each rule, and each has a test "
+                 "that must keep passing:")  # fmt: skip
+DEAD_HEADING = ("SeamSpec: approaches tried before that failed (recorded, not approved); don't retry unless the "
+                "reason no longer applies:")  # fmt: skip
+
+
+RULES_HEADING_SHORT = ("SeamSpec: rules in force in this repository, titles only (`get_constraints` returns the full "
+                       "rule). A human approved each rule, and each has a test that must keep passing:")  # fmt: skip
+
+
+def _flat(text: str) -> str:
+    """One line: a record's own line breaks must not turn into extra summary entries (Copilot, #41)."""
+    return " ".join(text.split())
+
+
+def _clip(text: str, limit: int = 100) -> str:
+    text = _flat(text)
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _area(paths: list[str], root: Path) -> str:
+    """The folder a scope is about (Copilot, #41). With a glob: the whole path segments before the
+    first one that holds a glob (`src/billing/**` and `src/billing/gen*.py` -> `src/billing`,
+    `.github/**` -> `.github`). Without one, the path names a folder or a file (gitignore rules):
+    a folder that exists, or one written with a trailing `/`, is its own area; a file's area is its folder."""
+    first = _flat(paths[0]).lstrip("!/") if paths else ""
+    parts = first.split("/")
+    globbed = next((i for i, part in enumerate(parts) if any(c in part for c in "*?[")), None)
+    if globbed is not None:
+        area = "/".join(parts[:globbed])
+    elif first.endswith("/") or (root / first).is_dir():
+        area = first.rstrip("/")
+    else:
+        area = "/".join(parts[:-1])
+    return area or "(repository root)"
+
+
+def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | None:
+    """The agreements in force, built from the ledger (ADR-20261007-ac04). Detail shrinks before
+    anything is dropped: every rule in full if it fits; else one line per rule (id, title, scope);
+    else counts per area. No rule silently disappears. None when there is nothing to say."""
+    records = store.load_all("inv") + store.load_all("de")
+    locked = sorted((r for r in records if isinstance(r, Invariant) and r.status == InvStatus.LOCKED),
+                    key=lambda r: r.id)  # fmt: skip
+    dead = sorted((r for r in records if isinstance(r, DeadEnd) and r.status == "ACTIVE"), key=lambda r: r.id)
+    waiting = sum(isinstance(r, Invariant) and r.status == InvStatus.PROPOSED for r in records)
+    waiting += len(pending_supersede_ids(store))
+    if not locked and not dead and not waiting:
+        return None
+    # Only LOCKED rules are human-approved; dead ends are recorded by agents or people, never approved.
+    tail = []
+    if locked:
+        tail.append("If a request conflicts with one of these rules, don't change it on your own: call "
+                    "`request_supersede` and ask the user first. For the full rules on a file, call "
+                    "`get_constraints`.")  # fmt: skip
+    if waiting:
+        tail.append(f"SeamSpec: {waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
+
+    def scope(r: Invariant | DeadEnd) -> str:
+        return ", ".join(_flat(p) for p in r.scope.paths)
+
+    full = ([RULES_HEADING] if locked else []) + [
+        f"- {r.id} · {_flat(r.title)}: {_flat(r.assertion)} (scope: {scope(r)})" for r in locked
+    ]  # fmt: skip
+    full += ([DEAD_HEADING] if dead else []) + [
+        f"- {d.id}: {_flat(d.approach)} Why it failed: {_flat(d.failure_symptom)}" for d in dead
+    ]
+    one_line = ([RULES_HEADING_SHORT] if locked else []) + [
+        f"- {r.id} · {_flat(r.title)} (scope: {scope(r)})" for r in locked
+    ]
+    one_line += ([DEAD_HEADING] if dead else []) + [f"- {d.id}: {_clip(d.approach)} (scope: {scope(d)})" for d in dead]
+    by_area: dict[str, list[int]] = {}
+    for r in locked:
+        by_area.setdefault(_area(list(r.scope.paths), store.root), [0, 0])[0] += 1
+    for d in dead:
+        by_area.setdefault(_area(list(d.scope.paths), store.root), [0, 0])[1] += 1
+    counts = [f"SeamSpec: {len(locked)} rules in force (each approved by a human and backed by a test) and "
+              f"{len(dead)} recorded dead ends, too many to list here. Call `get_constraints` for the files you "
+              "work on; it returns every rule and dead end that applies. By area:"]  # fmt: skip
+    counts += [f"- {area}: {n_r} rule(s), {n_d} dead end(s)" for area, (n_r, n_d) in sorted(by_area.items())]
+
+    for tier in (full, one_line, counts):
+        text = "\n".join(tier + tail)
+        if len(text) <= max_chars:
+            return text
+    # Even the per-area list is too long: totals only (never silently empty).
+    return "\n".join([counts[0].replace(" By area:", "")] + tail)
+
+
+def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:
+    """Context, not enforcement: runs in every mode and never runs tests."""
+    if payload.get("source", "startup") not in SESSION_SOURCES:
+        return None
+    text = session_summary(store)
+    if text is None:
+        return None
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+
+
+HANDLERS = {"pre-tool-use": pre_tool_use, "stop": stop, "session-start": session_start}
 
 
 def main(event: str, stdin: str | None = None) -> str:

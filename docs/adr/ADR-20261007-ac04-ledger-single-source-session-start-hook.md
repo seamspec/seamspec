@@ -26,7 +26,7 @@ The quick condition-E run (ADR-20261007-e1a7) showed that plain notes in `CLAUDE
 2. **A `SessionStart` hook adds a short summary of the current agreements to the agent's context:**
    - **what it lists:** approved (LOCKED) rules and active dead ends, one line each, plus the number of items waiting for the human's review;
    - **how it's built:** freshly from the ledger at every session start, including after `clear` and `compact`, so it can't drift and nothing is written to disk;
-   - **size:** it is capped, so a large ledger shows a count and points to `get_constraints` instead of growing without limit;
+   - **size:** it stays within 3,000 characters by shrinking detail, never by dropping a rule: every rule in full if it fits; else one line per rule (id, title, scope); else counts per area. Each smaller level points to `get_constraints` for the full rules. Marking some rules "critical" so they always show in full is left to v0.2;
    - **modes:** it runs in every mode, advisory included, because it's context, not enforcement;
    - **failure:** it fails open, adding nothing on any error.
 3. **Detail still comes on demand:**

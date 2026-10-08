@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-07 | **Session-start hook** (PR `week-4/session-start-hook`): at session start (and after `/clear` or compaction), the plugin adds a short summary built from the ledger: approved rules, dead ends, "ask first", pending reviews. It stays within 3,000 characters (about 450 tokens for this repo's 6 rules) by shrinking detail, not dropping rules: full text, else one line per rule, else counts per area with a pointer to `get_constraints`. It runs in every mode, writes no files and leaves `CLAUDE.md` alone | ADR-20261007-ac04 |
 | 2026-10-07 | **Quick condition E result** (`rough-1e`, 6 runs, $4.84): rules written in `CLAUDE.md` broke **0** rules, against 2 for SeamSpec enforced, and cost about 36% less. The pre-set reading is **"notes match SeamSpec's memory"**: the notes-only agent also refused the conflicting requests and asked. **Decision:** the ledger stays the single source, with no notes files and nothing added to `CLAUDE.md`. A session-start hook will add the current agreements from the ledger. Positioning: approved agreements, proven by tests and CI, put in front of every agent. The full run adds F (ADRs only) | ADR-20261007-e1a7, ADR-20261007-ac04, `docs/benchmark/rough-1e.md` |
 | 2026-10-07 | **Benchmark condition E built** (#39): "rules written in `CLAUDE.md`" (no SeamSpec), a new "committed at HEAD" score for every run, and `bench.compare`. The reading rule is fixed before any E run: V(E) ≥ 5 means SeamSpec's memory beats notes; ≤ 3 means notes match it. The rough run, re-scored on committed code: A 9, B 0, C 0, D 6 (SeamSpec never committed a broken rule). Next: the owner runs 6 E runs (≈ $6–7) | ADR-20261007-e1a7 |
 | 2026-10-07 | **CI trimmed for Actions minutes** (#38): PRs run Python 3.11 and 3.14 + vitest + the SeamSpec check (about 5 minutes per push instead of 22); `main` also runs 3.12, 3.13 and macOS; a newer PR push cancels the older run. The owner fixed Actions billing the same morning | ADR-20261007-d757 |
@@ -67,12 +68,12 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 4** (issue #4), slice by slice: `doctor` + `doctor --ci` (#30) → the CI workflow `init` installs (#32) → the remaining skills (#35) → mode handling (PR #36, waiting for CI billing) → dogfooding on a real project.
+- **Week 4** (issue #4): everything is merged (#30, #32, #35, #36, #37) except dogfooding on a real project. The session-start hook: decision merged in #40 (ADR-20261007-ac04), the hook itself in #41.
 
 ## Next (Week 4, issue #4)
 
 - [x] `seamspec doctor` (§16.5). Merged in #30
-- [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are merged (#30); the template `init` installs is next
+- [x] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). Merged in #30 and #32
 - [x] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2). Merged in #35
 - [x] `--mode advisory|enforced|strict` handling (§7.3). Merged in #36; review fixes in #37
 - [ ] Dogfood on SeamSpec itself (done in #22) and at least one real project
