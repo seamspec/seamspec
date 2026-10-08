@@ -224,9 +224,10 @@ def _apply(store: Store, cfg: Config, state: dict[str, Any], answer: object, cli
     kind, item_id = state["queue"][state["i"]]
     if not isinstance(answer, ElicitResult) or answer.action == "cancel":
         raise Stop("The dialog was closed, so the review stopped. Nothing else changed.")
-    if answer.action == "decline":
-        _declined.add(item_id)
-        return _next(state, f"{item_id}: skipped")
+    if answer.action == "decline":  # the form's own Decline button, or an app that declines unseen
+        journal.note(store, "chat_dialog_declined", item=item_id, client=client)
+        raise Stop("The dialog was declined, so the review stopped and nothing changed. If no dialog "
+                   f"appeared, this app can't show SeamSpec's dialogs. {FALLBACK}")  # fmt: skip
     content = answer.content or {}
     allowed = {f"{c}-{state['code']}": c for c in _choices(store, cfg, state)}
     choice = allowed.get(str(content.get("decision")))

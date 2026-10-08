@@ -54,3 +54,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261007-d757](ADR-20261007-d757-trim-ci-minutes.md) | Trim SeamSpec's own CI to fit the Actions minutes of a private repo | ACCEPTED |
 | [ADR-20261007-e1a7](ADR-20261007-e1a7-quick-condition-e.md) | Quick condition E - rules written in CLAUDE.md, and how its result is read (fixed before running) | ACCEPTED |
 | [ADR-20261007-ac04](ADR-20261007-ac04-ledger-single-source-session-start-hook.md) | The ledger stays the single source; a session-start hook adds the current rules (no notes files) | ACCEPTED |
+| [ADR-20261008-5d1e](ADR-20261008-5d1e-chat-approvals-off-by-default.md) | Chat approvals off by default until Claude Code shows the whole dialog (verification 2) | ACCEPTED |

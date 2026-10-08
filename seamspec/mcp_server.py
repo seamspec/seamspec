@@ -32,8 +32,7 @@ from .core.trust import execution_permitted
 INSTRUCTIONS = (
     "SeamSpec keeps this repo's human-approved rules (LOCKED invariants), each backed by a test, and "
     "approaches that already failed (dead ends). Call get_constraints before editing files. Propose "
-    "rules for behavior worth protecting; only humans approve them (`seamspec review`, or the "
-    "open_review dialogs)."
+    "rules for behavior worth protecting; only humans approve them (`seamspec review`)."
 )
 
 # Dialog state rides the client between rounds, sealed by the SDK; an hour leaves time to read a test.
@@ -212,7 +211,7 @@ def verify(scope: Literal["changed", "all"] = "all") -> dict[str, Any]:
 @mcp.tool()
 def open_review(ctx: Context, ids: list[str] | None = None) -> dict[str, Any] | InputRequiredResult:
     """Show the user SeamSpec's review dialogs (proposed rules, supersede requests, new dead ends) so they
-    can decide in chat. Only the user answers; you get the outcomes. Call it when the user wants to review."""
+    can decide in chat, if this project turned chat approvals on. Only the user answers; you get the outcomes."""
 
     def run(svc: Services) -> dict[str, Any] | InputRequiredResult:
         if not svc.cfg.review.chat_approvals:

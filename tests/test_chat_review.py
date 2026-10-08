@@ -20,6 +20,7 @@ from seamspec.core import hookguard, journal, lifecycle, redgreen, requests, tru
 from seamspec.core.config import load_config
 from seamspec.core.models import DeadEnd, Invariant, InvStatus
 from seamspec.core.store import Store
+from seamspec.installers import scaffold
 from seamspec.mcp_server import mcp
 
 from .test_lifecycle import propose
@@ -34,7 +35,14 @@ def project(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(hookguard, "MANAGED_DIRS", ())
     monkeypatch.setattr(hookguard, "_launch_args", lambda: [])
     chat_review._declined.clear()
+    enable_chat_approvals(git_repo)
     return git_repo
+
+
+def enable_chat_approvals(root: Path) -> None:
+    """Off by default (ADR-20261008-5d1e); these tests turn it on, as a project would."""
+    cfg = root / ".seamspec/config.toml"
+    cfg.write_text(cfg.read_text().replace(scaffold.REVIEW_LINE, "chat_approvals = true\n"))
 
 
 def pick(choice: str, **fields: Any) -> Answer:
@@ -126,7 +134,7 @@ def test_skipped_items_are_not_offered_again_this_session(project: Path) -> None
     assert review(Human(pick("skip")))["reviewed"] == [f"{inv_id}: skipped"]
     out = review(Human())  # Copilot, #43: skipped is still waiting
     assert out["still_waiting"] == 1 and out["message"].startswith("Nothing new to show")
-    assert review(Human(closed("decline")), ids=[inv_id])["reviewed"] == [f"{inv_id}: skipped"]  # asked by id
+    assert review(Human(pick("skip")), ids=[inv_id])["reviewed"] == [f"{inv_id}: skipped"]  # asked by id
     assert inv(project, inv_id).status == InvStatus.PROPOSED
 
 
@@ -301,13 +309,28 @@ def test_a_hook_added_while_the_dialog_is_open_stops_the_answer(project: Path) -
     assert inv(project, inv_id).status == InvStatus.PROPOSED
 
 
-def test_strict_mode_turns_chat_approvals_off(project: Path) -> None:
-    propose(project)
-    cfg = project / ".seamspec/config.toml"
-    cfg.write_text(cfg.read_text().replace('mode = "enforced"', 'mode = "strict"', 1).replace(
-        "chat_approvals = true", "#"))  # fmt: skip
-    out = review(Human())
-    assert out["error"] == "chat_approvals_off"
+@pytest.mark.parametrize("mode", ["advisory", "enforced", "strict"])
+def test_chat_approvals_are_off_by_default(git_repo: Path, monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    """ADR-20261008-5d1e: Claude Code doesn't show the whole dialog yet (verification 2)."""
+    monkeypatch.setenv("SEAMSPEC_ROOT", str(git_repo))
+    propose(git_repo)
+    cfg = git_repo / ".seamspec/config.toml"
+    cfg.write_text(cfg.read_text().replace('mode = "enforced"', f'mode = "{mode}"', 1))
+    human = Human()
+    out = review(human)
+    assert out["error"] == "chat_approvals_off" and "seamspec review" in out["message"] and not human.shown
+
+
+def test_a_declined_dialog_stops_the_review(project: Path) -> None:
+    """Verification 2: the desktop app declined every dialog without showing it. A decline must not
+    count as the human skipping each item; the review stops and says why."""
+    first, second = propose(project)["id"], propose(project)["id"]
+    human = Human(closed("decline"))
+    out = review(human)
+    assert len(human.shown) == 1 and out["reviewed"] == [] and "If no dialog appeared" in out["message"]
+    assert {inv(project, i).status for i in (first, second)} == {InvStatus.PROPOSED}
+    assert any(line.get("event") == "chat_dialog_declined" for line in _journal_lines(project))
+    assert review(Human(pick("skip"), pick("skip")))["reviewed"] == [f"{first}: skipped", f"{second}: skipped"]
 
 
 def test_a_client_without_dialogs_falls_back_to_the_terminal(project: Path) -> None:

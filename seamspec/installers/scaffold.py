@@ -60,8 +60,7 @@ STRICT_HOOKS = "fail_closed = true             # strict mode default\n"
 NON_STRICT_HOOKS = "fail_closed = false            # strict mode defaults to true\n"
 STRICT_TRUST = 'trust_level = "harness"        # strict mode default\n'
 NON_STRICT_TRUST = 'trust_level = "runners"        # runners | harness\n'
-STRICT_REVIEW = "chat_approvals = false         # strict mode default: approve in the terminal only\n"
-NON_STRICT_REVIEW = "chat_approvals = true          # approve in a chat dialog too; strict mode defaults to false\n"
+REVIEW_LINE = "chat_approvals = false         # chat dialogs: off until Claude Code shows them in full\n"
 
 
 def render_config(mode: Mode, runners: list[str]) -> str:
@@ -79,7 +78,7 @@ def render_config(mode: Mode, runners: list[str]) -> str:
         .replace("{{runners}}", tables.rstrip("\n"))
         .replace("{{hooks_extra}}", STRICT_HOOKS if strict else NON_STRICT_HOOKS)
         .replace("{{execution_extra}}", STRICT_TRUST if strict else NON_STRICT_TRUST)
-        .replace("{{review_extra}}", STRICT_REVIEW if strict else NON_STRICT_REVIEW)
+        .replace("{{review_extra}}", REVIEW_LINE)
     )
     parse_config(text, "generated config.toml")  # never write a config SeamSpec itself can't load
     return text
@@ -137,10 +136,8 @@ def _set_mode(root: Path, mode: Mode) -> None:
     text = "".join(lines)
     if mode == "strict":  # init's own non-strict defaults would loosen strict mode; edited values stay
         text = text.replace(NON_STRICT_HOOKS, STRICT_HOOKS).replace(NON_STRICT_TRUST, STRICT_TRUST)
-        text = text.replace(NON_STRICT_REVIEW, STRICT_REVIEW)
     else:  # leaving strict: undo only the lines init itself wrote; values a human edited stay
         text = text.replace(STRICT_HOOKS, NON_STRICT_HOOKS).replace(STRICT_TRUST, NON_STRICT_TRUST)
-        text = text.replace(STRICT_REVIEW, NON_STRICT_REVIEW)
     parse_config(text, str(path))
     atomic_write(path, text)
 
