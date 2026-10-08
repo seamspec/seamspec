@@ -8,6 +8,7 @@ cwd, stop_reason, last_assistant_message (no stop_hook_active any more).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -345,22 +346,69 @@ def test_session_start_runs_in_advisory_mode(git_repo: Path, human: None) -> Non
     assert session(git_repo) is not None
 
 
-def test_session_summary_stays_within_its_cap(git_repo: Path) -> None:
+def lock_many(store: Store, n: int, paths: Callable[[int], list[str]]) -> list[str]:
+    """n LOCKED rules written directly: only the summary is under test."""
     from seamspec.core.models import InvStatus
 
     from .conftest import make_invariant
 
-    store = Store(git_repo)
-    for i in range(80):
-        store.create(make_invariant(f"inv_{i:08x}", InvStatus.PROPOSED))
-    for inv in store.load_all("inv"):  # mark them LOCKED directly: only the summary is under test
+    for i in range(n):
+        store.create(make_invariant(f"inv_{i:08x}", InvStatus.PROPOSED, paths(i)))
+    for inv in store.load_all("inv"):
         inv.status = InvStatus.LOCKED
         inv.approved_by, inv.approved_at = "Maya", inv.created_at
         inv.verification.harness_sha256 = inv.verification.assertion_sha256 = "0" * 64
         store.save(inv)
+    return [f"inv_{i:08x}" for i in range(n)]
+
+
+def test_a_small_ledger_gets_every_rule_in_full(git_repo: Path) -> None:
+    store = Store(git_repo)
+    lock_many(store, 3, lambda i: ["src/queue/**"])
+    text = claude.session_summary(store)
+    assert text is not None and text.count("Redis retry delay is capped:") == 3  # title and assertion
+    assert "titles only" not in text
+
+
+def test_a_larger_ledger_keeps_one_line_per_rule(git_repo: Path) -> None:
+    """Detail shrinks before anything is dropped: every rule id is still there."""
+    store = Store(git_repo)
+    ids = lock_many(store, 30, lambda i: [f"src/m{i}/**"])
+    store.create(make_dead_end())
     text = claude.session_summary(store)
     assert text is not None and len(text) <= claude.SESSION_MAX_CHARS
-    assert "more rules: call `get_constraints`" in text
+    assert "titles only" in text and all(i in text for i in ids) and "de_9f8e7d6c" in text
+    assert "Redis retry delay is capped:" not in text  # assertions left to get_constraints
+
+
+def test_a_huge_ledger_gets_counts_per_area(git_repo: Path) -> None:
+    store = Store(git_repo)
+    lock_many(store, 120, lambda i: ["src/billing/**"] if i % 3 else ["src/queue/worker.py", "src/queue/**"])
+    for i in range(5):
+        store.create(make_dead_end(f"de_{i:08x}", paths=["src/billing/*.py"]))
+    text = claude.session_summary(store)
+    assert text is not None and len(text) <= claude.SESSION_MAX_CHARS
+    assert "120 rules in force" in text and "5 recorded dead ends" in text and "get_constraints" in text
+    assert "- src/billing: 80 rule(s), 5 dead end(s)" in text
+    assert "- src/queue: 40 rule(s), 0 dead end(s)" in text
+    assert "inv_00000000" not in text
+
+
+@pytest.mark.parametrize(
+    ("paths", "area"),
+    [(["src/billing/**"], "src/billing"), (["src/queue/worker.py"], "src/queue"), (["src/b/*.py"], "src/b"),
+     (["setup.py"], "(repository root)"), (["**/*.py"], "(repository root)"), ([], "(repository root)")],
+)  # fmt: skip
+def test_area_is_the_folder_before_any_glob(paths: list[str], area: str) -> None:
+    assert claude._area(paths) == area
+
+
+def test_too_many_areas_still_gives_totals(git_repo: Path) -> None:
+    store = Store(git_repo)
+    lock_many(store, 200, lambda i: [f"pkg{i}/**"])
+    text = claude.session_summary(store)
+    assert text is not None and len(text) <= claude.SESSION_MAX_CHARS
+    assert "200 rules in force" in text and "By area" not in text and "request_supersede" in text
 
 
 def test_session_start_fails_open(git_repo: Path) -> None:
@@ -376,13 +424,11 @@ def test_dead_ends_are_never_presented_as_approved(git_repo: Path, human: None) 
     assert "de_9f8e7d6c" in text and "request_supersede" not in text  # no rules: no supersede advice
 
 
-def test_truncation_counts_every_omitted_item(git_repo: Path) -> None:
-    """A dead end whose reason ends with a colon still counts; rules and dead ends are counted apart."""
+def test_dead_ends_are_shortened_not_dropped(git_repo: Path) -> None:
+    """A long ledger of dead ends keeps every id; each approach is clipped to one short line."""
     store = Store(git_repo)
-    for i in range(40):
-        store.create(make_dead_end(f"de_{i:08x}", failure_symptom="It deadlocked with this message:"))
-    text = claude.session_summary(store, max_chars=1200)
-    assert text is not None and len(text) <= 1200
-    shown = sum(line.startswith("- de_") for line in text.splitlines())
-    marker = next(line for line in text.splitlines() if line.startswith("…and "))
-    assert marker.startswith(f"…and {40 - shown} more dead ends:")
+    for i in range(20):
+        store.create(make_dead_end(f"de_{i:08x}", approach="Tried a global retry counter " + "x" * 200))
+    text = claude.session_summary(store)
+    assert text is not None and len(text) <= claude.SESSION_MAX_CHARS
+    assert all(f"de_{i:08x}" in text for i in range(20)) and "…" in text

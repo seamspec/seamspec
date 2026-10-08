@@ -1823,7 +1823,13 @@ exec seamspec mcp "$@"
 - the "ask first" instruction (`request_supersede`);
 - how many items wait for the user's review.
 
-Only the rules are described as human-approved: dead ends appear under their own heading, *"recorded, not approved"*. It prints nothing when the ledger is empty, or when `source` is `resume` or `fork`. The text is capped at 3,000 characters; beyond that, the **list** ends with *"…and N more rules and M more dead ends: call `get_constraints`…"* (counted by record type), and the closing instructions follow it. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. In v0.2 the braindump nudge (§13.9) is added to the same text.
+Only the rules are described as human-approved: dead ends appear under their own heading, *"recorded, not approved"*. It prints nothing when the ledger is empty, or when `source` is `resume` or `fork`. The text stays within 3,000 characters, and **detail shrinks before anything is dropped** (no rule silently disappears):
+
+1. **Full:** every rule with its assertion and scope, every dead end with its reason, if that fits.
+2. **One line each:** otherwise every rule as `id · title (scope: …)` under a heading that says the full rule comes from `get_constraints`, and every dead end as its id, its approach (clipped to 100 characters) and scope.
+3. **Counts by area:** if even that is too long, the number of rules and dead ends in force, a pointer to `get_constraints`, and one line per area (the folder of each record's first scope path, before any glob: `src/billing/**` → `src/billing`). If the area list is too long too, only the totals.
+
+The closing instructions (ask first, pending reviews) follow every level. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. In v0.2 the braindump nudge (§13.9) is added to the same text.
 
 ```json
 {
@@ -2334,7 +2340,7 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
 - `stop`: auto-run consent + trust (`execution_permitted`) → journal check → skip when the tree fingerprint equals the last green one → run LOCKED rules within `verify.stop_deadline_seconds` (and save `last_verify.json`) → green allows; `incomplete` allows with a warning unless `fail_closed`; failures covered by pending supersede requests allow with a message; anything else blocks, up to `max_stop_retries` per user prompt, then allows with a warning.
 - Errors fail open (`systemMessage` on Stop, nothing on PreToolUse). With `fail_closed`, Stop errors block through the same retry cap.
 - `SessionState` (`.seamspec/.local/sessions/<session>.json`) holds the acknowledged context keys, the retry counts per prompt and the last green fingerprint.
-- `session_start` (week 4, ADR-20261007-ac04): for `source` `startup`, `clear` or `compact`, it returns `additionalContext` with `session_summary(store)`, a summary of LOCKED rules (the only items described as human-approved), active dead ends under a "recorded, not approved" heading, the "ask first" instruction and the number of pending reviews. It is capped at `SESSION_MAX_CHARS` (3,000); a cut list ends with a marker that counts the omitted rules and dead ends by type. It returns nothing for an empty ledger or for `resume` / `fork`. It runs in every mode; errors fail open with no output.
+- `session_start` (week 4, ADR-20261007-ac04): for `source` `startup`, `clear` or `compact`, it returns `additionalContext` with `session_summary(store)`, a summary of LOCKED rules (the only items described as human-approved), active dead ends under a "recorded, not approved" heading, the "ask first" instruction and the number of pending reviews. It stays within `SESSION_MAX_CHARS` (3,000) by shrinking detail in three levels, never by dropping records: full text; else one line per record (rule `id · title (scope)`, dead end with a clipped approach); else counts per area (`_area()`: the folder of the first scope path before any glob), with totals only as the last resort. It returns nothing for an empty ledger or for `resume` / `fork`. It runs in every mode; errors fail open with no output.
 - `tree.tree_fingerprint(root)`: `HEAD` plus the content of every changed or untracked, non-ignored file; `None` outside git, in which case runs are never skipped.
 - Tests: `tests/test_claude_adapter.py` feeds payloads in the documented shape and runs real pytest underneath. It's mutation-checked: returning `allow` with context, or removing the retry cap, fails it.
 

@@ -210,8 +210,33 @@ SESSION_SOURCES = ("startup", "clear", "compact")  # resume/fork already carry t
 SESSION_MAX_CHARS = 3000  # the summary stays small however large the ledger grows
 
 
+RULES_HEADING = ("SeamSpec: rules in force in this repository. A human approved each rule, and each has a test "
+                 "that must keep passing:")  # fmt: skip
+DEAD_HEADING = ("SeamSpec: approaches tried before that failed (recorded, not approved); don't retry unless the "
+                "reason no longer applies:")  # fmt: skip
+
+
+RULES_HEADING_SHORT = ("SeamSpec: rules in force in this repository, titles only (`get_constraints` returns the full "
+                       "rule). A human approved each rule, and each has a test that must keep passing:")  # fmt: skip
+
+
+def _clip(text: str, limit: int = 100) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _area(paths: list[str]) -> str:
+    """The folder a scope is about: the first path's part before any glob, e.g. src/billing/** -> src/billing."""
+    first = paths[0] if paths else ""
+    plain = first.split("*", 1)[0].split("?", 1)[0].split("[", 1)[0].rstrip("/")
+    if "." in plain.rsplit("/", 1)[-1]:  # a file: its folder
+        plain = plain.rsplit("/", 1)[0] if "/" in plain else ""
+    return plain or "(repository root)"
+
+
 def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | None:
-    """A short, current summary built from the ledger; None when there is nothing to say."""
+    """The agreements in force, built from the ledger (ADR-20261007-ac04). Detail shrinks before
+    anything is dropped: every rule in full if it fits; else one line per rule (id, title, scope);
+    else counts per area. No rule silently disappears. None when there is nothing to say."""
     records = store.load_all("inv") + store.load_all("de")
     locked = sorted((r for r in records if isinstance(r, Invariant) and r.status == InvStatus.LOCKED),
                     key=lambda r: r.id)  # fmt: skip
@@ -221,15 +246,6 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
     if not locked and not dead and not waiting:
         return None
     # Only LOCKED rules are human-approved; dead ends are recorded by agents or people, never approved.
-    items: list[tuple[str, str]] = []  # (kind, line): kind is "heading", "rule" or "dead"
-    if locked:
-        items.append(("heading", "SeamSpec: rules in force in this repository. A human approved each rule, and each "
-                                 "has a test that must keep passing:"))  # fmt: skip
-        items += [("rule", f"- {r.id} · {r.title}: {r.assertion} (scope: {', '.join(r.scope.paths)})") for r in locked]
-    if dead:
-        items.append(("heading", "SeamSpec: approaches tried before that failed (recorded, not approved); don't retry "
-                                 "unless the reason no longer applies:"))  # fmt: skip
-        items += [("dead", f"- {d.id}: {d.approach} Why it failed: {d.failure_symptom}") for d in dead]
     tail = []
     if locked:
         tail.append("If a request conflicts with one of these rules, don't change it on your own: call "
@@ -237,20 +253,34 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
                     "`get_constraints`.")  # fmt: skip
     if waiting:
         tail.append(f"SeamSpec: {waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
-    reserve = len("\n".join(tail)) + 160  # room for the tail and the "…and N more" line
-    body: list[str] = []
-    used = 0
-    for i, (_kind, line) in enumerate(items):
-        if used + len(line) + 1 > max_chars - reserve:
-            rules_left = sum(k == "rule" for k, _ in items[i:])
-            dead_left = sum(k == "dead" for k, _ in items[i:])
-            parts = [f"{n} more {word}{'s' if n != 1 else ''}" for n, word in ((rules_left, "rule"),
-                     (dead_left, "dead end")) if n]  # fmt: skip
-            body.append(f"…and {' and '.join(parts)}: call `get_constraints` for the files you work on.")
-            break
-        body.append(line)
-        used += len(line) + 1
-    return "\n".join(body + tail)
+
+    def scope(r: Invariant | DeadEnd) -> str:
+        return ", ".join(r.scope.paths)
+
+    full = ([RULES_HEADING] if locked else []) + [
+        f"- {r.id} · {r.title}: {r.assertion} (scope: {scope(r)})" for r in locked
+    ]  # fmt: skip
+    full += ([DEAD_HEADING] if dead else []) + [
+        f"- {d.id}: {d.approach} Why it failed: {d.failure_symptom}" for d in dead
+    ]
+    one_line = ([RULES_HEADING_SHORT] if locked else []) + [f"- {r.id} · {r.title} (scope: {scope(r)})" for r in locked]
+    one_line += ([DEAD_HEADING] if dead else []) + [f"- {d.id}: {_clip(d.approach)} (scope: {scope(d)})" for d in dead]
+    by_area: dict[str, list[int]] = {}
+    for r in locked:
+        by_area.setdefault(_area(list(r.scope.paths)), [0, 0])[0] += 1
+    for d in dead:
+        by_area.setdefault(_area(list(d.scope.paths)), [0, 0])[1] += 1
+    counts = [f"SeamSpec: {len(locked)} rules in force (each approved by a human and backed by a test) and "
+              f"{len(dead)} recorded dead ends, too many to list here. Call `get_constraints` for the files you "
+              "work on; it returns every rule and dead end that applies. By area:"]  # fmt: skip
+    counts += [f"- {area}: {n_r} rule(s), {n_d} dead end(s)" for area, (n_r, n_d) in sorted(by_area.items())]
+
+    for tier in (full, one_line, counts):
+        text = "\n".join(tier + tail)
+        if len(text) <= max_chars:
+            return text
+    # Even the per-area list is too long: totals only (never silently empty).
+    return "\n".join([counts[0].replace(" By area:", "")] + tail)
 
 
 def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:
