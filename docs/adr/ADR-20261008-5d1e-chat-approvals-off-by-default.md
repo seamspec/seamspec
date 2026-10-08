@@ -36,9 +36,17 @@ Approval in SeamSpec means the human has seen the full test (SPEC §12.4.3 rule 
 - **Build the local review page now** (ADR-20261006-c300 option B: SeamSpec opens a page in the browser itself, so the link never passes through the agent). Deferred: the owner chose to dogfood with `seamspec review` first and build the page only if the terminal step turns out to be a real pain.
 - **Remove `open_review`.** Rejected: the tool, its guards and its tests are sound, and it costs about 140 tokens of tool definitions. It answers `chat_approvals_off` while off.
 
+## Follow-ups (2026-10-08)
+
+* **Full-screen CLI, tried again:** with chat approvals turned on for the experiment only, the owner ran Claude Code in a full-screen macOS Terminal window. The dialog was folded the same way and the test stayed hidden, so the pane size isn't the cause. The owner pressed Esc and nothing changed; the setting was switched back.
+* **The agent opens the review for the user (owner's choice).** The lock, supersede and status skills and the protocol block now tell the agent to offer to open `seamspec review` in a terminal the user types into, such as a tab in the Claude desktop app's terminal panel. The agent never runs it in its own shell (no terminal there, so it refuses anyway) and never types its answers. Like the TTY check itself, this is a speed bump, not a boundary. It keeps the approval with the human while removing most of the "go to a terminal" step. A local review page in the browser (ADR-20261006-c300 option B) stays the next step if dogfooding shows that isn't enough.
+
 ## Enforced Invariants
 
-None new. The three rules proposed for the click-through (`inv_aa498871`, `inv_6bae33cf`, `inv_79b867d5`) protect the chat path's guards; the owner reviews them with `seamspec review`.
+None new. The three rules proposed for the click-through protect the chat path's guards. The owner approved them with `seamspec review` on 2026-10-08, after their tests were strengthened following a review by the agent in the owner's session:
+* `inv_aa498871`: the agent never supplies approval dialog text;
+* `inv_6bae33cf`: chat approval refuses when a hook could answer;
+* `inv_79b867d5`: every human decision records where it was made.
 
 ## Consequences
 

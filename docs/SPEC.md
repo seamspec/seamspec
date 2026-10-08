@@ -809,7 +809,7 @@ An agent grading its own work is the core weakness of agent-written tests, and r
 ### 11.5 Approvals in Chat (ADR-20261006-c300)
 
 > [!IMPORTANT]
-> **Off by default** (`[review] chat_approvals = false`, ADR-20261008-5d1e). In the owner's click-through, Claude Code's terminal CLI folded the dialog to about three lines and hid the test, and the desktop app showed no dialog and declined each one. Until a client shows the whole dialog, approvals happen in `seamspec review` (in the desktop app, its terminal panel). A project can turn this on, accepting what its client shows; everything below describes it when it's on.
+> **Off by default** (`[review] chat_approvals = false`, ADR-20261008-5d1e). In the owner's click-through, Claude Code's terminal CLI folded the dialog to about three lines and hid the test, and the desktop app showed no dialog and declined each one. A second try in a full-screen terminal folded it the same way. Until a client shows the whole dialog, approvals happen in `seamspec review`; the agent offers to open it for the user in a terminal tab beside the chat (§15A.1 rule 8). A project can turn this on, accepting what its client shows; everything below describes it when it's on.
 
 The human can review in the chat instead of a terminal. The agent calls the MCP tool `open_review(ids?)` (usually after the human says yes to *"review it here?"*). SeamSpec then shows **one form dialog per item**, in the same order as `seamspec review`: dead ends recorded since the last review, supersede requests, proposed rules. The agent passes only ids, never the text shown, and it can't answer the dialogs; it gets back only the outcomes (e.g. *"inv_… approved (LOCKED)"*, *"inv_… rejected (reason)"*).
 
@@ -1390,7 +1390,7 @@ SeamSpec has **two command surfaces**:
 5. **Consistent output.** Every command ends with the same summary block (§15A.3) so results are easy to scan and demo.
 6. **Not enforcement.** Commands are convenience. Hooks, pre-commit, and CI remain the guards (§7).
 7. **No context cost until used.** Unlike tool definitions, slash commands and MCP prompts are user-invoked and don't sit in the model's context every turn.
-8. **Never required.** Every command has a plain-language equivalent the agent recognises ("sort my braindump", "protect this", "that didn't work", "streaks should reset at 4am now"; §18 rule 9). The agent also acts unprompted where the directive says so. The slash form is a reliable shortcut for when the agent misses a moment. The only command a human must run is `seamspec review`, and pre-commit, the session-start nudge (§13.9, v0.2) and the agent all remind them when it's due.
+8. **Never required.** Every command has a plain-language equivalent the agent recognises ("sort my braindump", "protect this", "that didn't work", "streaks should reset at 4am now"; §18 rule 9). The agent also acts unprompted where the directive says so. The slash form is a reliable shortcut for when the agent misses a moment. The only command a human must run is `seamspec review`, and pre-commit, the session-start nudge (§13.9, v0.2) and the agent all remind them when it's due. Where the host can open a terminal the user types into (e.g. the Claude desktop app's terminal panel), the agent offers to open `seamspec review` there for them; it never runs it in its own shell and never answers its prompts (ADR-20261008-5d1e).
 
 ### 15A.2 Command Catalog
 

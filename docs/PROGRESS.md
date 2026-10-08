@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-08 | **Three rules for the chat path, and the agent opens the review** (PR `chore/chat-approval-rules`): the owner approved `inv_aa498871` (the agent never supplies dialog text), `inv_6bae33cf` (chat approval refuses when a hook could answer) and `inv_79b867d5` (every decision records where it was made) in `seamspec review`; this repo now has 9 rules. Their tests were strengthened after the agent in the owner's session pointed out gaps. A second try of the dialog in a full-screen terminal also hid the test. The skills and the protocol now offer to open `seamspec review` for the user in a terminal tab they type into (e.g. the desktop app's terminal panel); the agent never runs it itself or answers it | ADR-20261008-5d1e |
 | 2026-10-08 | **Chat approvals off by default** (PR `fix/chat-approvals-off`): the owner's click-through (verification 2) failed in both Claude Code apps. The terminal CLI folded the dialog to about three lines and hid the test (Ctrl+O didn't expand it); the desktop app showed no dialog and declined all three. Nothing was approved. Now `[review] chat_approvals` is `false` in every mode; a declined dialog stops the review instead of counting as "skipped"; the skills point to `seamspec review` in a terminal again (in the desktop app, its terminal panel). The tool and its guards stay. The local review page (ADR c300 option B) waits until dogfooding shows whether the terminal step is a real pain | ADR-20261008-5d1e |
 | 2026-10-08 | **Approvals in chat** (PR `week-4/chat-approvals`): a new MCP tool, `open_review`, shows the human SeamSpec's own dialogs for proposed rules, supersede requests and new dead ends, so approving no longer needs a terminal. The agent passes only ids and gets only the outcomes. Every decision records where it was made (`decided_via`, plus `via` and the client in the journal). Guards: chat approvals are refused while any hook SeamSpec can see could answer or rewrite its dialogs (checked before each dialog and before acting on the answer); the plugin's new `ConfigChange` hook blocks such hooks added mid-session; each dialog's choices carry a random code; *skip* comes first. Red-green asks its own "run this test?" and needs a trusted clone. Off by default in strict mode (`[review] chat_approvals`). Lock and supersede skills now offer it; the terminal stays the fallback. ADR c300 **ACCEPTED** with the owner's answers. Left: verification 2, the owner clicks through the dialogs once in the CLI and once in the desktop app | ADR-20261006-c300 |
 | 2026-10-08 | **Session-start hook confirmed in a real session** (Claude Haiku 5.5, plan login, no tools, ~$0.16 estimated for 2 sessions): in a fresh clone of this repo with the plugin loaded from the checkout, the model listed all 6 rule ids from the SessionStart context exactly; the same question without the plugin got "NONE". A plugin installed from this folder (`seamspec init --plugin`) is read live, so it has the hook as soon as the checkout does | ADR-20261007-ac04 |
@@ -54,14 +55,13 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## Where we stand (2026-10-08)
 
-- **Works:** the core loop, dogfooded on this repo (#22). `doctor` and `doctor --ci` (#30). The CI workflow from `init` (#32). All six chat skills (#35). Mode handling (#36, #37). The session-start summary (#41, confirmed in a real session, #42). Approvals in chat (PR `week-4/chat-approvals`).
+- **Works:** the core loop, dogfooded on this repo (#22). `doctor` and `doctor --ci` (#30). The CI workflow from `init` (#32). All six chat skills (#35). Mode handling (#36, #37). The session-start summary (#41, confirmed in a real session, #42). Approvals in chat are built (#43) but off by default, since Claude Code doesn't show the whole dialog (#44); approving is `seamspec review`, which the agent offers to open in a terminal tab.
 - **Proven, roughly:** the rough benchmark passed (ADR-20261006-b270); condition E showed plain notes match SeamSpec's memory with a careful model, which led to the session-start hook (ADR-20261007-ac04).
 - **Week 4:** both exit criteria are met (#33, #34). Left: dogfood on one real project.
 - **Next, in order:**
-  1. Owner: review the three proposed rules for the chat path (`inv_aa498871`, `inv_6bae33cf`, `inv_79b867d5`) with `seamspec review` in a terminal; they're committed in their own PR.
-  2. Week 4's last item: dogfood on one real Python or TypeScript project (the owner picks it).
-  3. Week 5: full benchmark with conditions E (rules in `CLAUDE.md`) and F (decisions in ADRs only), C with the session-start hook, a second model and implicit conflicts; then README and docs.
-  4. v0.2: a "critical" rule marking that always shows in full at session start; a local review page (ADR c300 option B).
+  1. Week 4's last item: dogfood on one real Python or TypeScript project (the owner picks it).
+  2. Week 5: full benchmark with conditions E (rules in `CLAUDE.md`) and F (decisions in ADRs only), C with the session-start hook, a second model and implicit conflicts; then README and docs.
+  3. v0.2: a "critical" rule marking that always shows in full at session start; a local review page (ADR c300 option B).
 
 ## In progress
 
