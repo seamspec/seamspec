@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-06 · **Current:** v0.1 · Week 4: CI, doctor, remaining skills, dogfooding · [Week 4 issue](https://github.com/seamspec/seamspec/issues/4)
+**Last updated:** 2026-10-08 · **Current:** v0.1 · Week 4: CI, doctor, remaining skills, dogfooding · [Week 4 issue](https://github.com/seamspec/seamspec/issues/4)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-08 | **Session-start hook confirmed in a real session** (Claude Haiku 5.5, plan login, no tools, ~$0.16 estimated for 2 sessions): in a fresh clone of this repo with the plugin loaded from the checkout, the model listed all 6 rule ids from the SessionStart context exactly; the same question without the plugin got "NONE". Note: an installed copy of the plugin made before #41 has no SessionStart hook until it is refreshed | ADR-20261007-ac04 |
 | 2026-10-07 | **Session-start hook** (PR `week-4/session-start-hook`): at session start (and after `/clear` or compaction), the plugin adds a short summary built from the ledger: approved rules, dead ends, "ask first", pending reviews. It stays within 3,000 characters (about 450 tokens for this repo's 6 rules) by shrinking detail, not dropping rules: full text, else one line per rule, else counts per area with a pointer to `get_constraints`. It runs in every mode, writes no files and leaves `CLAUDE.md` alone | ADR-20261007-ac04 |
 | 2026-10-07 | **Quick condition E result** (`rough-1e`, 6 runs, $4.84): rules written in `CLAUDE.md` broke **0** rules, against 2 for SeamSpec enforced, and cost about 36% less. The pre-set reading is **"notes match SeamSpec's memory"**: the notes-only agent also refused the conflicting requests and asked. **Decision:** the ledger stays the single source, with no notes files and nothing added to `CLAUDE.md`. A session-start hook will add the current agreements from the ledger. Positioning: approved agreements, proven by tests and CI, put in front of every agent. The full run adds F (ADRs only) | ADR-20261007-e1a7, ADR-20261007-ac04, `docs/benchmark/rough-1e.md` |
 | 2026-10-07 | **Benchmark condition E built** (#39): "rules written in `CLAUDE.md`" (no SeamSpec), a new "committed at HEAD" score for every run, and `bench.compare`. The reading rule is fixed before any E run: V(E) ≥ 5 means SeamSpec's memory beats notes; ≤ 3 means notes match it. The rough run, re-scored on committed code: A 9, B 0, C 0, D 6 (SeamSpec never committed a broken rule). Next: the owner runs 6 E runs (≈ $6–7) | ADR-20261007-e1a7 |

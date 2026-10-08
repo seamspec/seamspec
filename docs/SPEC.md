@@ -1829,7 +1829,7 @@ Only the rules are described as human-approved: dead ends appear under their own
 2. **One line each:** otherwise every rule as `id · title (scope: …)` under a heading that says the full rule comes from `get_constraints`, and every dead end as its id, its approach (clipped to 100 characters) and scope.
 3. **Counts by area:** if even that is too long, the number of rules and dead ends in force, a pointer to `get_constraints`, and one line per area: the folder of each record's first scope path, made of the whole path segments before the first one holding a glob (`src/billing/**` and `src/billing/gen*.py` → `src/billing`, `.github/**` → `.github`). A path with no glob is its own area if it's a folder (one that exists, or written with a trailing `/`), else its file's folder. If the area list is too long too, only the totals.
 
-The closing instructions (ask first, pending reviews) follow every level. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. In v0.2 the braindump nudge (§13.9) is added to the same text.
+The closing instructions (ask first, pending reviews) follow every level. It runs in every mode, advisory included (it's context, not enforcement), never blocks, never runs tests, and any error → exit 0 with no output. A real session confirmed that this context reaches the model (2026-10-08: the model listed every rule id; without the plugin it listed none). In v0.2 the braindump nudge (§13.9) is added to the same text.
 
 ```json
 {
