@@ -68,7 +68,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 4** (issue #4): everything is merged (#30, #32, #35, #36, #37) except dogfooding on a real project. The session-start hook (ADR-20261007-ac04) is in #40 and #41.
+- **Week 4** (issue #4): everything is merged (#30, #32, #35, #36, #37) except dogfooding on a real project. The session-start hook: decision merged in #40 (ADR-20261007-ac04), the hook itself in #41.
 
 ## Next (Week 4, issue #4)
 
