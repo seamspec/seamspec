@@ -397,10 +397,16 @@ def test_a_huge_ledger_gets_counts_per_area(git_repo: Path) -> None:
 @pytest.mark.parametrize(
     ("paths", "area"),
     [(["src/billing/**"], "src/billing"), (["src/queue/worker.py"], "src/queue"), (["src/b/*.py"], "src/b"),
-     (["setup.py"], "(repository root)"), (["**/*.py"], "(repository root)"), ([], "(repository root)")],
+     (["src/generated*.py"], "src"), (["packages/foo.bar/**"], "packages/foo.bar"), ([".github/**"], ".github"),
+     (["docs/v1.2/**"], "docs/v1.2"), (["docs/v1.2/"], "docs/v1.2"), (["/src/api/**"], "src/api"),
+     (["lib"], "lib"), (["lib.d"], "lib.d"), (["setup.py"], "(repository root)"),
+     (["**/*.py"], "(repository root)"), ([], "(repository root)")],
 )  # fmt: skip
-def test_area_is_the_folder_before_any_glob(paths: list[str], area: str) -> None:
-    assert claude._area(paths) == area
+def test_area_is_the_folder_before_any_glob(tmp_path: Path, paths: list[str], area: str) -> None:
+    """Copilot, #41: a glob inside a file name or a dotted folder name doesn't confuse the area."""
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib.d").mkdir()  # a dotted folder, written without a glob or a trailing slash
+    assert claude._area(paths, tmp_path) == area
 
 
 def test_too_many_areas_still_gives_totals(git_repo: Path) -> None:

@@ -230,13 +230,21 @@ def _clip(text: str, limit: int = 100) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def _area(paths: list[str]) -> str:
-    """The folder a scope is about: the first path's part before any glob, e.g. src/billing/** -> src/billing."""
-    first = _flat(paths[0]) if paths else ""
-    plain = first.split("*", 1)[0].split("?", 1)[0].split("[", 1)[0].rstrip("/")
-    if "." in plain.rsplit("/", 1)[-1]:  # a file: its folder
-        plain = plain.rsplit("/", 1)[0] if "/" in plain else ""
-    return plain or "(repository root)"
+def _area(paths: list[str], root: Path) -> str:
+    """The folder a scope is about (Copilot, #41). With a glob: the whole path segments before the
+    first one that holds a glob (`src/billing/**` and `src/billing/gen*.py` -> `src/billing`,
+    `.github/**` -> `.github`). Without one, the path names a folder or a file (gitignore rules):
+    a folder that exists, or one written with a trailing `/`, is its own area; a file's area is its folder."""
+    first = _flat(paths[0]).lstrip("!/") if paths else ""
+    parts = first.split("/")
+    globbed = next((i for i, part in enumerate(parts) if any(c in part for c in "*?[")), None)
+    if globbed is not None:
+        area = "/".join(parts[:globbed])
+    elif first.endswith("/") or (root / first).is_dir():
+        area = first.rstrip("/")
+    else:
+        area = "/".join(parts[:-1])
+    return area or "(repository root)"
 
 
 def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | None:
@@ -275,9 +283,9 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
     one_line += ([DEAD_HEADING] if dead else []) + [f"- {d.id}: {_clip(d.approach)} (scope: {scope(d)})" for d in dead]
     by_area: dict[str, list[int]] = {}
     for r in locked:
-        by_area.setdefault(_area(list(r.scope.paths)), [0, 0])[0] += 1
+        by_area.setdefault(_area(list(r.scope.paths), store.root), [0, 0])[0] += 1
     for d in dead:
-        by_area.setdefault(_area(list(d.scope.paths)), [0, 0])[1] += 1
+        by_area.setdefault(_area(list(d.scope.paths), store.root), [0, 0])[1] += 1
     counts = [f"SeamSpec: {len(locked)} rules in force (each approved by a human and backed by a test) and "
               f"{len(dead)} recorded dead ends, too many to list here. Call `get_constraints` for the files you "
               "work on; it returns every rule and dead end that applies. By area:"]  # fmt: skip
