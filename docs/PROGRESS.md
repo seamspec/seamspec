@@ -68,12 +68,12 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **Week 4** (issue #4), slice by slice: `doctor` + `doctor --ci` (#30) → the CI workflow `init` installs (#32) → the remaining skills (#35) → mode handling (PR #36, waiting for CI billing) → dogfooding on a real project.
+- **Week 4** (issue #4): everything is merged (#30, #32, #35, #36, #37) except dogfooding on a real project. The session-start hook (ADR-20261007-ac04) is in #40 and #41.
 
 ## Next (Week 4, issue #4)
 
 - [x] `seamspec doctor` (§16.5). Merged in #30
-- [ ] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). The checks are merged (#30); the template `init` installs is next
+- [x] CI workflow template from `init`: `doctor --ci` forward-only checks, `verify --all --ci`, retirement summary (§16.5). Merged in #30 and #32
 - [x] Skills: `supersede`, `checkpoint`, `context`, `status` (§15A.2). Merged in #35
 - [x] `--mode advisory|enforced|strict` handling (§7.3). Merged in #36; review fixes in #37
 - [ ] Dogfood on SeamSpec itself (done in #22) and at least one real project
