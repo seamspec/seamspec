@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "id": "inv_aa498871",
+  "title": "The agent never supplies approval dialog text",
+  "assertion": "open_review takes item ids only, and every approval dialog's text is rendered by SeamSpec from the ledger: it starts with SeamSpec's own header, and all agent-written text in it (title, rule, origin, test) is marked line by line with a quote bar, so it can't pass for SeamSpec's words.",
+  "scope": {
+    "paths": [
+      "seamspec/chat_review.py",
+      "seamspec/mcp_server.py"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "prompt",
+    "text": "Owner, 2026-10-08: \"propose the three rules for the dialog test\" (the rules ADR-20261006-c300 lists for approvals in chat).",
+    "ref": null
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_aa498871.py",
+    "harness_sha256": "44d3babfdc11f6d14622b0d28ed9a897b9f2fc065e665e449fa2a4624f8ea7b9",
+    "assertion_sha256": "1a4382948608d65db9ef4430e3e76acd697ac9e21f58f0975978fe5d33b42ddb"
+  },
+  "adr_id": null,
+  "created_at": "2026-10-08T06:19:31.965882Z",
+  "approved_at": "2026-10-08T07:00:17.372715Z",
+  "approved_by": "Vamshidhar Pandrapagada <25401978+vamshidhar-pandrapagada@users.noreply.github.com>",
+  "superseded_by": null,
+  "status_reason": null,
+  "decided_via": "terminal"
+}

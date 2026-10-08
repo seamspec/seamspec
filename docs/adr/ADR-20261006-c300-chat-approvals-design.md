@@ -4,7 +4,7 @@ title: Approvals in chat through an MCP form dialog, with hook guards (design)
 status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-06
 scopes: ["seamspec/mcp_server.py", "seamspec/chat_review.py", "seamspec/core/hookguard.py", "seamspec/review.py", "seamspec/core/lifecycle.py", "seamspec-plugin/hooks/**"]
-invariants: []
+invariants: ["inv_aa498871", "inv_6bae33cf", "inv_79b867d5"]
 supersedes: null
 superseded_by: null
 ---
@@ -127,7 +127,7 @@ Any chat channel must be **no weaker than this in practice**, and must stay **vi
 4. OK to run verification 2 (you click a sample dialog once in the CLI and once in the desktop app, ≈ $0.02)? **Yes**, once it's built.
 
 ## Enforced Invariants
-To be proposed for this repo after the merge (the owner can approve them in the new dialogs, which doubles as verification 2): "the agent never supplies dialog text", "chat approval refuses when an Elicitation hook could match", "decided_via is recorded".
+`inv_aa498871` (the agent never supplies approval dialog text), `inv_6bae33cf` (chat approval refuses when a hook could answer), `inv_79b867d5` (every human decision records where it was made). Approved by the owner in `seamspec review` on 2026-10-08, since verification 2 failed (ADR-20261008-5d1e).
 
 ## Consequences (if accepted)
 * Approvals happen without leaving the chat, in the desktop app, IDE chat and CLI alike.

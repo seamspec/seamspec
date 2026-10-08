@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "id": "inv_79b867d5",
+  "title": "Every human decision records where it was made",
+  "assertion": "Approving, rejecting, superseding and retiring a dead end record decided_via (terminal or chat) in the record, and via plus the chat client in the journal.",
+  "scope": {
+    "paths": [
+      "seamspec/core/lifecycle.py",
+      "seamspec/core/journal.py",
+      "seamspec/core/models.py"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "prompt",
+    "text": "Owner, 2026-10-08: \"propose the three rules for the dialog test\" (the rules ADR-20261006-c300 lists for approvals in chat).",
+    "ref": null
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_79b867d5.py",
+    "harness_sha256": "4b4c3e83e444aad1fb24213fd99f47fac91ed75c3236836de7698fb052922595",
+    "assertion_sha256": "29f6aec4eca14a94c64ef1fea787a4dca42c0cef119bef82ef442108e570d72e"
+  },
+  "adr_id": null,
+  "created_at": "2026-10-08T06:19:32.355844Z",
+  "approved_at": "2026-10-08T07:00:28.343628Z",
+  "approved_by": "Vamshidhar Pandrapagada <25401978+vamshidhar-pandrapagada@users.noreply.github.com>",
+  "superseded_by": null,
+  "status_reason": null,
+  "decided_via": "terminal"
+}
