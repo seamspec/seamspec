@@ -153,28 +153,32 @@ def _enabled_plugins(settings: Iterable[Path]) -> set[str]:
     return enabled
 
 
-def _read_json(path: Path) -> object:
+def _read_json(path: Path, problems: list[str]) -> object:
+    """A missing file is None; one that exists but can't be read is a problem (fail closed, Copilot #43)."""
+    if not path.exists():
+        return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, UnicodeDecodeError):
+        problems.append(f"{path}: can't be read, so SeamSpec can't check it for dialog hooks")
         return None
 
 
-def _plugin_dirs(name: str) -> list[Path]:
+def _plugin_dirs(name: str, problems: list[str]) -> list[Path]:
     """Where an enabled plugin `name@marketplace` lives: its installed copy and, for a marketplace
     read from a folder, that folder's copy (which is what Claude Code loads)."""
     plugins = config_dir() / "plugins"
     dirs: list[Path] = []
-    installed = _read_json(plugins / "installed_plugins.json")
+    installed = _read_json(plugins / "installed_plugins.json", problems)
     entries = installed.get("plugins", {}).get(name, []) if isinstance(installed, dict) else []
     for entry in entries if isinstance(entries, list) else []:
         if isinstance(entry, dict) and isinstance(entry.get("installPath"), str):
             dirs.append(Path(entry["installPath"]))
     plugin, _, market = name.partition("@")
-    markets = _read_json(plugins / "known_marketplaces.json")
+    markets = _read_json(plugins / "known_marketplaces.json", problems)
     location = markets.get(market, {}).get("installLocation") if isinstance(markets, dict) else None
     if isinstance(location, str):
-        manifest = _read_json(Path(location) / ".claude-plugin" / "marketplace.json")
+        manifest = _read_json(Path(location) / ".claude-plugin" / "marketplace.json", problems)
         for item in manifest.get("plugins", []) if isinstance(manifest, dict) else []:
             if isinstance(item, dict) and item.get("name") == plugin and isinstance(item.get("source"), str):
                 dirs.append((Path(location) / item["source"]).resolve())
@@ -184,7 +188,7 @@ def _plugin_dirs(name: str) -> list[Path]:
 def check_plugin_dir(d: Path) -> list[str]:
     problems = check_json_file(d / "hooks" / "hooks.json")
     manifest_path = d / ".claude-plugin" / "plugin.json"
-    manifest = _read_json(manifest_path)
+    manifest = _read_json(manifest_path, problems)
     hooks = manifest.get("hooks") if isinstance(manifest, dict) else None
     if isinstance(hooks, dict):
         problems += _json_problems(manifest_path, {"hooks": hooks.get("hooks", hooks)})
@@ -195,11 +199,13 @@ def check_plugin_dir(d: Path) -> list[str]:
     return problems + _check_frontmatter_dirs([d / "skills", d / "agents"])
 
 
-def _launch_args() -> list[str]:
-    """The command lines of the processes that started this one (Claude Code is among them)."""
+def _launch_args() -> list[str] | None:
+    """The command lines of the processes that started this one (Claude Code is among them). None when
+    they can't be read (Windows, or `ps` failing): the caller then can't vouch for them."""
     if sys.platform == "win32":
-        return []
-    out, pid = [], os.getppid()
+        return None
+    out: list[str] = []
+    pid = os.getppid()
     for _ in range(MAX_PARENTS):
         if pid <= 1:
             break
@@ -207,10 +213,12 @@ def _launch_args() -> list[str]:
             ps = subprocess.run(["ps", "-ww", "-o", "ppid=,args=", "-p", str(pid)],
                                 capture_output=True, text=True, timeout=5)  # fmt: skip
         except (OSError, subprocess.TimeoutExpired):
-            break
+            return out or None
         parts = ps.stdout.strip().split(None, 1)
         if ps.returncode != 0 or len(parts) < 2:
-            break
+            if not out:
+                return None  # not even our own parent: nothing was checked
+            break  # an ancestor exited meanwhile: the ones read are checked
         out.append(parts[1])
         pid = int(parts[0]) if parts[0].isdigit() else 0
     return out
@@ -231,20 +239,29 @@ def _check_launch_args(args: list[str]) -> list[str]:
     return problems
 
 
-def scan(project_dirs: Iterable[Path], launch_args: list[str] | None = None) -> list[str]:
-    """Every hook SeamSpec can see that could answer or change its dialogs. Empty means none found."""
+UNCHECKED_LAUNCH = "the arguments Claude Code was started with can't be checked here (e.g. on Windows)"
+USE_DEFAULT = object()
+
+
+def scan(project_dirs: Iterable[Path], launch_args: list[str] | None | object = USE_DEFAULT) -> list[str]:
+    """Every hook SeamSpec can see that could answer or change its dialogs. Empty means none found.
+    `launch_args`: the command lines to check (default: read them); None means they couldn't be read."""
     project_dirs = list(project_dirs)
     settings = _settings_files(project_dirs)
     problems: list[str] = []
     for path in settings:
         problems += check_json_file(path)
     for name in sorted(_enabled_plugins(settings)):
-        for d in _plugin_dirs(name):
+        dirs = _plugin_dirs(name, problems)
+        if not dirs:
+            problems.append(f"plugin {name} is enabled but SeamSpec can't find where it's installed")
+        for d in dirs:
             problems += check_plugin_dir(d)
     cfg = config_dir()
     folders = [cfg / "skills", cfg / "agents"]
     for d in _ancestors(project_dirs):
         folders += [d / ".claude" / "skills", d / ".claude" / "agents"]
     problems += _check_frontmatter_dirs(dict.fromkeys(folders))
-    problems += _check_launch_args(_launch_args() if launch_args is None else launch_args)
+    args = _launch_args() if launch_args is USE_DEFAULT else launch_args
+    problems += [UNCHECKED_LAUNCH] if args is None else _check_launch_args(args)  # type: ignore[arg-type]
     return list(dict.fromkeys(problems))

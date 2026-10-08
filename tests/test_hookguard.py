@@ -93,6 +93,19 @@ def test_enabled_plugins_are_checked_where_they_live(tmp_path: Path) -> None:
     assert any("local/.claude-plugin/plugin.json" in p and "ElicitationResult" in p for p in problems)
 
 
+def test_unreadable_plugin_records_and_missing_plugins_fail_closed(tmp_path: Path) -> None:
+    """Copilot, #43: present but unreadable is a problem, unlike missing; an enabled plugin must be found."""
+    plugins = hookguard.config_dir() / "plugins"
+    write(tmp_path / "proj" / ".claude" / "settings.json", {"enabledPlugins": {"other@market": True}})
+    assert hookguard.scan([tmp_path / "proj"]) == ["plugin other@market is enabled but SeamSpec can't find where "
+                                                   "it's installed"]  # fmt: skip
+    write(plugins / "installed_plugins.json", "{broken")
+    assert any("installed_plugins.json: can't be read" in p for p in hookguard.scan([tmp_path / "proj"]))
+    cached = write(tmp_path / "cache" / "other" / ".claude-plugin" / "plugin.json", "{broken").parents[1]
+    write(plugins / "installed_plugins.json", {"plugins": {"other@market": [{"installPath": str(cached)}]}})
+    assert [p for p in hookguard.scan([tmp_path / "proj"]) if "plugin.json: can't be read" in p]
+
+
 def test_skill_and_agent_frontmatter(tmp_path: Path) -> None:
     text = "---\nname: auto\nhooks:\n  Elicitation:\n    - hooks: []\n---\nBody mentions Elicitation too.\n"
     skill = write(tmp_path / ".claude" / "skills" / "auto" / "SKILL.md", text)
@@ -107,6 +120,13 @@ def test_launch_arguments(tmp_path: Path) -> None:
     assert len(hookguard.scan([tmp_path / "x"], [f"claude --plugin-dir {plugin} --settings={settings}"])) == 2
     inline = 'claude --settings {"hooks":{"Elicitation":[{"hooks":[]}]}}'
     assert "started with settings" in hookguard.scan([tmp_path / "x"], [inline])[0]
+
+
+def test_launch_args_that_cant_be_read_refuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Copilot, #43: on Windows (or when `ps` fails) SeamSpec can't vouch for --settings / --plugin-dir."""
+    assert hookguard.scan([tmp_path], None) == [hookguard.UNCHECKED_LAUNCH]
+    monkeypatch.setattr(hookguard.sys, "platform", "win32")
+    assert REAL_LAUNCH_ARGS() is None
 
 
 def test_launch_args_read_the_parent_processes() -> None:

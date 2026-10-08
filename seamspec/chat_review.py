@@ -23,6 +23,7 @@ Guards (all from the ADR):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import string
@@ -170,7 +171,8 @@ def _message(store: Store, cfg: Config, state: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _dialog(store: Store, cfg: Config, state: dict[str, Any]) -> InputRequiredResult:
+def _rendered(store: Store, cfg: Config, state: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """The dialog for the current item and phase: its message and its form."""
     kind = state["queue"][state["i"]][0]
     if state["phase"] == "run":
         reason = None
@@ -178,11 +180,30 @@ def _dialog(store: Store, cfg: Config, state: dict[str, Any]) -> InputRequiredRe
         reason = {"de": "Reason (required for wrong)", "sup": "Reason (required to decline)",
                   "inv": "Reason (required to reject)"}[kind]  # fmt: skip
     schema = _schema(_choices(store, cfg, state), state["code"], reason, kind == "inv" and state["phase"] == "decide")
+    return _message(store, cfg, state), schema
+
+
+def _digest(store: Store, cfg: Config, state: dict[str, Any]) -> str:
+    message, schema = _rendered(store, cfg, state)
+    return hashlib.sha256((message + json.dumps(schema, sort_keys=True)).encode("utf-8")).hexdigest()
+
+
+def _unchanged(store: Store, cfg: Config, state: dict[str, Any]) -> bool:
+    """Is the dialog the human answered still what SeamSpec would show now? (Copilot, #43) The test, the
+    request and the record are on disk, so another process could change them while the dialog is open;
+    the answer must never apply to something the human didn't see."""
+    try:
+        return _digest(store, cfg, state) == state.get("shown")
+    except (KeyError, OSError):
+        return False
+
+
+def _dialog(store: Store, cfg: Config, state: dict[str, Any]) -> InputRequiredResult:
+    message, schema = _rendered(store, cfg, state)
+    state["shown"] = _digest(store, cfg, state)
     state["key"] = f"q{state['n']}"
     state["n"] += 1
-    request = ElicitRequest(
-        params=ElicitRequestFormParams(message=_message(store, cfg, state), requested_schema=schema)
-    )
+    request = ElicitRequest(params=ElicitRequestFormParams(message=message, requested_schema=schema))
     return InputRequiredResult(input_requests={state["key"]: request}, request_state=json.dumps(state))
 
 
@@ -213,16 +234,22 @@ def _apply(store: Store, cfg: Config, state: dict[str, Any], answer: object, cli
         journal.note(store, "chat_answer_rejected", item=item_id, client=client)
         raise Stop(f"An answer for {item_id} didn't match the dialog SeamSpec showed (a hook may have answered "
                    f"it), so nothing was changed for it and the review stopped. {FALLBACK}")  # fmt: skip
+    if not _still_pending(store, kind, item_id):
+        return _next(state, None)  # decided elsewhere meanwhile: nothing to apply
+    if not _unchanged(store, cfg, state):
+        state["note"] = "This item changed after the dialog was shown, so your answer wasn't applied. Here it is again."
+        return None
     reason = str(content.get("reason") or "").strip()
     handlers: dict[str, Callable[[], None]] = {
-        "de": lambda: _apply_dead_end(store, state, item_id, choice, reason),
+        "de": lambda: _apply_dead_end(store, state, item_id, choice, reason, client),
         "sup": lambda: _apply_supersede(store, cfg, state, item_id, choice, reason, client),
         "inv": lambda: _apply_proposal(store, cfg, state, item_id, choice, reason, content, client),
     }
     handlers[kind]()
 
 
-def _apply_dead_end(store: Store, state: dict[str, Any], de_id: str, choice: str, reason: str) -> None:
+def _apply_dead_end(store: Store, state: dict[str, Any], de_id: str, choice: str, reason: str,
+                    client: str | None) -> None:  # fmt: skip
     if choice == "skip":
         _declined.add(de_id)
         return _next(state, f"{de_id}: skipped")
@@ -230,7 +257,7 @@ def _apply_dead_end(store: Store, state: dict[str, Any], de_id: str, choice: str
         state["note"] = "A reason is required to retire a dead end."
         return None
     if choice == "wrong":
-        lifecycle.retire_dead_end(store, de_id, reason, via="chat")
+        lifecycle.retire_dead_end(store, de_id, reason, via="chat", client=client)
     review.mark_dead_end_seen(store, de_id)
     return _next(state, f"{de_id}: retired ({reason})" if choice == "wrong" else f"{de_id}: kept")
 
@@ -320,7 +347,10 @@ def step(
         else {"queue": _queue(store, ids), "i": 0, "n": 0, "phase": "decide", "out": [], "code": _code()}
     )
     if not state["queue"]:
-        return {"reviewed": [], "still_waiting": 0, "message": "Nothing waits for review."}
+        if not any(review.pending(store)):
+            return {"reviewed": [], "still_waiting": 0, "message": "Nothing waits for review."}
+        return _finish(store, state, "Nothing new to show: what's waiting was skipped earlier in this session "
+                       "(or isn't among the ids asked for). Ask for an item by id to see it again.")  # fmt: skip
     problems = hookguard.scan(project_dirs)
     if problems:
         journal.note(store, "chat_review_refused", problems=problems, client=client)

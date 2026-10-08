@@ -446,8 +446,16 @@ def supersede(
     return {"id": inv_id, "status": "SUPERSEDED", "superseded_by": replacement_id}
 
 
-def retire_dead_end(store: Store, de_id: str, reason: str, via: Via = "terminal") -> dict[str, Any]:
-    """ACTIVE → RETIRED, e.g. once a library upgrade makes the approach valid again (§11.3)."""
+def retire_dead_end(
+    store: Store,
+    de_id: str,
+    reason: str,
+    via: Via = "terminal",
+    actor: str | None = None,
+    client: str | None = None,
+) -> dict[str, Any]:
+    """ACTIVE → RETIRED, e.g. once a library upgrade makes the approach valid again (§11.3). Journaled
+    like the other human decisions (Copilot, #43)."""
     require_interactive(via)
     if not reason.strip():
         raise LifecycleError("a reason is required")
@@ -461,6 +469,7 @@ def retire_dead_end(store: Store, de_id: str, reason: str, via: Via = "terminal"
             {**de.model_dump(), "status": "RETIRED", "retired_reason": reason.strip(), "decided_via": via}
         )
     )
+    journal.append(store, de_id, "ACTIVE", "RETIRED", actor or approver_identity(store), via, client)
     return {"id": de_id, "status": "RETIRED"}
 
 

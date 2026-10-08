@@ -124,7 +124,8 @@ def test_reject_needs_a_reason_and_can_record_a_dead_end(project: Path) -> None:
 def test_skipped_items_are_not_offered_again_this_session(project: Path) -> None:
     inv_id = propose(project)["id"]
     assert review(Human(pick("skip")))["reviewed"] == [f"{inv_id}: skipped"]
-    assert review(Human())["message"] == "Nothing waits for review."
+    out = review(Human())  # Copilot, #43: skipped is still waiting
+    assert out["still_waiting"] == 1 and out["message"].startswith("Nothing new to show")
     assert review(Human(closed("decline")), ids=[inv_id])["reviewed"] == [f"{inv_id}: skipped"]  # asked by id
     assert inv(project, inv_id).status == InvStatus.PROPOSED
 
@@ -167,6 +168,37 @@ def test_long_reviews_pause_and_resume(project: Path, monkeypatch: pytest.Monkey
         propose(project)
     out = review(Human(pick("skip"), pick("skip")))
     assert len(out["reviewed"]) == 2 and "call open_review again" in out["message"]
+
+
+def test_an_answer_never_applies_to_content_changed_after_the_dialog(project: Path) -> None:
+    """Copilot, #43: the test is on disk; if it changes while the dialog is open, the answer isn't applied
+    and the human sees the new version first."""
+    inv_id = propose(project)["id"]
+    harness = project / inv(project, inv_id).verification.harness_path
+
+    def swap_test_then_approve(message: str, choices: list[str]) -> ElicitResult:
+        harness.write_text(harness.read_text() + "\n\ndef test_more():\n    assert True\n")
+        return pick("approve")(message, choices)
+
+    human = Human(swap_test_then_approve, pick("approve"))
+    out = review(human)
+    assert "changed after the dialog was shown" in human.shown[1][0] and "def test_more" in human.shown[1][0]
+    assert out["reviewed"] == [f"{inv_id}: approved (LOCKED)"]  # only after the second, current dialog
+
+
+def test_a_changed_supersede_reason_is_shown_again(project: Path) -> None:
+    store = Store(project)
+    old = propose(project)["id"]
+    review(Human(pick("approve")))
+    lifecycle.request_supersede(store, old, "Raise the cap")
+
+    def change_request_then_supersede(message: str, choices: list[str]) -> ElicitResult:
+        lifecycle.request_supersede(store, old, "Remove the cap entirely")
+        return pick("supersede")(message, choices)
+
+    human = Human(change_request_then_supersede, pick("skip"))
+    review(human)
+    assert "Remove the cap entirely" in human.shown[1][0] and inv(project, old).status == InvStatus.LOCKED
 
 
 # --- red-green, supersede requests, dead ends --------------------------------------------------------
@@ -232,6 +264,9 @@ def test_dead_ends_keep_or_retire(project: Path) -> None:
     assert out["reviewed"] == ["de_00000001: kept", "de_00000002: retired (Fixed upstream)"]
     retired = store.get("de_00000002")
     assert isinstance(retired, DeadEnd) and retired.status == "RETIRED" and retired.decided_via == "chat"
+    entry = journal.entries(store)[-1]  # Copilot, #43: journaled like every human decision
+    assert (entry["id"], entry["from"], entry["to"], entry["via"]) == ("de_00000002", "ACTIVE", "RETIRED", "chat")
+    assert entry.get("client")
     assert review(Human())["message"] == "Nothing waits for review."  # both seen: no longer new
 
 
