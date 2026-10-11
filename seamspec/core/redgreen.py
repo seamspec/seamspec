@@ -8,13 +8,24 @@ How: run the proposed test on the working tree, then in a temporary detached `gi
 `HEAD`. The worktree gets SeamSpec's *current* settings (config.toml and each runner's config
 files, so both runs use the same runner) and links to the project's `.venv` / `node_modules`,
 which a fresh worktree doesn't have. The worktree is always removed afterwards.
+
+The HEAD run must import HEAD's code. A project installed in editable mode (`uv sync`,
+`pip install -e`) has its virtualenv point at the *working tree*, so the linked `.venv` would hand
+the HEAD run today's code and the answer would be a false "no" (dogfooding finding,
+ADR-20261011-3c7e). So the HEAD run starts the runner through a copy of its start script that first
+points every import path inside the repository at the worktree. Only PATH is used for that, never a
+new environment variable (§12.4.7). Where that can't be done and an editable install is present,
+the answer is "n/a", never a guess.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -92,10 +103,19 @@ def check(store: Store, cfg: Config, inv: Invariant) -> RedGreen:
         staged_head = inv.model_copy(
             update={"verification": inv.verification.model_copy(update={"harness_path": runner.harness_path(inv.id)})}
         )
+        top = _git(root, "rev-parse", "--show-toplevel")
+        top_dir = Path(top.stdout.strip()) if top is not None and top.returncode == 0 else root
+        shims = tmp / "bin"
         try:
-            before = verifier.run(wt_root, cfg, [staged_head], fingerprints=prints)
+            redirected = _shim_runner(cfg, runner.cmd[0], wt_root, shims, top_dir, wt)
+            before = verifier.run(
+                wt_root, cfg, [staged_head], fingerprints=prints, first_on_path=[str(shims)] if redirected else ()
+            )
         except OSError as exc:
             return RedGreen("n/a", f"couldn't run the test against HEAD: {exc}")
+        if editable_install(root, top_dir, os.environ) and not (shims / APPLIED).exists():
+            return RedGreen("n/a", "this project is installed in editable mode, and the test couldn't be pointed at "
+                            "the last commit's code")  # fmt: skip
     finally:
         _git(root, "worktree", "remove", "--force", str(wt))
         shutil.rmtree(tmp, ignore_errors=True)
@@ -125,3 +145,137 @@ def _prepare(root: Path, wt_root: Path, cfg: Config, inv: Invariant) -> None:
         src = root / name
         if src.exists() and not (wt_root / name).exists():
             (wt_root / name).symlink_to(src.resolve(), target_is_directory=True)
+
+
+# --- the HEAD run imports HEAD's code ---------------------------------------------------------------
+
+APPLIED = "applied"  # written by the redirect when it has run
+
+# Runs first in the runner's start script. It moves every import path inside the repository to the
+# same place in the HEAD worktree: sys.path entries (a `.pth` editable install, PYTHONPATH) and the
+# tables of import-hook editable installs (`__editable__*` modules). The interpreter's own folders
+# are left alone, since a virtualenv usually sits inside the repository.
+_REDIRECT = """\
+def _redirect():
+    import os, sys
+    src, dst, here = {src!r}, {dst!r}, {here!r}
+    own = [os.path.normcase(os.path.realpath(p)) for p in (sys.prefix, sys.base_prefix, sys.exec_prefix)]
+    inside = os.path.normcase(src)
+    def move(path):
+        if not isinstance(path, str) or not path:
+            return path
+        real = os.path.realpath(path)
+        key = os.path.normcase(real)
+        if any(key == o or key.startswith(o + os.sep) for o in own):
+            return path
+        if key == inside or key.startswith(inside + os.sep):
+            return dst + real[len(src):]
+        return path
+    sys.path[:] = [move(p) for p in sys.path]
+    for name, module in list(sys.modules.items()):
+        if name.startswith("__editable__"):
+            for attr in ("MAPPING", "NAMESPACES"):
+                table = getattr(module, attr, None)
+                if isinstance(table, dict):
+                    for k, v in list(table.items()):
+                        table[k] = [move(x) for x in v] if isinstance(v, list) else move(v)
+    sys.path_importer_cache.clear()
+    try:
+        open(os.path.join(here, {applied!r}), "w").close()
+    except OSError:
+        pass
+_redirect()
+del _redirect
+"""
+
+
+def _shim_runner(cfg: Config, command: str, wt_root: Path, shims: Path, top: Path, wt: Path) -> bool:
+    """Write a copy of the runner's start script that redirects imports first. False when the runner
+    isn't started from a Python script SeamSpec can copy (a path, a binary, a Windows launcher)."""
+    if "/" in command or os.sep in command:
+        return False
+    path = verifier.build_env(cfg, root=wt_root).get("PATH", "")
+    found = shutil.which(command, path=path)
+    if found is None:
+        return False
+    try:
+        lines = Path(found).read_text(encoding="utf-8").splitlines(keepends=True)
+    except (OSError, UnicodeDecodeError):
+        return False
+    at = _insert_at(lines)
+    if at is None:
+        return False
+    shims.mkdir(parents=True, exist_ok=True)
+    redirect = _REDIRECT.format(
+        src=os.path.realpath(top), dst=os.path.realpath(wt), here=str(shims.resolve()), applied=APPLIED
+    )
+    target = shims / Path(found).name
+    target.write_text("".join(lines[:at]) + redirect + "".join(lines[at:]), encoding="utf-8")
+    target.chmod(0o755)
+    return True
+
+
+def _insert_at(lines: list[str]) -> int | None:
+    """Where the redirect goes in a Python start script: after the `#!` line, or after the three-line
+    `#!/bin/sh` + `'''exec'` header that installers write when the interpreter path is long."""
+    if not lines or not lines[0].startswith("#!"):
+        return None
+    if any(line.startswith("from __future__") for line in lines[:15]):
+        return None  # must stay the first statement; leave such a script alone
+    if "python" in lines[0].lower():
+        return 1
+    if len(lines) >= 3 and lines[1].startswith("'''exec'") and "python" in lines[1].lower():
+        return 3
+    return None
+
+
+def _site_packages(roots: list[Path], environ: Mapping[str, str]) -> Iterator[Path]:
+    venvs = [r / name for r in roots for name in (".venv", "venv")]
+    if environ.get("VIRTUAL_ENV"):
+        venvs.append(Path(environ["VIRTUAL_ENV"]))
+    for venv in dict.fromkeys(venvs):
+        yield from venv.glob("lib/python*/site-packages")
+        yield from venv.glob("Lib/site-packages")
+
+
+def _inside(path: str, top: Path, site: Path) -> bool:
+    """An absolute path inside the repository, but not inside the virtualenv itself."""
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        return False
+    real, top_real = os.path.realpath(candidate), os.path.realpath(top)
+    venv = os.path.realpath(site.parents[2] if site.parent.name.startswith("python") else site.parents[1])
+    under = real == top_real or real.startswith(top_real + os.sep)
+    return under and not (real == venv or real.startswith(venv + os.sep))
+
+
+def editable_install(root: Path, top: Path, environ: Mapping[str, str]) -> bool:
+    """Does a virtualenv this project uses import code from inside the repository? True for an
+    editable install: a `.pth` line, an `__editable__` import hook, or `direct_url.json` saying so."""
+    for site in _site_packages(list(dict.fromkeys([root, top])), environ):
+        for pth in site.glob("*.pth"):
+            try:
+                lines = pth.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            for line in (ln.strip() for ln in lines):
+                if line and not line.startswith(("#", "import ", "import\t")) and _inside(line, top, site):
+                    return True
+        for hook in site.glob("__editable__*.py"):
+            try:
+                if os.path.realpath(top) in hook.read_text(encoding="utf-8", errors="replace"):
+                    return True
+            except OSError:
+                continue
+        for record in site.glob("*.dist-info/direct_url.json"):
+            try:
+                data = json.loads(record.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            url = data.get("url", "") if isinstance(data, dict) else ""
+            editable = (
+                isinstance(data, dict) and isinstance(data.get("dir_info"), dict) and data["dir_info"].get("editable")
+            )
+            if editable and url.startswith("file://") and _inside(url[len("file://") :], top, site):
+                return True
+    return False

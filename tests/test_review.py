@@ -75,6 +75,129 @@ def test_no_git_or_no_commits(py_repo: Path) -> None:
     assert check(py_repo, inv_id).detail.startswith("no commits yet")
 
 
+# --- red-green with an editable install (dogfooding finding #4, ADR-20261011-3c7e) -------------------
+
+WIDGET_TEST = "from widgets.new import triple\n\n\ndef test_triple():\n    assert triple(2) == 6\n"
+
+
+@pytest.fixture
+def editable_repo(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A package the interpreter imports from an absolute path inside the repository, as an editable
+    install does (`uv sync`, `pip install -e`). PYTHONPATH stands in for the virtualenv's `.pth` line:
+    both put that folder on sys.path at start-up. The new module is not committed."""
+    (git_repo / "lib/widgets").mkdir(parents=True)
+    (git_repo / "lib/widgets/__init__.py").write_text("")
+    git(git_repo, "add", "-A")
+    git(git_repo, "commit", "-q", "-m", "widgets package")
+    (git_repo / "lib/widgets/new.py").write_text("def triple(n):\n    return n * 3\n")
+    monkeypatch.setenv("PYTHONPATH", str(git_repo / "lib"))
+    return git_repo
+
+
+def fake_editable_install(root: Path, line: str) -> Path:
+    """What an installer leaves in the project's virtualenv: a `.pth` file in site-packages."""
+    site = root / ".venv/lib/python3.12/site-packages"
+    site.mkdir(parents=True, exist_ok=True)
+    (site / "_widgets.pth").write_text(line + "\n")
+    return site
+
+
+def test_editable_install_no_longer_hides_new_code(editable_repo: Path) -> None:
+    """Before the fix this said "no": the HEAD copy imported the working tree's widgets/new.py."""
+    fake_editable_install(editable_repo, str(editable_repo / "lib"))
+    inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
+    result = check(editable_repo, inv_id)
+    assert result.verdict == "yes", result.detail
+    assert worktrees(editable_repo) == 1
+
+
+def test_existing_code_in_an_editable_install_still_says_no(editable_repo: Path) -> None:
+    git(editable_repo, "add", "-A")
+    git(editable_repo, "commit", "-q", "-m", "triple")
+    inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
+    assert check(editable_repo, inv_id).verdict == "no"
+
+
+def test_no_guess_when_the_runner_cant_be_redirected(editable_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A runner that isn't started from a Python script (a binary, a Windows launcher) can't be
+    pointed at HEAD's code. With an editable install present, the honest answer is "n/a"."""
+    fake_editable_install(editable_repo, str(editable_repo / "lib"))
+    monkeypatch.setattr(redgreen, "_shim_runner", lambda *args: False)
+    inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
+    result = check(editable_repo, inv_id)
+    assert result.verdict == "n/a" and "editable mode" in result.detail
+
+
+def test_the_head_run_sets_no_new_environment_variable(editable_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The redirect rides on PATH only (locked rule inv_4b4f5ea7, SPEC 12.4.7)."""
+    from seamspec.core import verifier
+
+    seen: list[dict[str, str]] = []
+    real = verifier.build_env
+
+    def spy(*args, **kwargs):
+        env = real(*args, **kwargs)
+        seen.append(env)
+        return env
+
+    monkeypatch.setattr(verifier, "build_env", spy)
+    inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
+    assert check(editable_repo, inv_id).verdict == "yes"
+    allowed = verifier.BASE_ENV_KEYS
+    assert seen and all(set(env) <= allowed or all(k.startswith("LC_") for k in set(env) - allowed) for env in seen)
+    assert not [k for env in seen for k in env if "SEAMSPEC" in k.upper()]
+
+
+@pytest.mark.parametrize(
+    ("script", "at"),
+    [
+        ("#!/proj/.venv/bin/python\n# -*- coding: utf-8 -*-\nimport sys\n", 1),
+        ("#!/bin/sh\n'''exec' \"/a long path/python\" \"$0\" \"$@\"\n' '''\nimport sys\n", 3),
+        ("#!/proj/.venv/bin/python\nfrom __future__ import annotations\n", None),
+        ('#!/bin/sh\nexec pytest "$@"\n', None),
+        ("\x7fELF binary", None),
+        ("", None),
+    ],
+)
+def test_where_the_redirect_goes_in_a_start_script(script: str, at: int | None) -> None:
+    assert redgreen._insert_at(script.splitlines(keepends=True)) == at
+
+
+def test_detecting_an_editable_install(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    (root / "src").mkdir(parents=True)
+    env: dict[str, str] = {}
+    assert not redgreen.editable_install(root, root, env)  # no virtualenv at all
+    site = fake_editable_install(root, str(tmp_path / "elsewhere"))
+    assert not redgreen.editable_install(root, root, env)  # a path outside the repository
+    fake_editable_install(root, "relative/path")
+    assert not redgreen.editable_install(root, root, env)
+    fake_editable_install(root, str(site / "vendored"))
+    assert not redgreen.editable_install(root, root, env)  # inside the virtualenv itself
+    fake_editable_install(root, "import _virtualenv")
+    assert not redgreen.editable_install(root, root, env)
+    fake_editable_install(root, str(root / "src"))
+    assert redgreen.editable_install(root, root, env)  # a `.pth` line, as uv and hatch write
+
+    (site / "_widgets.pth").unlink()
+    (site / "__editable___demo_finder.py").write_text(f"MAPPING = {{'demo': '{root.resolve()}/src/demo'}}\n")
+    assert redgreen.editable_install(root, root, env)  # an import hook, as setuptools writes
+    (site / "__editable___demo_finder.py").unlink()
+    info = site / "demo-0.1.dist-info"
+    info.mkdir()
+    (info / "direct_url.json").write_text(
+        json.dumps({"url": f"file://{root.resolve()}", "dir_info": {"editable": True}})
+    )
+    assert redgreen.editable_install(root, root, env)
+    (info / "direct_url.json").write_text(json.dumps({"url": f"file://{root.resolve()}", "dir_info": {}}))
+    assert not redgreen.editable_install(root, root, env)  # installed from the folder, but not editable
+
+    other = tmp_path / "active-env/lib/python3.12/site-packages"
+    other.mkdir(parents=True)
+    (other / "x.pth").write_text(str(root / "src") + "\n")
+    assert redgreen.editable_install(root, root, {"VIRTUAL_ENV": str(tmp_path / "active-env")})
+
+
 def test_seamspec_in_a_subfolder(tmp_path: Path) -> None:
     from seamspec.installers import scaffold
 

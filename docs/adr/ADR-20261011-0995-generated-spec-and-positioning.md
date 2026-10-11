@@ -35,8 +35,8 @@ The owner also used a "braindump" without the feature: the dogfooding project's 
 A new command prints a readable document **generated from the ledger**:
 
 - **Grouped by area** of the code (the same area rule as the session-start summary, §16.1).
-- **Each LOCKED rule** in plain language: title, the rule's own text, where it applies, who approved it and when, where it was decided (`decided_via`), its test file, and its linked decision record.
-- **Retired rules:** SUPERSEDED ones, with the reason and what replaced them.
+- **Each LOCKED rule** in plain language: title, the rule's own text, where it applies, who approved it and when, where it was decided (`decided_via`), its test file and, when it has one, its linked decision record.
+- **Retired rules:** SUPERSEDED ones, with the reason and, when there is one, what replaced them.
 - **Tried and failed:** active dead ends, with why they failed.
 - **Not included:** PROPOSED rules (a count only). The spec is what a human approved.
 
@@ -49,7 +49,7 @@ SeamSpec still writes **no specs up front**. That is the job of the spec-first t
 
 ### 2. Positioning
 
-SeamSpec is pitched as **a regression guard for agent-written code that works alongside spec tools**, not as spec-driven development: *"OpenSpec or Kiro says what to build; SeamSpec makes sure it stays built, and gives you the spec your code has earned, every line backed by a test."* The README and the demo lead with enforcement (the block, the supersede question) and the generated spec.
+SeamSpec is pitched as **a regression guard for agent-written code that works alongside spec tools**, not as spec-driven development: *"OpenSpec or Kiro says what to build; SeamSpec makes sure it stays built, and gives you the spec your code has earned, every approved rule backed by a test."* (Dead ends are listed as history and carry no test.) The README and the demo lead with enforcement (the block, the supersede question) and the generated spec.
 
 ### 3. Order of work
 

@@ -17,7 +17,7 @@ import signal
 import subprocess
 import time
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -155,14 +155,18 @@ def build_env(
     environ: Mapping[str, str] | None = None,
     root: Path | None = None,
     overrides: Mapping[str, str] | None = None,
+    first_on_path: Sequence[str] = (),
 ) -> dict[str, str]:
     """Minimal environment for test runs (§12.4.7). Deliberately NO "under verification" flag:
     code must not be able to tell it is being checked. `overrides` (a runner's `env`) apply
-    first; with `root`, the project's own tool folders then go ahead of the resulting PATH."""
+    first; with `root`, the project's own tool folders then go ahead of the resulting PATH.
+    `first_on_path` goes ahead of those: red-green uses it for its copy of the runner's start
+    script (§11.4). PATH stays the only variable SeamSpec sets itself."""
     source = os.environ if environ is None else environ
     allowed = BASE_ENV_KEYS | set(cfg.execution.env_passthrough)
     env = {k: v for k, v in source.items() if k in allowed or k.startswith("LC_")} | dict(overrides or {})
-    if root is not None and (local := local_bin_dirs(root, env)):
+    local = [*first_on_path, *(local_bin_dirs(root, env) if root is not None else [])]
+    if local:
         env["PATH"] = os.pathsep.join([*local, *([env["PATH"]] if env.get("PATH") else [])])
     return env
 
@@ -199,8 +203,22 @@ def _kill_group(proc: subprocess.Popen[str]) -> None:
         proc.communicate(timeout=5)
 
 
+def runner_env(
+    root: Path, cfg: Config, runner: RunnerCfg, report_path: Path, first_on_path: Sequence[str] = ()
+) -> dict[str, str]:
+    """The environment a runner is started with."""
+    overrides = {k: v.replace("{report}", str(report_path)) for k, v in runner.env.items()}
+    return build_env(cfg, root=root, overrides=overrides, first_on_path=first_on_path)
+
+
 def _invoke(
-    root: Path, cfg: Config, name: str, runner: RunnerCfg, invs: list[Invariant], deadline: float | None
+    root: Path,
+    cfg: Config,
+    name: str,
+    runner: RunnerCfg,
+    invs: list[Invariant],
+    deadline: float | None,
+    first_on_path: Sequence[str] = (),
 ) -> RunnerResult:
     ids = [i.id for i in invs]
     budget = float(cfg.verify.timeout_seconds)
@@ -213,9 +231,7 @@ def _invoke(
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.unlink(missing_ok=True)  # never read a stale report
     argv = expand_argv(runner, invs, report_path)
-    env = build_env(
-        cfg, root=root, overrides={k: v.replace("{report}", str(report_path)) for k, v in runner.env.items()}
-    )
+    env = runner_env(root, cfg, runner, report_path, first_on_path)
     if "/" not in argv[0] and os.sep not in argv[0]:  # look it up on the run's PATH (Windows ignores env PATH)
         argv[0] = shutil.which(argv[0], path=env.get("PATH", "")) or argv[0]
 
@@ -283,10 +299,12 @@ def run(
     invariants: list[Invariant],
     deadline: float | None = None,
     fingerprints: dict[str, str] | None = None,
+    first_on_path: Sequence[str] = (),
 ) -> VerifyReport:
     """Verify `invariants`. `deadline` is a time.monotonic() value: hooks pass
     now + verify.stop_deadline_seconds; pre-commit and CI pass None (no deadline, always the full set).
-    `fingerprints` overrides the committed fingerprints.json (used by approve, §19.8)."""
+    `fingerprints` overrides the committed fingerprints.json (used by approve, §19.8).
+    `first_on_path`: folders put first on the runners' PATH (red-green only, §11.4)."""
     report = VerifyReport(passed=True)
     report.config_failures = check_fingerprints(root, cfg, fingerprints)
 
@@ -317,7 +335,7 @@ def run(
             )
             continue
 
-        result = _invoke(root, cfg, name, runner, invs, deadline)
+        result = _invoke(root, cfg, name, runner, invs, deadline, first_on_path)
         # Fallback attribution (§12A.4): rerun each harness alone, while time remains.
         if (
             not result.passed
@@ -327,7 +345,7 @@ def run(
         ):
             alone: list[str] = []
             for inv in invs:
-                single = _invoke(root, cfg, name, runner, [inv], deadline)
+                single = _invoke(root, cfg, name, runner, [inv], deadline, first_on_path)
                 if single.incomplete:
                     alone = []  # out of time: keep the group result unattributed
                     break
