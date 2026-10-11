@@ -1360,12 +1360,39 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
 | `seamspec drain [--json] [--tidy]` *(v0.2)* | List pending braindump items; `--tidy` moves processed items below the marker |
 | `seamspec doctor [--ci] [--base <ref>] [--json]` | Validate config, record schemas, hashes, runner config fingerprints, approval provenance and scopes. Locally it also checks the approval journal, `CLAUDE.md` directive drift (§18), the git pre-commit hook, and hosts allowlisting SeamSpec commands (§12.4.3). `--ci` replaces the local-state checks with ledger forward-only checks against the base branch and the retirement summary (§16.5). Exits 1 on any error; warnings never fail. v0.1 scope: ADR-20261006-9623 |
+| `seamspec spec [--out FILE] [--check FILE]` *(planned, week 5)* | Print the spec the code has earned: a readable document generated from the ledger (§15.2, ADR-20261011-0995) |
 | `seamspec mcp` | Run the MCP server (stdio) |
 | `seamspec trust [--show]` | Trust this clone for automatic test runs (interactive); `--show` prints the current trust state (§12.4.6) |
 | `seamspec hook <host> <event>` | Internal: host hook entry point (reads JSON on stdin) |
 | `seamspec migrate` | Upgrade records to the current schema version |
 | `seamspec commands sync [--hosts ...]` *(v0.2)* | Regenerate host slash-command files from templates (after upgrades or override edits) |
 | `seamspec commands list` *(v0.2)* | Show available workflow commands, per-host invocation names, and override/drift status |
+
+### 15.1 Readable Review *(planned, ADR-20261011-8013)*
+
+Dogfooding showed `seamspec review` as a wall of test code. The planned layout is **summary first, then the full test**, one item per screen. Everything in the summary comes from the record or is read out of the test file by SeamSpec itself; nothing an agent wrote about its own test is shown.
+
+- **Summary card:** position (*"Proposed rule 1 of 3"*), title, the rule, where it applies, why it was proposed, the test's file and runner.
+- **"What this test checks":** the test's check lines, listed above the code with their line numbers. pytest: `assert` statements and `pytest.raises(...)` blocks, found with Python's `ast`. vitest: lines containing `expect(`, labeled *"lines that look like checks"*. A reading aid, not a verdict.
+- **Quick facts and warnings:** lines of test code and number of checks; warnings (never blocking) for a test with no checks, longer than 80 lines, or importing network or subprocess modules.
+- **The full test,** with line numbers, check lines highlighted and setup dimmed where the terminal supports color (`NO_COLOR` and non-terminals get plain text). It stays on screen before the approve prompt (§12.4.3 rule 4).
+- **A clear red-green line** (§11.4): *"Fails without your change: YES / NO / couldn't tell"*.
+- **In chat:** the `lock` and `supersede` skills tell the user what the test does **not** cover before offering the review. That is the agent's view, said in the chat, never stored or shown by `seamspec review`.
+- Chat dialogs (§11.5) put the same card and check lines first.
+
+Later: old and new side by side for replaced proposals and supersedes, and the review page in the browser (ADR-20261006-c300 option B).
+
+### 15.2 The Generated Spec *(planned, week 5, ADR-20261011-0995)*
+
+SeamSpec writes no specs up front. The spec **builds up from what a human chose to protect**: `seamspec spec` prints it as one readable document, generated from the ledger every time.
+
+- **Grouped by area** of the code (the area rule of the session-start summary, §16.1).
+- **Each LOCKED rule:** title, the rule's own text, where it applies, who approved it and when, where it was decided, its test file and its linked decision record.
+- **Retired rules:** SUPERSEDED ones with the reason and the replacement. **Tried and failed:** active dead ends with why they failed.
+- **PROPOSED rules are not in it,** only counted: the spec is what a human approved.
+- **Single source (ADR-20261007-ac04):** it prints to the terminal by default. `--out FILE` writes it with a "generated, do not edit" line. `--check FILE` exits 1 when a written copy is out of date, for teams that commit one. `init` writes no spec file, and agents don't read one.
+
+**Positioning.** SeamSpec is a regression guard for agent-written code that works alongside spec-first tools: they say what to build; SeamSpec makes sure it stays built, and shows the spec the code has earned, every line backed by a test.
 
 ---
 
@@ -2618,12 +2645,22 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 > [!IMPORTANT]
 > **Publishing is gated** (ADR-20261005-3adc): nothing goes to PyPI or npm (real releases, pre-releases, placeholder bumps, the v0.2 `npx` wrapper) until the owner explicitly confirms that release. No early pre-release is planned. Until then, try SeamSpec with `uv tool install --force --editable <path-to-repo>`.
 
+**Added after dogfooding on a real project (2026-10-11, ADR-20261011-0995, ADR-20261011-8013).** Order of work for the rest of v0.1:
+
+1. Fix what dogfooding found: red-green with an editable install, the CI template's install source, the MCP server following the session's folder, and the import and runner hints for `src/` layouts. With them: the readable review (§15.1), and the protocol's "propose from the project's list of intended rules".
+2. Finish dogfooding: get a rule to catch a real mistake, and try the supersede flow.
+3. Week 5: the benchmark, `seamspec spec` (§15.2) and the README, pitched as a regression guard that works alongside spec-first tools.
+
 ### v0.2 — soon after v0.1
 
 Competing tools already support several hosts, so v0.2 follows quickly. The adapter layer stays thin so new hosts are cheap to add.
 
+In this order (ADR-20261011-0995):
+
+- **OpenSpec importer** (`origin.type = "import"`), moved up from "Later": SeamSpec works alongside spec-first tools, so reading their requirements as proposed rules comes first.
 - **Cursor and VS Code Copilot** adapters (§16.2, §16.3) and per-host command rendering (§15A.4).
-- **BRAINDUMP**: parse/drain/tidy + redaction, `/seamspec:drain`, session-start nudge (§13); `propose_decision` and `braindump_pending` tools.
+- A **"critical" rule marking**: such rules always show in full in the session-start summary (ADR-20261007-ac04).
+- **BRAINDUMP**: parse/drain/tidy + redaction, `/seamspec:drain`, session-start nudge (§13); `propose_decision` and `braindump_pending` tools. Until then, the agent proposes rules from a project's own list of intended rules, such as a section of a plan (v0.1, ADR-20261011-0995).
 - **More presets**: jest, Go, Rust (cargo), `custom` (§12A.2).
 - MCP **elicitation** for `run_proposed = "ask"`. (`trust_level = "harness"` moved into v0.1, ADR-20261005-8e80.)
 - `npx seamspec` wrapper for JS developers.
@@ -2635,7 +2672,7 @@ Competing tools already support several hosts, so v0.2 follows quickly. The adap
 - Opt-in `--isolated` verifier (containers).
 - Standalone `seamspec` binary (no Python or uv needed).
 - `strict` mode option: deny built-in Edit/Write in Claude Code and route edits through an MCP `apply_patch` tool.
-- OpenSpec importer (`origin.type = "import"`).
+- A review page in the browser (ADR-20261006-c300 option B), decided after the readable review (ADR-20261011-8013).
 - Team features: shared review queue, dashboards, PR comments summarizing ledger changes.
 - git worktree isolation for parallel agents.
 
