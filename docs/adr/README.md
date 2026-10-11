@@ -55,3 +55,5 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261007-e1a7](ADR-20261007-e1a7-quick-condition-e.md) | Quick condition E - rules written in CLAUDE.md, and how its result is read (fixed before running) | ACCEPTED |
 | [ADR-20261007-ac04](ADR-20261007-ac04-ledger-single-source-session-start-hook.md) | The ledger stays the single source; a session-start hook adds the current rules (no notes files) | ACCEPTED |
 | [ADR-20261008-5d1e](ADR-20261008-5d1e-chat-approvals-off-by-default.md) | Chat approvals off by default until Claude Code shows the whole dialog (verification 2) | ACCEPTED |
+| [ADR-20261011-8013](ADR-20261011-8013-readable-review.md) | A readable review - summary first, the test's checks pulled out, the full test still shown | ACCEPTED |
+| [ADR-20261011-0995](ADR-20261011-0995-generated-spec-and-positioning.md) | A spec generated from the ledger; positioning and order of work after dogfooding | ACCEPTED |

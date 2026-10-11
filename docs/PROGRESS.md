@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-08 · **Current:** v0.1 · Week 4: CI, doctor, remaining skills, dogfooding · [Week 4 issue](https://github.com/seamspec/seamspec/issues/4)
+**Last updated:** 2026-10-11 · **Current:** v0.1 · Week 4: CI, doctor, remaining skills, dogfooding · [Week 4 issue](https://github.com/seamspec/seamspec/issues/4)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-11 | **Dogfooding on a real project, and the plan that came out of it** (PR `docs/readable-review-generated-spec`, docs only). The owner set SeamSpec up on a new Python project (`src/` layout, uv) and built three milestones with it: 4 rules proposed, reviewed and locked, and the agent opened `seamspec review` in a terminal tab on request. It found four bugs (listed under "Dogfooding findings" below) and one thing that worked better than expected: the agent's own note on what its test didn't cover. Two decisions follow. **A readable review:** summary first, the test's check lines pulled out by SeamSpec, the full test still shown. **A spec generated from the ledger** (`seamspec spec`), which makes the name true: code first, the spec builds up from what was protected. Positioning: a regression guard that works alongside spec-first tools. In v0.2 the OpenSpec importer moves up | ADR-20261011-8013, ADR-20261011-0995 |
 | 2026-10-08 | **Three rules for the chat path, and the agent opens the review** (PR `chore/chat-approval-rules`): the owner approved `inv_aa498871` (the agent never supplies dialog text), `inv_6bae33cf` (chat approval refuses when a hook could answer) and `inv_79b867d5` (every decision records where it was made) in `seamspec review`; this repo now has 9 rules. Their tests were strengthened after the agent in the owner's session pointed out gaps. A second try of the dialog in a full-screen terminal also hid the test. The skills and the protocol now offer to open `seamspec review` for the user in a terminal tab they type into (e.g. the desktop app's terminal panel); the agent never runs it itself or answers it | ADR-20261008-5d1e |
 | 2026-10-08 | **Chat approvals off by default** (PR `fix/chat-approvals-off`): the owner's click-through (verification 2) failed in both Claude Code apps. The terminal CLI folded the dialog to about three lines and hid the test (Ctrl+O didn't expand it); the desktop app showed no dialog and declined all three. Nothing was approved. Now `[review] chat_approvals` is `false` in every mode; a declined dialog stops the review instead of counting as "skipped"; the skills point to `seamspec review` in a terminal again (in the desktop app, its terminal panel). The tool and its guards stay. The local review page (ADR c300 option B) waits until dogfooding shows whether the terminal step is a real pain | ADR-20261008-5d1e |
 | 2026-10-08 | **Approvals in chat** (PR `week-4/chat-approvals`): a new MCP tool, `open_review`, shows the human SeamSpec's own dialogs for proposed rules, supersede requests and new dead ends, so approving no longer needs a terminal. The agent passes only ids and gets only the outcomes. Every decision records where it was made (`decided_via`, plus `via` and the client in the journal). Guards: chat approvals are refused while any hook SeamSpec can see could answer or rewrite its dialogs (checked before each dialog and before acting on the answer); the plugin's new `ConfigChange` hook blocks such hooks added mid-session; each dialog's choices carry a random code; *skip* comes first. Red-green asks its own "run this test?" and needs a trusted clone. Off by default in strict mode (`[review] chat_approvals`). Lock and supersede skills now offer it; the terminal stays the fallback. ADR c300 **ACCEPTED** with the owner's answers. Left: verification 2, the owner clicks through the dialogs once in the CLI and once in the desktop app | ADR-20261006-c300 |
@@ -57,11 +58,24 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 - **Works:** the core loop, dogfooded on this repo (#22). `doctor` and `doctor --ci` (#30). The CI workflow from `init` (#32). All six chat skills (#35). Mode handling (#36, #37). The session-start summary (#41, confirmed in a real session, #42). Approvals in chat are built (#43) but off by default, since Claude Code doesn't show the whole dialog (#44); approving is `seamspec review`, which the agent offers to open in a terminal tab.
 - **Proven, roughly:** the rough benchmark passed (ADR-20261006-b270); condition E showed plain notes match SeamSpec's memory with a careful model, which led to the session-start hook (ADR-20261007-ac04).
-- **Week 4:** both exit criteria are met (#33, #34). Left: dogfood on one real project.
-- **Next, in order:**
-  1. Week 4's last item: dogfood on one real Python or TypeScript project (the owner picks it).
-  2. Week 5: full benchmark with conditions E (rules in `CLAUDE.md`) and F (decisions in ADRs only), C with the session-start hook, a second model and implicit conflicts; then README and docs.
-  3. v0.2: a "critical" rule marking that always shows in full at session start; a local review page (ADR c300 option B).
+- **Week 4:** both exit criteria are met (#33, #34). Dogfooding on a real project is under way (findings below).
+- **Next, in order** (ADR-20261011-0995):
+  1. Fix what dogfooding found, red-green first, and build the readable review (ADR-20261011-8013) with it. Also: the protocol says to propose rules from a project's own list of intended rules.
+  2. Finish dogfooding on the owner's project, as a vehicle for SeamSpec only: get a rule to catch a real mistake, and try the supersede flow.
+  3. Week 5: the benchmark (conditions E and F, C with the session-start hook, a second model, implicit conflicts), `seamspec spec`, and the README pitched as a regression guard that works alongside spec-first tools.
+  4. v0.2, in this order: the OpenSpec importer, more hosts, the "critical" rule marking, BRAINDUMP. Later: the review page in the browser, if the readable review isn't enough.
+
+## Dogfooding findings (2026-10-08 to 2026-10-11, the owner's Python project)
+
+| # | Finding | Status |
+|---|---|---|
+| 1 | The CI workflow `init` writes runs `uv tool install seamspec`, but SeamSpec isn't on PyPI | Open. Workaround: answer no to the CI question |
+| 2 | A desktop session that starts in the app's scratch folder and later moves to the project keeps the MCP server on the scratch folder (`SEAMSPEC_ROOT`); `get_constraints` then says "not a SeamSpec project" | Open. Workaround: start the session in the project folder |
+| 3 | The pytest import hint (`from src.queue import …`) assumes a flat layout; with a `src/` layout and an installed package, rule tests must import the package by name. The agent also believed the bare `pytest` runner wouldn't be found, though SeamSpec puts the project's `.venv/bin` first | Open. Workaround: tell the agent |
+| 4 | **Red-green says "passes on HEAD too" for brand-new code** when the project is installed editable in its virtualenv: the HEAD copy imports the working folder's code. Checked by hand: the right answer was "yes" | Open, **fix first**: red-green exists to catch tests that check nothing |
+| 5 | Claude Code's dialogs can't carry approvals: the CLI folds them to about three lines, and the desktop app declines them unseen | Handled: chat approvals off by default (#44); the agent opens `seamspec review` in a terminal tab (#45), which worked |
+
+**Worked well:** the agent waited for an OK before real API calls; it proposed rules when asked and said what each test didn't cover; the review in a terminal tab beside the chat; a plan section "rules to propose once built" served as a braindump. **Not seen yet:** a rule catching a real mistake in that project.
 
 ## In progress
 
