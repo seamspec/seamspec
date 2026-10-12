@@ -172,6 +172,24 @@ def test_tools_find_the_project_among_the_sessions_folders(moved: Path) -> None:
     assert "error" not in out or out["error"] == "not_permitted"
 
 
+@pytest.mark.parametrize("name", ["my project", "project%20name", "proj#1 & co"])
+def test_project_folders_with_awkward_names_are_found(
+    name: str, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Copilot, #49: a root arrives as a file:// URL; its path must be decoded once, not twice."""
+    from seamspec.installers import scaffold
+
+    project = tmp_path_factory.mktemp("parent") / name
+    project.mkdir()
+    (project / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    scaffold.init(project, auto_run=True, actor="Maya Rao <maya@example.com>")
+    launch = tmp_path_factory.mktemp("launch")
+    monkeypatch.setenv("SEAMSPEC_ROOT", str(launch))
+    monkeypatch.chdir(launch)
+    out, asked = call_from([launch, project], "get_constraints", {"files": ["x.py"]})
+    assert "error" not in out and asked == 1, out
+
+
 def test_the_usual_session_is_not_asked_for_its_folders(project: Path) -> None:
     """No extra round trip when the launch folder is the project."""
     out, asked = call_from([project], "get_constraints", {"files": ["src/queue.py"]})

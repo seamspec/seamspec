@@ -83,20 +83,30 @@ def pre_tool_use(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str
         return None
 
     cs = constraints_for(store, [rel])
-    if cs.empty:
-        return None
+    note = moved_note(store)
     state = SessionState.load(store, str(payload.get("session_id") or "unknown"))
+    if cs.empty:
+        # No rule covers this file, e.g. in a project with an empty ledger. A session moved here from
+        # another SeamSpec project still has to hear, once, whose rules its tools serve (Copilot, #49).
+        if note is None or MOVED_KEY in state.acknowledged:
+            return None
+        state.acknowledged.append(MOVED_KEY)
+        state.save(store)
+        return _context(note)
     key = f"{rel}:{store.revision()}"
     if key in state.acknowledged:
         return None
-    state.acknowledged.append(key)
+    state.acknowledged += [key] + ([MOVED_KEY] if note and MOVED_KEY not in state.acknowledged else [])
     state.save(store)
     text = f"SeamSpec: {rel} is governed by:\n{cs.render()}"
-    if note := moved_note(store):
+    if note:
         text += "\n" + note
     if cfg.hooks.gate_mode == "deny_once" or not (store.root / rel).exists():  # brand-new file
         return _deny(text + "\nRe-attempt the edit once your change respects these constraints.")
     return _context(text + "\nMake sure this edit respects the locked rules.")
+
+
+MOVED_KEY = "moved-note"  # in SessionState.acknowledged once the note below was shown
 
 
 def moved_note(store: Store) -> str | None:
@@ -284,8 +294,9 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
     dead = sorted((r for r in records if isinstance(r, DeadEnd) and r.status == "ACTIVE"), key=lambda r: r.id)
     waiting = sum(isinstance(r, Invariant) and r.status == InvStatus.PROPOSED for r in records)
     waiting += len(pending_supersede_ids(store))
+    moved = moved_note(store)
     if not locked and not dead and not waiting:
-        return None
+        return moved  # an empty ledger says nothing, unless the session's tools point at another project
     # Only LOCKED rules are human-approved; dead ends are recorded by agents or people, never approved.
     tail = []
     if locked:
@@ -294,8 +305,8 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
                     "`get_constraints`.")  # fmt: skip
     if waiting:
         tail.append(f"SeamSpec: {waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
-    if note := moved_note(store):
-        tail.append(note)
+    if moved:
+        tail.append(moved)
 
     def scope(r: Invariant, most: int | None = None) -> str:
         paths = [_flat(p) for p in r.scope.paths]

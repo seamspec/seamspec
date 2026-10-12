@@ -14,7 +14,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 from urllib.request import url2pathname
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -92,7 +92,7 @@ def _paths(roots: ListRootsResult | None, hints: list[str] | None) -> list[Path]
     for root in roots.roots if roots is not None else []:
         url = urlparse(str(root.uri))
         if url.scheme == "file":
-            paths.append(Path(url2pathname(unquote(url.path))))
+            paths.append(Path(url2pathname(url.path)))  # url2pathname decodes %xx itself
     paths += [Path(h) for h in hints or [] if Path(h).is_absolute()]
     return paths
 

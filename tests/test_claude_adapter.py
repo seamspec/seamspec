@@ -540,6 +540,27 @@ def test_a_session_moved_between_two_projects_is_told_its_tools_lag(
     assert out is not None and "started in another SeamSpec project" in out["hookSpecificOutput"]["additionalContext"]
 
 
+def test_a_moved_session_is_warned_even_when_this_project_has_no_rules_yet(
+    git_repo: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Copilot, #49: a freshly set-up project has an empty ledger, and that is exactly when the agent
+    reaches for the tools. The warning must not depend on there being rules to show."""
+    from seamspec.installers import scaffold
+
+    origin = tmp_path_factory.mktemp("origin-project")
+    (origin / "pyproject.toml").write_text('[project]\nname = "origin"\n')
+    scaffold.init(origin, auto_run=True, actor="Maya Rao <maya@example.com>")
+    assert claude.session_summary(Store(git_repo)) is None and session(git_repo) is None  # empty ledger: silent
+
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(origin))
+    out = session(git_repo)
+    assert out is not None and "started in another SeamSpec project" in out["hookSpecificOutput"]["additionalContext"]
+    first = pre(git_repo, "src/queue.py", session="moved-empty")  # no rule covers this file
+    assert first is not None and "still answer for the other one" in first["hookSpecificOutput"]["additionalContext"]
+    assert pre(git_repo, "src/queue.py", session="moved-empty") is None  # said once per session
+    assert pre(git_repo, "README.md", session="moved-empty") is None
+
+
 def test_the_summary_stays_under_claude_codes_hook_limit(git_repo: Path) -> None:
     """Claude Code swaps hook output over 10,000 characters for a file path and a short preview."""
     assert claude.SESSION_MAX_CHARS < 10_000
