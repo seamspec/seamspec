@@ -207,7 +207,9 @@ def _on_error(event: str, payload: dict[str, Any], store: Store | None, cfg: Con
 # --- SessionStart: the agreements in force, before the first prompt (ADR-20261007-ac04) ---------------
 
 SESSION_SOURCES = ("startup", "clear", "compact")  # resume/fork already carry the earlier context
-SESSION_MAX_CHARS = 3000  # the summary stays small however large the ledger grows
+# Claude Code replaces hook output over 10,000 characters with a file path and a 2,000-character
+# preview, so the summary must stay well under that (ADR-20261011-6b2d).
+SESSION_MAX_CHARS = 8000
 
 
 RULES_HEADING = ("SeamSpec: rules in force in this repository. A human approved each rule, and each has a test "
@@ -218,6 +220,9 @@ DEAD_HEADING = ("SeamSpec: approaches tried before that failed (recorded, not ap
 
 RULES_HEADING_SHORT = ("SeamSpec: rules in force in this repository, titles only (`get_constraints` returns the full "
                        "rule). A human approved each rule, and each has a test that must keep passing:")  # fmt: skip
+DEAD_HEADING_SHORT = ("SeamSpec: approaches tried before that failed (recorded, not approved), shortened here "
+                      "(`get_constraints` has the full text); don't retry unless the reason no longer "
+                      "applies:")  # fmt: skip
 
 
 def _flat(text: str) -> str:
@@ -249,8 +254,10 @@ def _area(paths: list[str], root: Path) -> str:
 
 def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | None:
     """The agreements in force, built from the ledger (ADR-20261007-ac04). Detail shrinks before
-    anything is dropped: every rule in full if it fits; else one line per rule (id, title, scope);
-    else counts per area. No rule silently disappears. None when there is nothing to say."""
+    anything is dropped, in steps (ADR-20261011-6b2d): everything in full; else rules in full and
+    dead ends shortened; else rule titles with their scope; else rule titles alone; else counts per area. A dead
+    end keeps a reason at every step that lists it: without the reason, "don't retry unless the
+    reason no longer applies" can't be followed. None when there is nothing to say."""
     records = store.load_all("inv") + store.load_all("de")
     locked = sorted((r for r in records if isinstance(r, Invariant) and r.status == InvStatus.LOCKED),
                     key=lambda r: r.id)  # fmt: skip
@@ -268,19 +275,25 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
     if waiting:
         tail.append(f"SeamSpec: {waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
 
-    def scope(r: Invariant | DeadEnd) -> str:
-        return ", ".join(_flat(p) for p in r.scope.paths)
+    def scope(r: Invariant, most: int | None = None) -> str:
+        paths = [_flat(p) for p in r.scope.paths]
+        if most is not None and len(paths) > most:
+            return ", ".join(paths[:most]) + f", +{len(paths) - most} more"
+        return ", ".join(paths)
 
-    full = ([RULES_HEADING] if locked else []) + [
+    rules_full = ([RULES_HEADING] if locked else []) + [
         f"- {r.id} · {_flat(r.title)}: {_flat(r.assertion)} (scope: {scope(r)})" for r in locked
     ]  # fmt: skip
-    full += ([DEAD_HEADING] if dead else []) + [
+    rules_short = ([RULES_HEADING_SHORT] if locked else []) + [
+        f"- {r.id} · {_flat(r.title)} (scope: {scope(r, most=2)})" for r in locked
+    ]
+    rules_titles = ([RULES_HEADING_SHORT] if locked else []) + [f"- {r.id} · {_flat(r.title)}" for r in locked]
+    dead_full = ([DEAD_HEADING] if dead else []) + [
         f"- {d.id}: {_flat(d.approach)} Why it failed: {_flat(d.failure_symptom)}" for d in dead
     ]
-    one_line = ([RULES_HEADING_SHORT] if locked else []) + [
-        f"- {r.id} · {_flat(r.title)} (scope: {scope(r)})" for r in locked
+    dead_short = ([DEAD_HEADING_SHORT] if dead else []) + [
+        f"- {d.id}: {_clip(d.approach, 120)} Why it failed: {_clip(d.failure_symptom, 200)}" for d in dead
     ]
-    one_line += ([DEAD_HEADING] if dead else []) + [f"- {d.id}: {_clip(d.approach)} (scope: {scope(d)})" for d in dead]
     by_area: dict[str, list[int]] = {}
     for r in locked:
         by_area.setdefault(_area(list(r.scope.paths), store.root), [0, 0])[0] += 1
@@ -291,7 +304,8 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
               "work on; it returns every rule and dead end that applies. By area:"]  # fmt: skip
     counts += [f"- {area}: {n_r} rule(s), {n_d} dead end(s)" for area, (n_r, n_d) in sorted(by_area.items())]
 
-    for tier in (full, one_line, counts):
+    levels = (rules_full + dead_full, rules_full + dead_short, rules_short + dead_short, rules_titles + dead_short)
+    for tier in (*levels, counts):
         text = "\n".join(tier + tail)
         if len(text) <= max_chars:
             return text
