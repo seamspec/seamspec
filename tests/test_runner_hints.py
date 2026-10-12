@@ -4,6 +4,7 @@ comes from (SPEC §12A.6, ADR-20261011-e7c5; dogfooding finding #3)."""
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -93,17 +94,58 @@ def test_get_constraints_says_how_to_import_and_where_the_runner_comes_from(
     hint = constraints(["src/demo/core.py"])["runners"][0]
     assert hint["runner"] == "pytest" and "`from demo import ...`" in hint["import_hint"]
     assert "`pytest` resolves to .venv/bin/pytest" in hint["command"]
-    assert "without activation, so config.toml needs no change" in hint["command"]
+    assert "the project's .venv, venv and node_modules/.bin first, without activation needed" in hint["command"]
+    assert "config.toml needs no change" in hint["command"] and "VIRTUAL_ENV" not in hint["command"]
 
 
 def test_a_missing_runner_program_is_said_plainly(src_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", str(src_project / "no-tools-here"))
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
     command = constraints(["src/demo/core.py"])["runners"][0]["command"]
-    assert "`pytest` was not found" in command and "install it in the project" in command
+    assert "`pytest` was not found in the project's .venv, venv and node_modules/.bin" in command
+    assert "install it before running rule tests" in command
+
+
+def test_an_activated_virtualenv_is_described_as_the_one_that_wins(
+    src_project: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Copilot, #50: with VIRTUAL_ENV set the verifier skips the project's .venv and venv (§12.4.7), so
+    the note must describe that lookup, not the usual one."""
+    for folder in (src_project / ".venv/bin", active := tmp_path_factory.mktemp("active-env") / "bin"):
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "pytest").write_text("#!/bin/sh\n")
+        (folder / "pytest").chmod(0o755)
+    monkeypatch.setenv("VIRTUAL_ENV", str(active.parent))
+    monkeypatch.setenv("PATH", f"{active}{os.pathsep}{os.environ.get('PATH', '')}")
+    command = constraints(["src/demo/core.py"])["runners"][0]["command"]
+    assert f"`pytest` resolves to {active.resolve() / 'pytest'}" in command  # not the project's .venv
+    assert "the activated virtualenv (VIRTUAL_ENV), which wins over the project's .venv and venv" in command
+
+    monkeypatch.setenv("PATH", str(src_project / "no-tools-here"))
+    command = constraints(["src/demo/core.py"])["runners"][0]["command"]
+    assert "was not found in the activated virtualenv (VIRTUAL_ENV)" in command
+
+
+def test_a_runner_given_as_a_path_is_checked_like_the_verifier_runs_it(
+    src_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Copilot, #50: a path isn't looked up on PATH; it must exist in the project and be executable."""
+    cfg = src_project / ".seamspec/config.toml"
+    cfg.write_text(cfg.read_text().replace('cmd = ["pytest",', 'cmd = ["./scripts/run-tests.sh",', 1))
+    command = constraints(["src/demo/core.py"])["runners"][0]["command"]
+    assert "`./scripts/run-tests.sh`" in command and "doesn't exist in the project or isn't executable" in command
+
+    script = src_project / "scripts/run-tests.sh"
+    script.parent.mkdir()
+    script.write_text("#!/bin/sh\n")
+    assert "isn't executable" in constraints(["src/demo/core.py"])["runners"][0]["command"]  # present, mode 644
+    script.chmod(0o755)
+    command = constraints(["src/demo/core.py"])["runners"][0]["command"]
+    assert command == "`./scripts/run-tests.sh` is run as written in config.toml, from the project root."
 
 
 def test_init_explains_the_lookup_next_to_the_runner_command(tmp_path: Path) -> None:
     text = scaffold.render_config("enforced", ["pytest", "vitest"])
     assert "# `pytest` is looked up in the project's .venv / venv first, without activating it" in text
+    assert "# An activated virtualenv (VIRTUAL_ENV) wins over the project's .venv / venv" in text
     assert "vitest itself comes from the project's node_modules/.bin" in text

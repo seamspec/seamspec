@@ -148,23 +148,37 @@ def _runner_hints(svc: Services, rels: list[str]) -> list[dict[str, str]]:
 
 
 def _command_note(svc: Services, runner: RunnerCfg) -> str:
-    """Where the runner's program comes from. An agent reading `cmd = ["pytest", ...]` in config.toml
-    can't know SeamSpec looks in the project's own tool folders first, without activation (§12.4.7)."""
+    """Where the runner's program comes from, found the way the verifier finds it (§12.4.7). An agent
+    reading `cmd = ["pytest", ...]` in config.toml can't know SeamSpec looks in the project's own tool
+    folders first, without activation."""
     command = runner.cmd[0]
     env = verifier.build_env(svc.cfg, root=svc.root, overrides=runner.env)
-    found = shutil.which(command, path=env.get("PATH", "")) if "/" not in command else command
+    if "/" in command or os.sep in command:  # a path: run as written, from the project root
+        path = Path(command) if Path(command).is_absolute() else svc.root / command
+        if not (path.is_file() and os.access(path, os.X_OK)):
+            return (
+                f"`{command}` (the runner's command in config.toml) doesn't exist in the project or isn't "
+                "executable: rule tests can't run until that is fixed."
+            )
+        return f"`{command}` is run as written in config.toml, from the project root."
+
+    activated = bool(env.get("VIRTUAL_ENV"))
+    places = (
+        "the activated virtualenv (VIRTUAL_ENV), which wins over the project's .venv and venv, and node_modules/.bin"
+        if activated
+        else "the project's .venv, venv and node_modules/.bin"
+    )
+    found = shutil.which(command, path=env.get("PATH", ""))
     if found is None:
-        return (
-            f"`{command}` was not found in the project's .venv, venv or node_modules/.bin, nor on PATH: "
-            "install it in the project before running rule tests."
-        )
+        return f"`{command}` was not found in {places}, nor on PATH: install it before running rule tests."
     try:
         shown = Path(found).resolve().relative_to(svc.root.resolve()).as_posix()
     except ValueError:
         shown = found
+    how = "It was looked up in" if activated else "SeamSpec looks in"
     return (
-        f"`{command}` resolves to {shown}. SeamSpec looks in the project's .venv, venv and node_modules/.bin "
-        "first, without activation, so config.toml needs no change."
+        f"`{command}` resolves to {shown}. {how} {places} first, without activation needed, then on PATH, "
+        "so config.toml needs no change."
     )
 
 

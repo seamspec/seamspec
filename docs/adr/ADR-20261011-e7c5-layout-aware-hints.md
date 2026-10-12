@@ -16,7 +16,7 @@ superseded_by: null
 Dogfooding finding #3 (2026-10-10), in a Python project with a `src/` layout managed by `uv`. Two things misled the agent:
 
 1. **The import hint was one fixed sentence:** *"Import project code from the repo root, e.g. `from src.queue import backoff_delay`"*. That fits a project where `src/` is itself a package. In a `src/` layout the package is installed into the virtualenv and imported by its own name; `from src.<package> import …` would load a second copy of the modules under a different name. The owner had to tell the agent.
-2. **The agent concluded SeamSpec's runner would fail.** It read `cmd = ["pytest", …]` in `.seamspec/config.toml`, found no `pytest` on its `PATH`, and reported that the config needed changing. In fact the verifier puts the project's `.venv/bin`, `venv/bin` and `node_modules/.bin` first on `PATH` without activation (§12.4.7). Nothing told the agent so.
+2. **The agent concluded SeamSpec's runner would fail.** It read `cmd = ["pytest", …]` in `.seamspec/config.toml`, found no `pytest` on its `PATH`, and reported that the config needed changing. In fact the verifier puts the project's `.venv/bin`, `venv/bin` and `node_modules/.bin` first on `PATH` without activation, unless a virtualenv is activated (`VIRTUAL_ENV`), which then wins over `.venv` and `venv` (§12.4.7, ADR-20261005-9b8f). Nothing told the agent so.
 
 ## Decision
 
@@ -30,8 +30,10 @@ Dogfooding finding #3 (2026-10-10), in a Python project with a `src/` layout man
    | Nothing recognisable yet | none of the above | from the root, or by package name if the project is installed |
 
    The example names a real package of the project: the one matching `[project] name` in `pyproject.toml`, else the first found.
-2. **`get_constraints` says which program each runner resolves to.** A new `command` field per runner: *"`pytest` resolves to .venv/bin/pytest. SeamSpec looks in the project's .venv, venv and node_modules/.bin first, without activation, so config.toml needs no change."*, or that the program wasn't found and must be installed in the project. It is resolved the way the verifier resolves it.
-3. **New configs say it too:** `init` writes a comment above each runner's `cmd` about where the program is looked up.
+2. **`get_constraints` says which program each runner resolves to.** A new `command` field per runner: *"`pytest` resolves to .venv/bin/pytest. SeamSpec looks in the project's .venv, venv and node_modules/.bin first, without activation, so config.toml needs no change."*, or that the program wasn't found and must be installed in the project. It is resolved the way the verifier resolves it, and the sentence describes the lookup that actually happened:
+   - with an activated virtualenv (`VIRTUAL_ENV`), the note says that environment wins over the project's `.venv` and `venv`;
+   - a command written as a path (`./scripts/run-tests.sh`) isn't looked up on `PATH`: the note says it is run as written from the project root, or that it doesn't exist there or isn't executable.
+3. **New configs say it too:** `init` writes a comment above each runner's `cmd` about where the program is looked up, including that an activated virtualenv wins.
 
 **Alternatives considered:**
 - **Add `../src` to SeamSpec's `pytest.ini` for `src/` layouts.** It would make the package importable without installing it, but `pytest.ini` is written once at `init` (often before `src/` exists) and is fingerprinted; changing it later is a reviewed step, not something a hint should trigger.
