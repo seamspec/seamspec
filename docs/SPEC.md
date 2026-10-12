@@ -801,7 +801,7 @@ An agent grading its own work is the core weakness of agent-written tests, and r
 - **When:** only inside `seamspec review`, which is already a consented path (§12.4.2), and only **after** the reviewer has seen the full test and answered *"Run it now to check it fails without your change? [Y/n]"* (ADR-20261005-b7e2). In a chat review (§11.5) it's a choice in the proposal's dialog, followed by its own *"Run this test on your machine?"* dialog showing the test, and it needs a trusted clone.
 - **How:** the proposed test runs on the **working tree first**, then against **`HEAD`** in a temporary detached `git worktree`. That worktree gets SeamSpec's *current* `config.toml` and runner config files (so both runs use the same runner) and links to the project's `.venv` / `venv` / `node_modules`, since a fresh worktree has none. It works when `.seamspec/` sits in a subfolder of the git repo, and the worktree is always removed.
 - **The HEAD run imports HEAD's code** (ADR-20261011-3c7e). A project installed in editable mode (`uv sync`, `pip install -e`) has its virtualenv point at the working tree, so the linked `.venv` alone would hand the HEAD run today's code and give a false "no". The HEAD run therefore starts the runner through a copy of its start script, first on `PATH`, that moves every import path inside the repository to the worktree. `PATH` stays the only variable SeamSpec sets (§12.4.7). Where the copy can't be made (a binary, a Windows launcher, a command given as a path) and an editable install is present, the answer is `n/a`. It is also `n/a` when the copy was made but didn't start: a failed start must never read as "fails without your change".
-- **Result:** `fails without your change: yes | no | n/a`, with one line of explanation:
+- **Result:** *"Fails without your change: YES | NO | COULDN'T TELL (why)"* on its own line (verdicts `yes`, `no`, `n/a`):
   - `yes`: passes on the working tree and fails on `HEAD`.
   - `no`: passes on both. That's fine for a characterization test of behavior that already existed; on a brand-new feature it's a strong hint the test checks nothing.
   - `n/a`: the check couldn't give an answer: the test fails on the working tree (approval would be refused anyway), there's no git repo or no commit yet, the runner is missing, the HEAD copy couldn't be prepared, or the project is installed in editable mode and the test couldn't be pointed at HEAD's code.
@@ -1372,17 +1372,41 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec commands sync [--hosts ...]` *(v0.2)* | Regenerate host slash-command files from templates (after upgrades or override edits) |
 | `seamspec commands list` *(v0.2)* | Show available workflow commands, per-host invocation names, and override/drift status |
 
-### 15.1 Readable Review *(planned, ADR-20261011-8013)*
+### 15.1 Readable Review (ADR-20261011-8013)
 
-Dogfooding showed `seamspec review` as a wall of test code. The planned layout is **summary first, then the full test**, one item per screen. Everything in the summary comes from the record or is read out of the test file by SeamSpec itself; nothing an agent wrote about its own test is shown.
+`seamspec review` shows each item as **summary first, then the full test**. Everything in the summary comes from the record or is read out of the test file by SeamSpec itself (`core/testview.py`, model-free); nothing an agent wrote *about* its test is shown.
 
-- **Summary card:** position (*"Proposed rule 1 of 3"*), title, the rule, where it applies, why it was proposed, the test's file and runner.
-- **"What this test checks":** the test's check lines, listed above the code with their line numbers. pytest: `assert` statements and `pytest.raises(...)` blocks, found with Python's `ast`. vitest: lines containing `expect(`, labeled *"lines that look like checks"*. A reading aid, not a verdict.
-- **Quick facts and warnings:** lines of test code and number of checks; warnings (never blocking) for a test with no checks, longer than 80 lines, or importing network or subprocess modules.
-- **The full test,** with line numbers, check lines highlighted and setup dimmed where the terminal supports color (`NO_COLOR` and non-terminals get plain text). It stays on screen before the approve prompt (§12.4.3 rule 4).
-- **A clear red-green line** (§11.4): *"Fails without your change: YES / NO / couldn't tell"*.
+```text
+────────────────────────────────────────────────────────────────────────
+Proposed rule 1 of 3 · inv_9cad8c24
+  Title:  A cached request is never sent to the provider again
+  Rule:   Once the gateway has stored a response for a request, repeating that request …
+  Where:  src/specagent/gateway/client.py, src/specagent/gateway/cache.py
+  Why:    prompt: "When the gateway's caching and failure handling work, propose rules 1 and 2 …"
+  Test:   .seamspec/proposed/inv_9cad8c24/test_inv_9cad8c24.py (runner: pytest) · 59 lines · 7 checks
+
+  What this test checks (read from the test file by SeamSpec):
+      44  assert len(backend.requests) == len(_requests())
+      58  assert restarted_backend.requests == []
+      …
+  The full test (check lines are marked >):
+       1 | """A cached request is never sent to the provider again."""
+      44 >     assert len(backend.requests) == len(_requests())
+       …
+
+Run it now to check it fails without your change? [Y/n]:
+  Fails without your change: YES (it fails on HEAD and passes with your change)
+[a]pprove  [r]eject  [s]kip  [q]uit [s]:
+```
+
+- **One block per item,** opened by a rule and a line saying where the reviewer is (*"Proposed rule 1 of 3"*, *"Dead end 2 of 2"*, *"Supersede request 1 of 1"*). The screen isn't cleared, so earlier answers stay visible.
+- **"What this test checks":** the test's check lines with their line numbers. pytest: `assert` statements, `pytest.raises` / `pytest.warns` blocks, `pytest.fail(…)` calls, `raise AssertionError` and `self.assert…(…)` calls, found with Python's `ast`, so a commented-out assert or the word inside a string doesn't count. A check made through a helper function isn't recognised. vitest: lines containing `expect(`, labeled *"lines that look like checks"*. A reading aid, not a verdict: it shows what is asserted, not whether that is enough.
+- **Facts and warnings** (never blocking): lines of test code and number of checks; `!` lines for a test with **no recognised checks** (worded as a prompt to look for checks made another way, since the scan can't prove there are none), one longer than 80 lines, one importing network or subprocess modules, or one that couldn't be parsed.
+- **The full test** follows with line numbers, check lines marked `>` (bold in a terminal that supports color; the rest dimmed; `NO_COLOR` and non-terminals get plain text). It stays on screen before the approve prompt (§12.4.3 rule 4).
+- **The red-green line** (§11.4) reads *"Fails without your change: YES / NO / COULDN'T TELL (why)"*.
+- **Long text is cut visibly.** An origin longer than 300 characters ends in `…`. A dead end's reason is shown in full, since it is what the reviewer judges.
 - **In chat:** the `lock` and `supersede` skills tell the user what the test does **not** cover before offering the review. That is the agent's view, said in the chat, never stored or shown by `seamspec review`.
-- Chat dialogs (§11.5) put the same card and check lines first.
+- Chat dialogs (§11.5) put the summary, the facts and the check list first, with the agent's code under the quote bar, then the full test. A supersede dialog shows the same for the test that would stop running.
 
 Later: old and new side by side for replaced proposals and supersedes, and the review page in the browser (ADR-20261006-c300 option B).
 
@@ -1499,6 +1523,9 @@ Protect this behavior as a SeamSpec invariant: {{args}}
 5. If the test fails: fix the test only if the test is wrong; if the code is wrong, report
    the bug and do not keep the proposal. Retry a fixed test with `replace_id`, then run it again.
 6. Tell the user the rule is only proposed: it is locked when they approve it in `seamspec review`.
+   Before that, tell the user in a line or two what the test does NOT cover (cases, inputs
+   or parts of the rule it leaves out), so they can judge it; say so if you see no gap.
+   Offer to open the review for them … (the packaged template is the source of truth)
 ```
 
 #### `dead-end.md`
@@ -2306,6 +2333,8 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 [`redgreen.py`](../seamspec/core/redgreen.py), [`review.py`](../seamspec/review.py)
 
 - `redgreen.check(store, cfg, inv) -> RedGreen(verdict: "yes" | "no" | "n/a", detail)`, per §11.4. It never writes to the ledger; the proposed test is placed temporarily and removed. "Couldn't run" is decided by `RunnerResult.could_not_run` (missing runner executable or unknown runner), never by matching test output; filesystem errors while preparing the `HEAD` copy give `n/a`. For the HEAD run, `_shim_runner()` finds the runner's start script with the same environment the verifier starts it with (`verifier.runner_env()`, so a runner's own `PATH` counts), and `write_shim()` copies it into a temporary folder with a short redirect inserted (`_insert_at()` finds the place; a script with a `from __future__` import anywhere, or a copy that wouldn't compile, isn't copied). That folder goes first on `PATH`; the redirect rewrites `sys.path` entries and `__editable__` import-hook tables from the repository to the worktree and leaves a marker file. `editable_install(root, top, environ)` reads the project's virtualenvs (`.venv`, `venv`, `$VIRTUAL_ENV`) for a `.pth` line, an `__editable__` hook or an editable `direct_url.json` pointing inside the repository; if one exists and the marker is missing, the verdict is `n/a`. It is also `n/a` when a copy was made but its marker is missing: a runner that didn't get through the redirect says nothing about the test (ADR-20261011-3c7e).
+- `testview.analyze(code, runner) -> TestView` ([`testview.py`](../seamspec/core/testview.py)): the test's lines, its `checks` (line number and one-line text), whether they come from a parse (`parsed`), `facts()` and `warnings` (§15.1). Python is parsed with `ast`; vitest is a plain scan for `expect(`.
+- `review.show_invariant(store, inv, position=None)` prints the block of §15.1; `review.cut(text, limit)` shortens with a visible `…`; `RedGreen.line()` gives *"Fails without your change: YES / NO / COULDN'T TELL (detail)"*.
 - `review.run(store, cfg)`: the flow in §15. It is prompt-driven (one-letter answers, re-asked on anything else) rather than a full-screen TUI, so it works in any terminal and can be tested end to end. Items appear oldest first (proposals and dead ends by `created_at`, supersede requests by `requested_at`; ties broken by id). It records `.seamspec/.local/review.json` (`last_review_at`), which decides which dead ends count as new. The cursor is the time the review **started**, so dead ends created during the review stay new. If you quit part-way through the dead-end list, it only advances past the ones you actually answered. A chat review marks the dead ends it showed and the human answered (`mark_dead_end_seen`, `seen_dead_ends` in the same file), and `pending()` leaves them out.
 - `lifecycle.approve(..., confirm_config=None)` refuses when runner config fingerprints don't match. To confirm, a caller passes the fingerprints of **exactly the bytes it showed the human** (`review.show_config_changes()` returns them); if the files changed again after display, approval is refused. `review`'s own confirmation step applies the same check before writing `fingerprints.json`.
 
@@ -2753,7 +2782,7 @@ Measured against the real baseline, plain tests + a Stop hook (§4.4), not again
 |---|---|---|
 | **Simple baseline is good enough** (plain tests + a Stop hook) | No reason to adopt SeamSpec | Benchmark condition (D) from week 3; if (C) ≈ (D), lead with capture, approval and dead ends (§4.4, §23) |
 | **Low-quality tests** (trivial, overfit, implementation-coupled) | Ledger becomes noise or blocks refactors | Human approval; directive asks for behavior-level tests; red-green info in review (§11.4); `seamspec review` shows the harness; empty/skipped tests fail |
-| **Rubber-stamping in review** | Weak tests get locked; approval means nothing | Review shows *"fails without your change: yes / no / n/a"* next to each proposal; pending cap keeps batches small; easy reject-to-dead-end |
+| **Rubber-stamping in review** | Weak tests get locked; approval means nothing | Review lists what each test checks above its code and warns about a test with no checks (§15.1), and shows *"Fails without your change: YES / NO / COULDN'T TELL"* next to each proposal; pending cap keeps batches small; easy reject-to-dead-end |
 | **Review fatigue** | Proposals pile up | Batch review; non-blocking reminders; per-run and project-wide proposal caps |
 | **Slow verification at Stop** | Agent loop latency; hook timeout | Tree-fingerprint caching (git-visible files); `run_on_stop = "auto"`; one overall deadline with an explicit `incomplete` outcome; guidance to keep harnesses fast |
 | **Hook API churn** | Adapters break | Thin adapters; recorded-payload tests; `doctor` tier detection; re-verify per release |

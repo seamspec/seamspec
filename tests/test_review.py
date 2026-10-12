@@ -310,8 +310,8 @@ def test_approve_and_reject_in_one_pass(in_repo: Path) -> None:
     # good: run red-green (enter), approve; weak: run red-green (enter), reject with reason, dead end yes
     out = runner.invoke(app, ["review"], input="\na\n\nr\nonly restates old behavior\ny\n")
     assert out.exit_code == 0, out.output
-    assert "fails without your change: yes" in out.output
-    assert "fails without your change: no" in out.output
+    assert "Fails without your change: YES" in out.output
+    assert "Fails without your change: NO" in out.output
     assert "| from src.queue import jitter" in out.output  # the full test is shown before the prompt
     assert out.output.index("| from src.queue import jitter") < out.output.index("[a]pprove")
     store = Store(in_repo)
@@ -325,7 +325,7 @@ def test_skip_red_green_skip_and_quit(in_repo: Path) -> None:
     b = propose(in_repo)["id"]
     out = runner.invoke(app, ["review"], input="n\ns\nn\nq\n")
     assert out.exit_code == 0 and "Stopped." in out.output
-    assert "fails without your change: " not in out.output  # the check itself never ran
+    assert "Fails without your change: " not in out.output  # the check itself never ran
     assert {Store(in_repo).get(i).status for i in (a, b)} == {InvStatus.PROPOSED}
 
 
@@ -464,3 +464,105 @@ def test_config_changed_while_being_reviewed_is_not_confirmed(in_repo: Path, mon
     out = runner.invoke(app, ["review"], input="y\nn\na\n")
     assert "changed again while you were reviewing" in out.output
     assert "can't approve while runner config changes are unconfirmed" in out.output
+
+
+# --- the readable review (SPEC 15.1, ADR-20261011-8013) -------------------------------------------
+
+READABLE_TEST = (
+    "from src.queue import backoff_delay\n\n\n"
+    "def test_cap():\n"
+    "    delay = backoff_delay(100)\n"
+    "    # assert this comment is not a check\n"
+    "    assert delay <= 30\n"
+    "    assert delay > 0, 'assert in a string is not a check either'\n"
+)
+
+
+def test_review_shows_a_summary_then_the_checks_then_the_full_test(in_repo: Path) -> None:
+    inv_id = propose(in_repo, code=READABLE_TEST)["id"]
+    propose(in_repo)
+    out = runner.invoke(app, ["review"], input="n\ns\nn\ns\n").output
+    card = out[out.index(f"Proposed rule 1 of 2 · {inv_id}") :]
+    order = ["  Title:  ", "  Rule:   ", "  Where:  ", "  Why:    ", "  Test:   ", "What this test checks",
+             "The full test", "Run it now"]  # fmt: skip
+    positions = [card.index(part) for part in order]
+    assert positions == sorted(positions), "summary first, then the checks, then the test, then the question"
+    assert "· 8 lines · 2 checks" in card
+    assert "What this test checks (read from the test file by SeamSpec):" in card
+    assert "       7  assert delay <= 30" in card and "       8  assert delay > 0, " in card
+    assert "       6  " not in card.split("The full test")[0]  # the commented-out assert isn't listed
+    # The full test follows in full, with the check lines marked.
+    assert "       7 >     assert delay <= 30" in card and "       6 |     # assert this comment is not a check" in card
+    assert "       1 | from src.queue import backoff_delay" in card
+    assert "Proposed rule 2 of 2" in out
+
+
+def test_review_warns_about_a_test_with_no_checks_and_a_long_one(in_repo: Path) -> None:
+    no_checks = "import subprocess\n\n\ndef test_nothing():\n    subprocess.run(['true'])\n"
+    long_test = "def test_long():\n" + "    x = 1\n" * 90 + "    assert x == 1\n"
+    propose(in_repo, code=no_checks)
+    propose(in_repo, code=long_test)
+    out = runner.invoke(app, ["review"], input="n\ns\nn\ns\n").output
+    assert "! no recognized assert / expect checks found: look for checks made another way" in out
+    assert "! it imports subprocess: a behavior test rarely needs the network or other programs" in out
+    assert "! long test (92 lines): a rule test should be short enough to read" in out
+    assert out.count("What this test checks") == 1  # the test without checks has no list
+
+
+def test_long_text_is_cut_visibly_and_dead_end_reasons_are_shown_in_full(in_repo: Path) -> None:
+    """Dogfooding finding #7: review cut reasons and origins mid-sentence with nothing to show it."""
+    from .conftest import make_dead_end
+
+    reason = "The provider refused. " * 30 + "END-OF-REASON"
+    Store(in_repo).create(make_dead_end("de_00000001", failure_symptom=reason[:1000]))
+    propose(in_repo, origin_text="word " * 200)
+    out = runner.invoke(app, ["review"], input="k\nn\ns\n").output
+    assert "Dead end 1 of 1 · de_00000001" in out and "  Tried:    " in out
+    assert reason[:1000].strip() in out  # the whole reason: it is what the reviewer judges
+    why = next(line for line in out.splitlines() if line.startswith("  Why:    "))
+    assert why.endswith("…") and len(why) < 330
+
+
+def test_vitest_checks_are_labeled_as_a_plain_scan() -> None:
+    from seamspec.core import testview
+
+    view = testview.analyze(
+        "import { expect, test } from 'vitest';\ntest('x', () => {\n  expect(1).toBe(1);\n});\n", "vitest"
+    )
+    assert not view.parsed and [(c.line, c.text) for c in view.checks] == [(3, "expect(1).toBe(1);")]
+    assert view.facts() == "4 lines · 1 check"
+
+
+@pytest.mark.parametrize(
+    ("code", "checks", "warning"),
+    [
+        (
+            "import pytest\n\ndef test_x():\n    with pytest.raises(ValueError):\n        int('x')\n",
+            [(4, "pytest.raises(ValueError)")],
+            None,
+        ),
+        ("def test_x(self):\n    self.assertEqual(1, 1)\n", [(2, "self.assertEqual(1, 1)")], None),
+        ("def test_x():\n    assert (\n        1\n        == 1\n    )\n", [(2, "assert ( 1 == 1 )")], None),
+        ("def test_x(:\n    assert 1\n", [(2, "assert 1")], "couldn't be parsed as Python"),
+        ("import requests\n\ndef test_x():\n    assert requests\n", [(4, "assert requests")], "it imports requests"),
+        ("def test_x():\n    pass\n", [], "no recognized assert / expect checks found"),
+        (
+            "import pytest\n\ndef test_x():\n    if 1 != 1:\n        pytest.fail('no')\n",
+            [(5, "pytest.fail('no')")],
+            None,
+        ),
+        (
+            "def test_x():\n    if 1 != 1:\n        raise AssertionError('no')\n",
+            [(3, "raise AssertionError('no')")],
+            None,
+        ),
+        ("def test_x():\n    raise ValueError('not a check')\n", [], "look for checks made another way"),
+        ("from helpers import check\n\ndef test_x():\n    check(1)\n", [], "a helper, an exception"),
+    ],
+)
+def test_what_counts_as_a_check(code: str, checks: list[tuple[int, str]], warning: str | None) -> None:
+    from seamspec.core import testview
+
+    view = testview.analyze(code, "pytest")
+    assert [(c.line, c.text) for c in view.checks] == checks
+    assert (warning is None and not view.warnings) or any(warning in w for w in view.warnings)

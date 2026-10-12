@@ -119,6 +119,29 @@ def test_approve_in_chat_locks_the_rule_and_records_where(project: Path) -> None
     assert entry["to"] == "LOCKED" and entry["via"] == "chat" and entry.get("client")
 
 
+def test_the_dialog_leads_with_the_summary_and_the_check_list(project: Path) -> None:
+    """ADR-20261011-8013: a client that shows only the top of a dialog must show what matters most.
+    The check lines are the agent's code, so they carry the quote bar; the full test still follows."""
+    propose(project)
+    human = Human(pick("skip"))
+    review(human)
+    message = human.shown[0][0]
+    order = [
+        "│ Title:",
+        "│ Rule:",
+        "Test: 5 lines · 1 check",
+        "What this test checks (read from the test file by SeamSpec):",
+        "│ line 5: assert backoff_delay(100) <= 30",
+        "Red-green: not run",
+        "Scope:",
+        "Why (",
+        "Test (.",
+    ]
+    positions = [message.index(part) for part in order]
+    assert positions == sorted(positions), message
+    assert "│ def test_cap():" in message  # the whole test, after the summary
+
+
 def test_reject_needs_a_reason_and_can_record_a_dead_end(project: Path) -> None:
     inv_id = propose(project)["id"]
     human = Human(pick("reject"), pick("reject", reason="Too narrow", also_dead_end=True))
@@ -240,7 +263,7 @@ def test_red_green_asks_before_running_and_needs_trust(project: Path, monkeypatc
     chat_review._declined.clear()
     human = Human(pick("redgreen"), pick("run"), pick("skip"))
     review(human)
-    assert len(ran) == 1 and "Red-green: fails without your change: yes (fake)" in human.shown[2][0]
+    assert len(ran) == 1 and "Red-green: Fails without your change: YES (fake)" in human.shown[2][0]
 
 
 def test_supersede_in_chat_then_approve_the_replacement(project: Path) -> None:
@@ -254,6 +277,11 @@ def test_supersede_in_chat_then_approve_the_replacement(project: Path) -> None:
     human = Human(pick("supersede"), pick("approve"))
     out = review(human)
     assert "The SLA allows 60 seconds now" in human.shown[0][0] and "needs its own approval" in human.shown[0][0]
+    # Copilot, #52: the supersede dialog carries the same readable card for the test that would stop running.
+    dialog = human.shown[0][0]
+    order = ["The test that would stop running:", "Test: 5 lines · 1 check", "What this test checks",
+             "│ line 5: assert backoff_delay(100) <= 30", "│ def test_cap():", "supersede: the rule stops"]  # fmt: skip
+    assert [dialog.index(part) for part in order] == sorted(dialog.index(part) for part in order), dialog
     assert out["reviewed"][0].startswith(f"{old}: superseded by {new}")
     assert inv(project, old).status == InvStatus.SUPERSEDED and inv(project, old).decided_via == "chat"
     assert inv(project, new).status == InvStatus.LOCKED and not requests.get(store, old)

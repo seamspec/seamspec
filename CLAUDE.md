@@ -52,6 +52,8 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 2. When you establish a new behavior worth protecting, call `propose_invariant` with a focused,
    behavior-level test (not implementation details). The tool does not run the test: run
    `seamspec verify --proposed <id>` with your shell tool and fix the test until it passes.
+   If the project keeps a list of rules it intends to lock (for example a section of its
+   plan), propose each one when its code exists and works.
 3. When an approach fails, call `log_dead_end` with what you tried and why it failed.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.

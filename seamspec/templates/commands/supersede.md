@@ -17,6 +17,8 @@ A LOCKED SeamSpec invariant needs to change: {{args}}
 6. Never edit or delete the old rule's test, and don't commit code that breaks the old rule:
    the pre-commit check and CI keep enforcing it until the human approves the supersede.
 7. Tell the user the change needs their approval in `seamspec review`.
+   Before that, tell the user in a line or two what the test does NOT cover (cases, inputs
+   or parts of the rule it leaves out), so they can judge it; say so if you see no gap.
    Offer to open the review for them: if your host can open a terminal the
    user types into (e.g. a tab in the Claude desktop app's terminal panel) and they say yes, open one
    running `seamspec review` in this repository. Never run it in your own shell and never type its
