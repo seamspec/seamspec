@@ -308,7 +308,7 @@ def test_end_to_end_with_a_scripted_agent(tmp_path: Path, condition: str) -> Non
     assert s.dead_end and s.tampering == 0 and s.cost_usd == pytest.approx(0.09)
     work = Path(score.CACHE) / "runs" / "fake" / f"t1_queue-{condition}-1"
     has_ledger = (work / ".seamspec/config.toml").is_file()
-    assert has_ledger is (condition in ("B", "C"))
+    assert has_ledger is (condition in ("B", "C", "H"))
     assert (work / ".claude/settings.json").is_file() is (condition == "D")
     if condition == "C":
         assert (work / ".git/hooks/pre-commit").is_file()
@@ -605,3 +605,108 @@ def test_resume_reads_back_what_was_scored(tmp_path: Path) -> None:
     path = tmp_path / "results.jsonl"
     path.write_text(json.dumps({**asdict(done[0]), "model": "m", "billing": "api", "seconds": 60}) + "\n\n")
     assert finished(path) == done and finished(tmp_path / "none.jsonl") == []
+
+
+# --- the "many rules" variant: conditions G and H (ADR-20261013-9d41, section 9) --------------------
+
+
+def test_extra_rules_are_36_distinct_agreements_in_both_languages() -> None:
+    from bench.harness import scale
+
+    for language, suffix in (("python", ".py"), ("typescript", ".ts")):
+        rules = scale.rules(language)
+        assert len(rules) == 36 and len({r.id for r in rules}) == len({r.title for r in rules}) == 36
+        assert len({r.file for r in rules}) == 36 and all(len(r.assertion) > 30 for r in rules)
+        for rule in rules:  # each rule is about one real file of the helper packages
+            assert rule.scope[0].endswith(suffix) and (scale.SCALE_DIR / language / rule.scope[0][4:]).is_file()
+    assert "makeId" in scale.rules("typescript")[0].assertion and "make_id" in scale.rules("python")[0].assertion
+    # None of them is about what the tasks' own rules protect, or would be needed for a task's requests.
+    everything = " ".join(r.title + " " + r.assertion for r in scale.rules("python")).lower()
+    for word in ("retry", "queue", "round", "discount", "csv", "exit code", "standard output", "eval", "thread"):
+        assert word not in everything, word
+
+
+def _write_extra_tests(language: str, work: Path) -> Path:
+    from bench.harness import scale
+
+    (work / "src").mkdir(parents=True)
+    scale.install_code(language, work)
+    tests = work / "tests" / "seamspec"
+    tests.mkdir(parents=True)
+    for extra, rule in zip(scale.EXTRAS, scale.rules(language), strict=True):
+        (tests / rule.file).write_text(scale.test_source(extra, language).replace("{{SRC}}", "../../src"))
+    return tests
+
+
+def test_every_extra_rule_test_passes_on_the_helper_code_python(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    tests = _write_extra_tests("python", tmp_path / "w")
+    out = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--noconftest", str(tests)],
+                         cwd=tmp_path / "w", capture_output=True, text=True)  # fmt: skip
+    assert out.returncode == 0 and "36 passed" in out.stdout, out.stdout[-2000:]
+
+
+@pytest.mark.skipif(not HAVE_NPM, reason="npm not installed")
+def test_every_extra_rule_test_passes_on_the_helper_code_typescript(tmp_path: Path) -> None:
+    import subprocess
+
+    from bench.harness.prepare import node_modules
+
+    work = tmp_path / "w"
+    _write_extra_tests("typescript", work)
+    (work / "node_modules").symlink_to(node_modules(), target_is_directory=True)
+    (work / "vitest.config.mjs").write_text('export default { test: { include: ["tests/seamspec/**/*.test.ts"] } };\n')
+    out = subprocess.run(
+        ["npx", "vitest", "run", "--config", "vitest.config.mjs"], cwd=work, capture_output=True, text=True
+    )
+    assert out.returncode == 0 and "36 passed" in out.stdout, out.stdout[-2000:]
+
+
+@pytest.mark.parametrize("task", [T1, T2, T3], ids=lambda t: t.id)
+def test_condition_g_puts_the_scored_rules_in_the_middle_of_a_long_notes_file(task) -> None:
+    from bench.harness import scale
+    from bench.harness.prepare import notes_text
+
+    short, text = notes_text(task), notes_text(task, many=True)
+    assert all(f"**{r.title}.** {r.assertion}" in text for r in [*task.rules, *scale.rules(task.language)])
+    assert text.count("\n- **") == len(task.rules) + 36
+    first_own, last_own = (f(f"**{r.title}.**") for f, r in ((text.index, task.rules[0]), (text.index, task.rules[-1])))
+    assert text.index("## `src/common/") < first_own < last_own < text.index("## `src/shared/")
+    # Everything else is condition E's file: the same dead end and the same closing lines.
+    assert text.split("## Tried before and failed")[1] == short.split("## Tried before and failed")[1]
+
+
+@pytest.mark.skipif(not HAVE_UV, reason="uv not installed")
+def test_conditions_g_and_h_end_to_end(tmp_path: Path) -> None:
+    from seamspec.core.models import InvStatus
+    from seamspec.core.store import Store
+
+    g = run_one(T1, "G", 1, FakeAgent({2: _raise_cap_and_add_a_pool}), tmp_path / "results" / "many")
+    work = Path(score.CACHE) / "runs" / "many" / "t1_queue-G-1"
+    assert (work / "src/common/ids.py").is_file() and (work / "CLAUDE.md").read_text().count("\n- **") == 39
+    assert not (work / ".seamspec").exists() and not (work / ".claude").exists()
+    assert g.violations == {
+        "retry_cap": True,
+        "at_most_once": False,
+        "enqueue_signature": False,
+    }  # only the task's own rules are scored
+
+    h = run_one(T1, "H", 1, FakeAgent({2: _raise_cap_and_add_a_pool}), tmp_path / "results" / "many")
+    work = Path(score.CACHE) / "runs" / "many" / "t1_queue-H-1"
+    locked = [i for i in Store(work).load_all("inv") if i.status == InvStatus.LOCKED]
+    assert len(locked) == 39 and (work / ".git/hooks/pre-commit").is_file()
+    assert sum(1 for i in locked if i.scope.paths[0].startswith(("src/common/", "src/shared/"))) == 36
+    assert h.violations == g.violations and h.tampering == 0 and h.dead_end
+
+
+def test_full_run_reads_the_many_rules_pair_against_each_other() -> None:
+    from bench.harness.verdict import decide_full
+
+    notes_slip = decide_full(_full({**BASE, "E": (5, 0, 2, 0.8), "G": (14, 0, 4, 0.9), "H": (5, 0, 0, 1.4)}))
+    assert notes_slip.readings["G"] == "worse" and notes_slip.claims["beats_notes_with_many_rules"] is True
+    assert notes_slip.claims["beats_notes"] is False and notes_slip.code == "pass"  # the verdict doesn't depend on it
+    still_match = decide_full(_full({**BASE, "G": (6, 0, 2, 0.9), "H": (5, 0, 0, 1.4)}))
+    assert still_match.readings["G"] == "match" and still_match.claims["beats_notes_with_many_rules"] is False
+    assert "beats_notes_with_many_rules" not in decide_full(_full(BASE)).claims  # not run, not claimed

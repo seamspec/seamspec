@@ -22,7 +22,7 @@ from pathlib import Path
 from .harness import score
 from .harness.agent import BILLING, ClaudeAgent, FakeAgent, StopBatch
 from .harness.prepare import CACHE, prepare
-from .harness.tasks import CONDITION_NAMES, CONDITIONS, PASS_BAR_CONDITIONS, TASK_IDS, Task, load
+from .harness.tasks import CONDITION_NAMES, CONDITIONS, PASS_BAR_CONDITIONS, TASK_IDS, USES_PLUGIN, Task, load
 from .harness.verdict import CLAIMS, RunScore, _totals, b_vs_c_note, decide, decide_full
 
 RESULTS = Path(__file__).resolve().parent / "results"
@@ -33,7 +33,7 @@ def run_one(task: Task, condition: str, run: int, agent: ClaudeAgent | FakeAgent
     prepared = prepare(task, condition, work)
     cost, turns, errors = 0.0, 0, 0
     for s, prompts in enumerate(task.sessions, start=1):
-        log = agent.run_session(work, s, prompts, condition in ("B", "C"),
+        log = agent.run_session(work, s, prompts, condition in USES_PLUGIN,
                                 out / "logs" / f"{task.id}-{condition}-{run}")  # fmt: skip
         cost += sum(r.cost_usd for r in log.results)
         turns += sum(r.turns for r in log.results)

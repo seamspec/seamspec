@@ -19,7 +19,8 @@ Conditions:
 - **C:** SeamSpec enforced;
 - **D:** the same rule tests plus a plain Stop hook (no SeamSpec);
 - **E:** the same rules and dead end as plain notes in `CLAUDE.md` (ADR-20261007-e1a7);
-- **F:** the same decisions as records in `docs/adr/`, among unrelated and outdated ones, with nothing pointing at them (ADR-20261013-9d41).
+- **F:** the same decisions as records in `docs/adr/`, among unrelated and outdated ones, with nothing pointing at them (ADR-20261013-9d41);
+- **G and H:** E and C again with **36 more agreed rules** about two helper packages (`scale/`, `harness/scale.py`). Only the task's own rules are scored: do they still hold as three among thirty-nine?
 
 Every run is scored on the final working tree (the pass bar's metric), and also on what was **committed** at `HEAD`. To compare a batch with an earlier one (no model calls):
 
@@ -40,7 +41,7 @@ The full run, once the owner has accepted ADR-20261013-9d41 (each line is a sepa
 
 ```bash
 uv run python -m bench.run --tasks t3_export --conditions A --runs 2 --model claude-sonnet-5-5 --label calib-t3 --billing api --yes
-uv run python -m bench.run --runs 5 --model claude-sonnet-5-5 --label full-1 --billing api --counted --bar full --resume --yes
+uv run python -m bench.run --runs 5 --model claude-sonnet-5-5 --label full-1 --billing api --counted --bar full --resume --yes   # 120 runs
 uv run python -m bench.run --conditions A,C,D,E --runs 3 --model claude-haiku-5-5 --label full-1-haiku --billing api --bar none --resume --yes
 ```
 
