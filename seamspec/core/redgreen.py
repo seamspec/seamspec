@@ -107,13 +107,18 @@ def check(store: Store, cfg: Config, inv: Invariant) -> RedGreen:
         top_dir = Path(top.stdout.strip()) if top is not None and top.returncode == 0 else root
         shims = tmp / "bin"
         try:
-            redirected = _shim_runner(cfg, runner.cmd[0], wt_root, shims, top_dir, wt)
+            redirected = _shim_runner(cfg, inv.verification.runner, wt_root, shims, top_dir, wt)
             before = verifier.run(
                 wt_root, cfg, [staged_head], fingerprints=prints, first_on_path=[str(shims)] if redirected else ()
             )
         except OSError as exc:
             return RedGreen("n/a", f"couldn't run the test against HEAD: {exc}")
-        if editable_install(root, top_dir, os.environ) and not (shims / APPLIED).exists():
+        applied = (shims / APPLIED).exists()
+        if redirected and not applied:
+            # The copied start script didn't get through its first lines, so a failure here says
+            # nothing about the test. Never read that as "fails without your change".
+            return RedGreen("n/a", "the test runner couldn't be started for the last commit's code")
+        if editable_install(root, top_dir, os.environ) and not applied:
             return RedGreen("n/a", "this project is installed in editable mode, and the test couldn't be pointed at "
                             "the last commit's code")  # fmt: skip
     finally:
@@ -189,28 +194,41 @@ del _redirect
 """
 
 
-def _shim_runner(cfg: Config, command: str, wt_root: Path, shims: Path, top: Path, wt: Path) -> bool:
-    """Write a copy of the runner's start script that redirects imports first. False when the runner
-    isn't started from a Python script SeamSpec can copy (a path, a binary, a Windows launcher)."""
+def _shim_runner(cfg: Config, name: str, wt_root: Path, shims: Path, top: Path, wt: Path) -> bool:
+    """Write a copy of runner `name`'s start script that redirects imports first. False when the
+    runner isn't started from a Python script SeamSpec can copy (a path, a binary, a Windows launcher)."""
+    runner = cfg.runners[name]
+    command = runner.cmd[0]
     if "/" in command or os.sep in command:
         return False
-    path = verifier.build_env(cfg, root=wt_root).get("PATH", "")
-    found = shutil.which(command, path=path)
-    if found is None:
-        return False
+    # The same environment the verifier starts this runner with, so a runner's own PATH counts.
+    env = verifier.runner_env(wt_root, cfg, runner, wt_root / verifier.REPORTS_REL / f"{name}.xml")
+    found = shutil.which(command, path=env.get("PATH", ""))
+    return found is not None and write_shim(Path(found), shims, top, wt)
+
+
+def write_shim(script: Path, shims: Path, top: Path, wt: Path) -> bool:
+    """Copy `script` into `shims` with the redirect inserted. False if it isn't a Python start script,
+    or if the copy wouldn't compile: a copy that can't start would look like a failing test."""
     try:
-        lines = Path(found).read_text(encoding="utf-8").splitlines(keepends=True)
+        lines = script.read_text(encoding="utf-8").splitlines(keepends=True)
     except (OSError, UnicodeDecodeError):
         return False
     at = _insert_at(lines)
     if at is None:
         return False
-    shims.mkdir(parents=True, exist_ok=True)
     redirect = _REDIRECT.format(
         src=os.path.realpath(top), dst=os.path.realpath(wt), here=str(shims.resolve()), applied=APPLIED
     )
-    target = shims / Path(found).name
-    target.write_text("".join(lines[:at]) + redirect + "".join(lines[at:]), encoding="utf-8")
+    text = "".join(lines[:at]) + redirect + "".join(lines[at:])
+    if "python" in lines[0].lower():  # a pure Python script: check the copy before trusting it
+        try:
+            compile(text, str(script), "exec")
+        except (SyntaxError, ValueError):
+            return False
+    shims.mkdir(parents=True, exist_ok=True)
+    target = shims / script.name
+    target.write_text(text, encoding="utf-8")
     target.chmod(0o755)
     return True
 
@@ -220,8 +238,8 @@ def _insert_at(lines: list[str]) -> int | None:
     `#!/bin/sh` + `'''exec'` header that installers write when the interpreter path is long."""
     if not lines or not lines[0].startswith("#!"):
         return None
-    if any(line.startswith("from __future__") for line in lines[:15]):
-        return None  # must stay the first statement; leave such a script alone
+    if any(line.lstrip().startswith("from __future__") for line in lines):
+        return None  # must stay the first statement, wherever the comments and docstring end
     if "python" in lines[0].lower():
         return 1
     if len(lines) >= 3 and lines[1].startswith("'''exec'") and "python" in lines[1].lower():

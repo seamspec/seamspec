@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -154,6 +155,7 @@ def test_the_head_run_sets_no_new_environment_variable(editable_repo: Path, monk
         ("#!/proj/.venv/bin/python\n# -*- coding: utf-8 -*-\nimport sys\n", 1),
         ("#!/bin/sh\n'''exec' \"/a long path/python\" \"$0\" \"$@\"\n' '''\nimport sys\n", 3),
         ("#!/proj/.venv/bin/python\nfrom __future__ import annotations\n", None),
+        ("#!/proj/.venv/bin/python\n" + "# comment\n" * 40 + '"""Doc."""\nfrom __future__ import annotations\n', None),
         ('#!/bin/sh\nexec pytest "$@"\n', None),
         ("\x7fELF binary", None),
         ("", None),
@@ -161,6 +163,78 @@ def test_the_head_run_sets_no_new_environment_variable(editable_repo: Path, monk
 )
 def test_where_the_redirect_goes_in_a_start_script(script: str, at: int | None) -> None:
     assert redgreen._insert_at(script.splitlines(keepends=True)) == at
+
+
+def test_import_hook_editable_installs_are_redirected_too(tmp_path: Path) -> None:
+    """Copilot, #47: setuptools-style editable installs keep their paths in an `__editable__` module's
+    MAPPING and NAMESPACES tables, not on sys.path. Run a copied start script for real and check that
+    both tables, and sys.path, end up pointing into the HEAD worktree."""
+    import subprocess
+    import sys
+
+    repo, wt, shims, site = tmp_path / "repo", tmp_path / "wt", tmp_path / "shims", tmp_path / "site"
+    for d in (repo / "src/demo", repo / "ns/part", wt, site):
+        d.mkdir(parents=True)
+    # What the virtualenv's `.pth` line does at start-up: load the import hook's module.
+    mapping, namespaces = {"demo": str(repo / "src/demo")}, {"ns": [str(repo / "ns"), "/elsewhere/ns"]}
+    (site / "__editable___demo_finder.py").write_text(f"MAPPING = {mapping!r}\nNAMESPACES = {namespaces!r}\n")
+    (site / "sitecustomize.py").write_text("import __editable___demo_finder\n")
+    script = tmp_path / "runner"
+    script.write_text(
+        f"#!{sys.executable}\nimport json, sys\n"
+        "hook = sys.modules['__editable___demo_finder']\n"
+        "print(json.dumps({'mapping': hook.MAPPING, 'namespaces': hook.NAMESPACES, 'path': sys.path}))\n"
+    )
+    assert redgreen.write_shim(script, shims, repo, wt)
+
+    env = {"PYTHONPATH": f"{site}{os.pathsep}{repo / 'src'}", "PATH": os.environ.get("PATH", "")}
+    out = subprocess.run([str(shims / "runner")], capture_output=True, text=True, env=env, check=True)
+    seen = json.loads(out.stdout)
+    real_wt = os.path.realpath(wt)
+    assert seen["mapping"] == {"demo": f"{real_wt}/src/demo"}
+    assert seen["namespaces"] == {"ns": [f"{real_wt}/ns", "/elsewhere/ns"]}  # outside the repo: untouched
+    assert f"{real_wt}/src" in seen["path"] and os.path.realpath(repo / "src") not in seen["path"]
+    assert str(site) in seen["path"]  # not inside the repository: left alone
+    assert (shims / redgreen.APPLIED).exists()
+
+
+def test_a_start_script_that_would_not_compile_is_not_copied(tmp_path: Path) -> None:
+    """A copy that can't start would look like a failing test, i.e. a false "yes"."""
+    import sys
+
+    script = tmp_path / "runner"
+    script.write_text(f"#!{sys.executable}\ndef broken(:\n")
+    assert not redgreen.write_shim(script, tmp_path / "shims", tmp_path, tmp_path / "wt")
+    assert not (tmp_path / "shims" / "runner").exists()
+
+
+def test_the_runner_is_found_the_way_the_verifier_finds_it(git_repo: Path, tmp_path_factory) -> None:
+    """Copilot, #47: a runner with its own PATH must get *its* start script copied, not a same-named
+    one from the surrounding PATH."""
+    import sys
+
+    own = tmp_path_factory.mktemp("own-tools")
+    (own / "pytest").write_text(f"#!{sys.executable}\n# THE RUNNER'S OWN PYTEST\nimport sys\n")
+    (own / "pytest").chmod(0o755)
+    cfg_path = git_repo / ".seamspec/config.toml"
+    cfg_path.write_text(
+        cfg_path.read_text().replace('report = "junit"', f'report = "junit"\nenv = {{ PATH = "{own}" }}', 1)
+    )
+    cfg = load_config(git_repo)
+    assert cfg.runners["pytest"].env == {"PATH": str(own)}
+    shims = tmp_path_factory.mktemp("shims")
+    assert redgreen._shim_runner(cfg, "pytest", git_repo, shims, git_repo, git_repo)
+    assert "THE RUNNER'S OWN PYTEST" in (shims / "pytest").read_text()
+
+
+def test_a_copied_runner_that_never_started_is_not_trusted(
+    editable_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the copy was made but its first lines never ran, a failing HEAD run says nothing about the test."""
+    monkeypatch.setattr(redgreen, "_shim_runner", lambda *args: True)  # claims a copy; none exists, none runs
+    inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
+    result = check(editable_repo, inv_id)
+    assert result.verdict == "n/a" and "couldn't be started" in result.detail
 
 
 def test_detecting_an_editable_install(tmp_path: Path) -> None:
