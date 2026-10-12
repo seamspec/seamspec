@@ -4,7 +4,7 @@ title: Red-green says when a "yes" only means the code is new
 status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-13
 scopes: ["seamspec/core/redgreen.py", "seamspec/review.py", "seamspec/chat_review.py"]
-invariants: []
+invariants: ["inv_77395da3"]
 supersedes: null
 superseded_by: null
 ---
@@ -41,7 +41,7 @@ The verdict didn't distinguish the two kinds of failure, and didn't show what fa
 
 ## Enforced Invariants
 
-To be proposed: "red-green never reports a plain YES when every failure on HEAD is an import or lookup error".
+* `inv_77395da3`: red-green never reports a plain YES for code that is only missing on HEAD (approved by the owner in `seamspec review`, 2026-10-13).
 
 ## Consequences
 
