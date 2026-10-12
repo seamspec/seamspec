@@ -73,7 +73,12 @@ def test_pre_commit_blocks_a_regression_naming_the_rule(gated_repo: Path, human:
     (root / "src/queue.py").write_text("def backoff_delay(n):\n    return 0.1 * 2 ** n  # cap removed\n")
     blocked = commit(root, "remove the cap")
     assert blocked.returncode != 0, "pre-commit let a regression through"
-    assert f"[FAIL] {inv_id} (pytest)" in blocked.stderr
+    # Dogfooding #11: the refusal names the rule by title and shows the check that failed, not 80 lines
+    # of runner output.
+    assert "SeamSpec: commit blocked." in blocked.stderr and "1 rule fails:" in blocked.stderr
+    assert f"  {inv_id} · Retry delay is capped\n    line 5: assert backoff_delay(100) <= 30\n" in blocked.stderr
+    assert "Full test output: `seamspec verify --all`" in blocked.stderr
+    assert "short test summary info" not in blocked.stderr and f"[FAIL] {inv_id}" not in blocked.stderr
     assert "supersede" in blocked.stderr
     assert git(root, "log", "--oneline").count("\n") == 2  # the commit didn't happen
 
@@ -374,6 +379,9 @@ def test_verify_proposed_runs_in_place_then_cleans_up(in_repo: Path) -> None:
     assert runner.invoke(app, ["verify", "--proposed", good]).exit_code == 0
     out = runner.invoke(app, ["verify", "--proposed", bad])
     assert out.exit_code == 1 and f"[FAIL] {bad}" in out.output
+    # A plain `seamspec verify` keeps the runner's output and ends with the short block (dogfooding #11).
+    assert out.output.index("[FAIL]") < out.output.index("1 rule fails:") < out.output.index("line 2: assert False")
+    assert "commit blocked" not in out.output and "Full test output" not in out.output
     assert not list((in_repo / ".seamspec/tests").glob("test_inv_*.py"))
     assert Store(in_repo).get(good).status == InvStatus.PROPOSED
     locked_err = runner.invoke(app, ["verify", "--proposed", "inv_00000000"])

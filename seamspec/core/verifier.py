@@ -53,6 +53,8 @@ class RunnerResult:
     incomplete: bool = False  # not run, or cut off, because the overall deadline was reached
     failed_ids: list[str] | None = None  # None = not attributed; the whole group counts as failing
     could_not_run: bool = False  # missing runner executable or unknown runner: no test ran at all
+    # What failed, per invariant, when the runner's report says (the readable summary, ADR-20261013-4e9b).
+    checks: dict[str, list[reports.FailedCheck]] = field(default_factory=dict)
 
 
 @dataclass
@@ -274,8 +276,10 @@ def _invoke(
 
     stdout = stdout or ""
     attributed: reports.Attribution | None = None
+    checks: dict[str, list[reports.FailedCheck]] = {}
     if runner.report == "junit":
         attributed = reports.junit(report_path, ids)
+        checks = reports.junit_checks(report_path, ids)
     elif runner.report == "go-test-json":
         attributed, stdout = reports.go_test_json(stdout, ids)
 
@@ -289,8 +293,14 @@ def _invoke(
         failed_ids = sorted(bad) if bad else None  # nothing attributed on a failure = unknown
         if empty:
             output += "\nRan no tests, or skipped every test (counts as a failure): " + ", ".join(sorted(empty))
+            for inv_id in empty:
+                checks[inv_id] = [
+                    reports.FailedCheck(None, "ran no tests, or skipped every test (counts as a failure)")
+                ]
     output = _truncate(output, cfg.verify.max_output_chars)
-    return RunnerResult(name, ids, passed, output, time.monotonic() - start, failed_ids=failed_ids)
+    return RunnerResult(
+        name, ids, passed, output, time.monotonic() - start, failed_ids=failed_ids, checks={} if passed else checks
+    )
 
 
 def run(
@@ -351,6 +361,7 @@ def run(
                     break
                 if not single.passed:
                     alone.append(inv.id)
+                    result.checks.update(single.checks)
             result.failed_ids = alone or None
         report.results.append(result)
 

@@ -13,7 +13,7 @@ import typer
 
 from . import __version__
 from . import review as review_mod
-from .core import journal, lifecycle, requests, tree, trust, verifier
+from .core import failtext, journal, lifecycle, requests, tree, trust, verifier
 from .core.config import ConfigError, load_config
 from .core.context import constraints_for
 from .core.models import DeadEnd, Invariant, InvStatus
@@ -597,14 +597,17 @@ def trust_cmd(
     typer.echo("Trusted.")
 
 
-def _verify_text(report: verifier.VerifyReport, problems: list[str]) -> str:
-    lines = list(problems) + list(report.config_failures) + list(report.integrity_failures)
-    for r in report.results:
-        if r.passed:
-            continue
-        who = ", ".join(r.failed_ids or r.invariant_ids)
-        tag = "INCOMPLETE" if r.incomplete else "FAIL"
-        lines.append(f"[{tag}] {who} ({r.runner})\n{r.output}")
+def _verify_text(store: Store, report: verifier.VerifyReport, problems: list[str], gate: bool) -> str:
+    """What failed, for a human (dogfooding #11, ADR-20261013-4e9b). The short block per rule comes
+    last, where the eye lands in a terminal. At a refused commit the runner's own output is left out
+    for every failure the block explains; a plain `seamspec verify` and CI keep all of it, above."""
+    summary, unexplained = failtext.summary(store, report)
+    shown = unexplained if gate else [r for r in report.results if not r.passed]
+    count = failtext.count(report)
+    head = "SeamSpec: commit blocked." if gate else "SeamSpec: verification failed."
+    lines = [head, *problems, *report.config_failures, *(failtext.raw(r) for r in shown)]
+    if summary:
+        lines += ["", f"{count}:" if count else "Failed:", *summary]
     return "\n".join(lines)
 
 
@@ -719,13 +722,15 @@ def verify(
         if ok:
             typer.echo(f"SeamSpec: {ran} invariant(s) passed.")
         else:
-            typer.echo("SeamSpec: verification failed.\n" + _verify_text(report, problems), err=gate)
+            typer.echo(_verify_text(store, report, problems, gate), err=gate)
             if not proposed:
                 typer.echo(
-                    "Fix the regression, or if the change is intentional, supersede the rule "
+                    "\nFix the regression, or if the change is intentional, supersede the rule "
                     "(`seamspec supersede <id> --reason ...`).",
                     err=gate,
                 )
+            if gate and report.results:
+                typer.echo("Full test output: `seamspec verify --all`", err=True)
         if gate and pending:
             typer.echo(f"SeamSpec: {pending} item(s) awaiting review: run `seamspec review`.", err=True)
     if not ok:

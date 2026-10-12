@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core import hookguard, journal, verifier
+from ..core import failtext, hookguard, journal, verifier
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
 from ..core.models import DeadEnd, Invariant, InvStatus
@@ -205,15 +205,10 @@ def stop(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] |
             f"{', '.join(sorted(failing))}. Run `seamspec review` to approve or decline it."
         }
 
-    lines = (
-        other
-        + report.integrity_failures
-        + [
-            f"[FAIL] {', '.join(r.failed_ids or r.invariant_ids)} ({r.runner})\n{r.output}"
-            for r in report.results
-            if not r.passed and not r.incomplete
-        ]
-    )
+    # The short block per failing rule first (id, title, the check that failed), then the runner's own
+    # output: Claude Code keeps the start of a long hook message (dogfooding #11, ADR-20261013-4e9b).
+    summary, _unexplained = failtext.summary(store, report)
+    lines = other + summary + [failtext.raw(r) for r in report.results if not r.passed and not r.incomplete]
     if report.incomplete:
         lines.append("[INCOMPLETE] time ran out before every locked rule was checked.")
     return _block(

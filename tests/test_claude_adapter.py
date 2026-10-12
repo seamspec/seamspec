@@ -166,6 +166,9 @@ def test_regression_blocks_with_retry_cap_per_prompt(git_repo: Path, human: None
         out = stop(git_repo)
         assert out["decision"] == "block", out
         assert f"[FAIL] {inv_id} (pytest)" in out["reason"] and f"Attempt {attempt} of 3" in out["reason"]
+        # Dogfooding #11: the rule's title and the failing check come first, then the runner's own output.
+        named = f"  {inv_id} · Retry delay is capped\n    line 5: assert backoff_delay(100) <= 30\n"
+        assert named in out["reason"] and out["reason"].index(named) < out["reason"].index("[FAIL]")
         assert "request_supersede" in out["reason"]
     capped = stop(git_repo)
     assert "decision" not in capped and "still failing after 3 attempts" in capped["systemMessage"]
