@@ -23,7 +23,7 @@ from .harness import score
 from .harness.agent import BILLING, ClaudeAgent, FakeAgent, StopBatch
 from .harness.prepare import CACHE, prepare
 from .harness.tasks import CONDITION_NAMES, CONDITIONS, PASS_BAR_CONDITIONS, TASK_IDS, Task, load
-from .harness.verdict import RunScore, _totals, b_vs_c_note, decide
+from .harness.verdict import CLAIMS, RunScore, _totals, b_vs_c_note, decide, decide_full
 
 RESULTS = Path(__file__).resolve().parent / "results"
 
@@ -54,9 +54,12 @@ def run_one(task: Task, condition: str, run: int, agent: ClaudeAgent | FakeAgent
     )
 
 
-def summary(scores: list[RunScore], counted: bool) -> str:
+def summary(scores: list[RunScore], counted: bool, bar: str = "rough") -> str:
+    """`bar`: which pass bar to apply when A-D are all present: the rough run's (ADR-20261006-c8b9),
+    the full run's (ADR-20261013-9d41), or none (a second model: reported, never judged)."""
     present = {s.condition for s in scores}
-    verdict = decide(scores) if set(PASS_BAR_CONDITIONS) <= present else None
+    complete = set(PASS_BAR_CONDITIONS) <= present and bar != "none"
+    verdict = (decide_full(scores) if bar == "full" else decide(scores)) if complete else None
     lines = [
         "# Benchmark summary",
         "",
@@ -72,12 +75,31 @@ def summary(scores: list[RunScore], counted: bool) -> str:
         lines.append(f"| {s.task} | {s.condition} | {s.run} | {broken} | {landed} | {s.tampering} | {dead}"
                      f" | ${s.cost_usd:.2f} | {s.turns} | {s.errors} |")  # fmt: skip
     lines += ["", condition_table(scores)]
-    if verdict is None:
+    if bar == "none":
+        lines += ["", "No pass bar applies to this batch: it is reported, not judged."]
+    elif verdict is None:
         lines += ["", f"Pass bar not applied: it needs conditions {', '.join(PASS_BAR_CONDITIONS)} in one batch."]
+    elif bar == "full":
+        lines += ["", f"## Verdict: {verdict.title}", "", *[f"- {r}" for r in verdict.reasons], "",
+                  "## What the write-up may claim", "",
+                  *[f"- {'yes' if ok else 'NO '}: {CLAIMS[name]}" for name, ok in verdict.claims.items()]]  # fmt: skip
     else:
         lines += ["", f"## Verdict: {verdict.title}", "", *[f"- {r}" for r in verdict.reasons],
                   f"- {b_vs_c_note(verdict)}"]  # fmt: skip
     return "\n".join(lines) + "\n"
+
+
+def finished(path: Path) -> list[RunScore]:
+    """Runs already scored in this batch's results.jsonl: a long batch that stopped can go on."""
+    if not path.is_file():
+        return []
+    fields = set(RunScore.__dataclass_fields__)
+    done = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            record = json.loads(line)
+            done.append(RunScore(**{k: record[k] for k in fields if k in record}))
+    return done
 
 
 def condition_table(scores: list[RunScore]) -> str:
@@ -103,6 +125,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--label", required=True, help="results folder name, e.g. dry-run or rough-batch-1")
     ap.add_argument("--budget-per-prompt", type=float, default=2.0, help="--max-budget-usd for each prompt")
     ap.add_argument("--counted", action="store_true", help="a counted run (the pass bar applies)")
+    ap.add_argument("--bar", choices=("rough", "full", "none"), default="rough",
+                    help="which pass bar the summary applies: rough (c8b9), full (9d41), or none")  # fmt: skip
+    ap.add_argument("--resume", action="store_true",
+                    help="skip runs this label's results.jsonl already holds, and summarize them all")  # fmt: skip
     ap.add_argument(
         "--billing",
         choices=BILLING,
@@ -131,9 +157,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     out = RESULTS / args.label
     out.mkdir(parents=True, exist_ok=True)
-    scores: list[RunScore] = []
+    scores: list[RunScore] = finished(out / "results.jsonl") if args.resume else []
+    have = {(s.task, s.condition, s.run) for s in scores}
+    if have:
+        print(f"Resuming: {len(have)} run(s) already scored in {out / 'results.jsonl'}.")
     with (out / "results.jsonl").open("a", encoding="utf-8") as f:
         for task, condition, run in jobs:
+            if (task.id, condition, run) in have:
+                continue
             started = time.monotonic()
             try:
                 s = run_one(task, condition, run, agent, out)
@@ -149,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"dead end {'yes' if s.dead_end else 'no'}, ${s.cost_usd:.2f}", flush=True)  # fmt: skip
     if not scores:
         return 2
-    (out / "summary.md").write_text(summary(scores, args.counted), encoding="utf-8")
+    (out / "summary.md").write_text(summary(scores, args.counted, args.bar), encoding="utf-8")
     print(f"Summary: {out / 'summary.md'}")
     return 0
 
