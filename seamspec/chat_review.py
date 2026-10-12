@@ -59,13 +59,30 @@ def _quote(text: str) -> str:
 
 
 def _queue(store: Store, ids: list[str] | None) -> list[list[str]]:
+    """A proposed replacement comes right before its supersede request: the old rule can only be
+    retired once its replacement is locked (dogfooding #10, ADR-20261013-7c2e)."""
     dead_ends, reqs, proposals = review.pending(store)
-    items = [["de", d.id] for d in dead_ends] + [["sup", r.invariant_id] for r in reqs]
-    items += [["inv", i.id] for i in proposals]
+    paired = review.paired_replacements(store, reqs)
+    items = [["de", d.id] for d in dead_ends]
+    placed: set[str] = set()
+    for req in reqs:
+        if req.replacement_id in paired and req.replacement_id not in placed:
+            items.append(["inv", req.replacement_id])
+            placed.add(req.replacement_id)
+        items.append(["sup", req.invariant_id])
+    items += [["inv", i.id] for i in proposals if i.id not in paired]
     if ids:
         wanted = set(ids)
+        # asking for a supersede request also brings its replacement: one can't be decided without the other
+        wanted |= {r.replacement_id for r in reqs if r.invariant_id in wanted and r.replacement_id in paired}
         return [item for item in items if item[1] in wanted]
     return [item for item in items if item[1] not in _declined]
+
+
+def _replacement_waits(store: Store, inv_id: str) -> str | None:
+    """The id of this supersede request's replacement while it is still only proposed."""
+    req = requests.get(store, inv_id)
+    return req.replacement_id if req and req.replacement_id in review.paired_replacements(store, [req]) else None
 
 
 def _still_pending(store: Store, kind: str, item_id: str) -> bool:
@@ -102,7 +119,8 @@ def _choices(store: Store, cfg: Config, state: dict[str, Any]) -> list[str]:
     if kind == "de":
         return ["skip", "keep", "wrong"]
     if kind == "sup":
-        return ["skip", "supersede", "decline"]
+        item_id = state["queue"][state["i"]][1]
+        return ["skip", "decline"] if _replacement_waits(store, item_id) else ["skip", "supersede", "decline"]
     choices = ["skip"]  # first: a hook that picks the first choice changes nothing
     if not verifier.check_fingerprints(store.root, cfg):
         choices.append("approve")
@@ -167,18 +185,25 @@ def _message(store: Store, cfg: Config, state: dict[str, Any]) -> str:
             if isinstance(rep, Invariant):
                 lines += [f"Replacement {rep.id} ({rep.status.value}):", _quote(f"{rep.title}: {rep.assertion}")]
                 if rep.status == InvStatus.PROPOSED:
-                    lines.append("The replacement needs its own approval; it's shown after this one.")
+                    lines.append("The replacement isn't approved, so this rule can't be retired now: it would leave "
+                                 "the behavior without a rule. Approve the replacement first (it is offered before "
+                                 "this dialog), then open the review again.")  # fmt: skip
+        elif req:
+            lines.append("No replacement: after this, no rule protects this behavior.")
         # The same readable card as a proposal (ADR-20261011-8013 item 7): what would stop being
         # checked is the old rule's test, so the reviewer sees its check list and the test itself.
         lines += ["", "The test that would stop running:", *_checks_text(store, record), "",
                   _test_text(store, record)]  # fmt: skip
-        lines += ["", "supersede: the rule stops being enforced and its test moves out of the test tree.",
-                  "decline: the rule stays locked (give a reason; the agent sees it)."]  # fmt: skip
+        if not _replacement_waits(store, item_id):
+            lines += ["", "supersede: the rule stops being enforced and its test moves out of the test tree."]
+        lines += ["decline: the rule stays locked (give a reason; the agent sees it)."]
     else:
         assert isinstance(record, Invariant)
         # Summary and check list first (ADR-20261011-8013): a client that shows only the top of a
         # dialog then shows the part that matters most. The full test still follows.
         lines += ["", _quote(f"Title: {record.title}"), _quote(f"Rule: {record.assertion}"),
+                  *(part for old_id, title, note in review.replaces(store, record)
+                    for part in (f"Replaces {old_id} ({note}):", _quote(title))),
                   *_checks_text(store, record), f"Red-green: {state.get('rg') or 'not run'}",
                   f"Scope: {', '.join(record.scope.paths)}", f"Why ({record.origin.type}):",
                   _quote(review.cut(record.origin.text, 600)), "", _test_text(store, record)]  # fmt: skip
@@ -296,10 +321,11 @@ def _apply_supersede(store: Store, cfg: Config, state: dict[str, Any], inv_id: s
         requests.clear(store, inv_id)
         return _next(state, f"{inv_id}: supersede declined, the rule stays locked ({reason})")
     req = requests.get(store, inv_id)
-    out = lifecycle.supersede(store, cfg, inv_id, via="chat", client=client)
+    try:
+        out = lifecycle.supersede(store, cfg, inv_id, via="chat", client=client)
+    except lifecycle.LifecycleError as exc:  # e.g. the replacement was rejected meanwhile
+        return _next(state, f"{inv_id}: not superseded, the rule stays locked: {str(exc).splitlines()[0]}")
     rep = out.get("superseded_by")
-    if rep and ["inv", rep] not in state["queue"][state["i"] + 1 :] and _still_pending(store, "inv", rep):
-        state["queue"].append(["inv", rep])  # the replacement still needs its own approval
     return _next(state, f"{inv_id}: superseded" + (f" by {rep}" if rep else "") + (f" ({req.reason})" if req else ""))
 
 

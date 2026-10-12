@@ -251,12 +251,16 @@ def request_supersede(
     return {"request_id": invariant_id, "status": "pending", "next": "Ask the user to run `seamspec review`."}
 
 
-def _check_replacement(store: Store, old_id: str, replacement_id: str) -> None:
+def _check_replacement(store: Store, old_id: str, replacement_id: str) -> Invariant:
     if replacement_id == old_id:
         raise LifecycleError("an invariant can't replace itself")
-    rep = store.get(replacement_id)
+    try:
+        rep = store.get(replacement_id)
+    except KeyError:
+        rep = None
     if not isinstance(rep, Invariant) or rep.status not in (InvStatus.PROPOSED, InvStatus.LOCKED):
         raise LifecycleError(f"replacement {replacement_id} must be PROPOSED or LOCKED")
+    return rep
 
 
 # --- human-only operations -----------------------------------------------------------------------
@@ -413,7 +417,11 @@ def supersede(
     client: str | None = None,
 ) -> dict[str, Any]:
     """LOCKED → SUPERSEDED, by explicit command or by approving a pending request (§11.2).
-    The replacement, if any, still needs its own approval."""
+
+    A replacement must already be LOCKED: the old rule is never retired in favor of a rule that is
+    still only proposed, or a review that stops in between would leave the behavior with no rule at
+    all (dogfooding #10, ADR-20261013-7c2e). Callers approve the replacement first. A retirement
+    with no replacement stays possible, and says so."""
     require_interactive(via)
     inv = _get_inv(store, inv_id)
     if inv.status != InvStatus.LOCKED:
@@ -423,8 +431,12 @@ def supersede(
     replacement_id = replacement_id or (pending.replacement_id if pending else None)
     if not reason:
         raise LifecycleError("a reason is required (or a pending supersede request)")
-    if replacement_id is not None:
-        _check_replacement(store, inv_id, replacement_id)
+    if replacement_id is not None and _check_replacement(store, inv_id, replacement_id).status != InvStatus.LOCKED:
+        raise LifecycleError(
+            f"{inv_id} isn't retired yet: its replacement {replacement_id} is still only proposed. Approve the"
+            " replacement first (`seamspec review` does both as one decision), so the behavior is never left"
+            " without a rule."
+        )
 
     who = actor or approver_identity(store)
     harness = _retire_harness(store, inv)
