@@ -35,7 +35,7 @@ from typing import Any
 from mcp_types import ElicitRequest, ElicitRequestFormParams, ElicitResult, InputRequiredResult
 
 from . import review
-from .core import hookguard, journal, lifecycle, redgreen, requests, trust, verifier
+from .core import hookguard, journal, lifecycle, redgreen, requests, testview, trust, verifier
 from .core.config import Config
 from .core.models import DeadEnd, Invariant, InvStatus
 from .core.store import Store
@@ -123,6 +123,20 @@ def _test_text(store: Store, inv: Invariant) -> str:
     return f"Test ({inv.verification.harness_path}, runner {inv.verification.runner}):\n{_quote(code)}"
 
 
+def _checks_text(store: Store, inv: Invariant) -> list[str]:
+    """What the test checks, read from the test file by SeamSpec. The check lines are the agent's
+    code, so each carries the quote bar; the counts and warnings are SeamSpec's own words."""
+    harness = store.root / inv.verification.harness_path
+    if not harness.is_file():
+        return []
+    view = testview.analyze(harness.read_text(encoding="utf-8"), inv.verification.runner)
+    how = "read from the test file by SeamSpec" if view.parsed else "lines that look like checks"
+    lines = [f"Test: {view.facts()}", *(f"Warning: {w}" for w in view.warnings)]
+    if view.checks:
+        lines += [f"What this test checks ({how}):", *(_quote(f"line {c.line}: {c.text}") for c in view.checks)]
+    return lines
+
+
 def _message(store: Store, cfg: Config, state: dict[str, Any]) -> str:
     kind, item_id = state["queue"][state["i"]]
     record = store.get(item_id)
@@ -158,10 +172,12 @@ def _message(store: Store, cfg: Config, state: dict[str, Any]) -> str:
                   "decline: the rule stays locked (give a reason; the agent sees it)."]  # fmt: skip
     else:
         assert isinstance(record, Invariant)
+        # Summary and check list first (ADR-20261011-8013): a client that shows only the top of a
+        # dialog then shows the part that matters most. The full test still follows.
         lines += ["", _quote(f"Title: {record.title}"), _quote(f"Rule: {record.assertion}"),
+                  *_checks_text(store, record), f"Red-green: {state.get('rg') or 'not run'}",
                   f"Scope: {', '.join(record.scope.paths)}", f"Why ({record.origin.type}):",
-                  _quote(record.origin.text[:600]), "", _test_text(store, record), "",
-                  f"Red-green: {state.get('rg') or 'not run'}"]  # fmt: skip
+                  _quote(review.cut(record.origin.text, 600)), "", _test_text(store, record)]  # fmt: skip
         if verifier.check_fingerprints(store.root, cfg):
             lines.append("Runner config changed since it was last confirmed: approve in a terminal "
                          "(`seamspec review`) after checking it.")  # fmt: skip

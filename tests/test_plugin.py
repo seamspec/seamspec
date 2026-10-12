@@ -124,3 +124,13 @@ def test_claude_plugin_validate(target: Path) -> None:
     assert result.returncode == 0 and "Validation passed" in result.stdout + result.stderr, (
         result.stdout + result.stderr
     )
+
+
+def test_skills_tell_the_agent_to_name_the_gaps_and_use_the_projects_list() -> None:
+    """ADR-20261011-8013 and ADR-20261011-0995: before the review the agent says what its test does not
+    cover; rules a project already listed as intended are proposed when their code exists."""
+    for skill in ("lock", "supersede"):
+        text = (PLUGIN / "skills" / skill / "SKILL.md").read_text()
+        assert "what the test does NOT cover" in text and "say so if you see no gap" in text
+        assert text.index("does NOT cover") < text.index("Offer to open the review")
+    assert "list of rules it intends to lock" in (PLUGIN / "skills/checkpoint/SKILL.md").read_text()

@@ -141,6 +141,7 @@ def test_v01_directive_leaves_out_v02_rules() -> None:
     text = directive.directive_text()
     assert "braindump" not in text.lower()
     assert "get_constraints" in text and "seamspec review" in text
+    assert "list of rules it intends to lock" in text  # a plan section works today, without BRAINDUMP
 
 
 def test_init_without_claude_md(tmp_path: Path) -> None:

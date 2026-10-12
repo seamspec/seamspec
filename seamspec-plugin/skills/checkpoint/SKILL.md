@@ -13,7 +13,9 @@ Run a SeamSpec checkpoint for this session. Optional focus: $ARGUMENTS
    (`/seamspec:supersede`).
 2. List the files changed this session: `git diff --name-only HEAD`, plus untracked files.
 3. Call `get_constraints` on them, so you don't propose a rule that already exists.
-4. Pick at most 3 behaviors established this session that are worth protecting (fewer is fine;
+4. If the project keeps a list of rules it intends to lock (for example a section of its
+   plan), start with the ones whose code now exists and works. Then pick behaviors
+   established this session that are worth protecting. At most 3 in total (fewer is fine;
    if `.seamspec/config.toml` sets `commands.max_proposals_per_run`, use that limit): explicit
    user constraints, user-visible behavior, security, data integrity. Skip cosmetic or trivial
    behavior. Propose each with `propose_invariant`, then run `seamspec verify --proposed <id>`.

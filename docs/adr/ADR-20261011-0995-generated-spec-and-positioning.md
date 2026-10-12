@@ -60,7 +60,7 @@ SeamSpec is pitched as **a regression guard for agent-written code that works al
 
 ### 4. A list of intended rules, before BRAINDUMP
 
-Until BRAINDUMP exists, the protocol block and the `checkpoint` skill will say (built with step 1): *if the project keeps a list of rules it intends to lock (a section of a plan, or `BRAINDUMP.md`), propose each one when its code exists and works.* No parsing and no new files: the agent reads the list like any other project document.
+Until BRAINDUMP exists, the protocol block and the `checkpoint` skill say (built in PR `week-4/readable-review`; they name "a section of its plan" and not `BRAINDUMP.md`, which stays a v0.2 feature): *if the project keeps a list of rules it intends to lock (a section of a plan, or `BRAINDUMP.md`), propose each one when its code exists and works.* No parsing and no new files: the agent reads the list like any other project document.
 
 **Alternatives considered:**
 - **Write specs up front in SeamSpec too.** Rejected: it competes on the spec-first tools' ground and adds a second source of truth next to the ledger.

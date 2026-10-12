@@ -8,12 +8,14 @@ each with its full test and an optional red-green check (§11.4).
 from __future__ import annotations
 
 import json
+import os
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 
 import typer
 
-from .core import lifecycle, redgreen, requests, verifier
+from .core import lifecycle, redgreen, requests, testview, verifier
 from .core.config import Config
 from .core.hashing import sha256_bytes
 from .core.models import DeadEnd, Invariant, InvStatus, utcnow
@@ -47,18 +49,65 @@ def _choice(label: str, keys: str, default: str) -> str:
         typer.echo(f"  please answer one of: {', '.join(keys)}")
 
 
-def show_invariant(store: Store, inv: Invariant) -> None:
-    typer.echo(f"{inv.id} [{inv.status.value}] {inv.title}")
-    typer.echo(f"  rule:   {inv.assertion}")
-    typer.echo(f"  scope:  {', '.join(inv.scope.paths)}")
-    typer.echo(f"  origin: {inv.origin.type}: {inv.origin.text[:300]}")
-    typer.echo(f"  test:   {inv.verification.harness_path} (runner: {inv.verification.runner})")
+RULE_WIDTH = 72
+TEXT_MAX = 300  # long origins and reasons are cut here, visibly
+
+
+def _color() -> bool:
+    """Styling only for a real terminal that hasn't opted out (https://no-color.org)."""
+    return sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+
+def _style(text: str, **how: bool) -> str:
+    return typer.style(text, **how) if _color() else text
+
+
+def cut(text: str, limit: int = TEXT_MAX) -> str:
+    """One line, cut with a visible "…" when it's longer than `limit` (dogfooding finding #7)."""
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def divider(label: str) -> None:
+    """Each item starts with a rule and a line saying where the reviewer is: one item, one block."""
+    typer.echo("")
+    typer.echo(_style("─" * RULE_WIDTH, dim=True))
+    typer.echo(_style(label, bold=True))
+
+
+def show_invariant(store: Store, inv: Invariant, position: str | None = None) -> None:
+    """A rule for the reviewer: summary first, then what its test checks, then the full test (SPEC
+    §15.1, ADR-20261011-8013). Everything comes from the record or is read out of the test file;
+    nothing the agent wrote *about* its test is shown. The full test always follows: approval means
+    the human saw it (§12.4.3 rule 4)."""
+    divider(f"{position or f'Rule [{inv.status.value}]'} · {inv.id}")
+    typer.echo(f"  Title:  {inv.title}")
+    typer.echo(f"  Rule:   {inv.assertion}")
+    typer.echo(f"  Where:  {', '.join(inv.scope.paths)}")
+    typer.echo(f"  Why:    {inv.origin.type}: {cut(inv.origin.text)}")
     harness = store.root / inv.verification.harness_path
-    if harness.is_file():
-        typer.echo("  " + "-" * 60)
-        for line in harness.read_text(encoding="utf-8").splitlines():
-            typer.echo(f"  | {line}")
-        typer.echo("  " + "-" * 60)
+    where = f"{inv.verification.harness_path} (runner: {inv.verification.runner})"
+    if not harness.is_file():
+        typer.echo(f"  Test:   {where}")
+        typer.echo(_style("  ! the test file is missing", bold=True))
+        return
+    view = testview.analyze(harness.read_text(encoding="utf-8"), inv.verification.runner)
+    typer.echo(f"  Test:   {where} · {view.facts()}")
+    for warning in view.warnings:
+        typer.echo(_style(f"  ! {warning}", bold=True))
+
+    if view.checks:
+        how = "read from the test file by SeamSpec" if view.parsed else "lines that look like checks"
+        typer.echo(f"\n  What this test checks ({how}):")
+        for check in view.checks:
+            typer.echo(f"    {check.line:>4}  {check.text}")
+    typer.echo("\n  The full test (check lines are marked >):")
+    marked = view.check_lines
+    for number, line in enumerate(view.lines, 1):
+        if number in marked:
+            typer.echo(_style(f"    {number:>4} > {line}", bold=True))
+        else:
+            typer.echo(_style(f"    {number:>4} | {line}", dim=True))
 
 
 def show_config_changes(store: Store, cfg: Config) -> dict[str, str]:
@@ -191,10 +240,12 @@ def _review_config(store: Store, cfg: Config) -> bool:
 def _review_dead_ends(store: Store, dead_ends: list[DeadEnd], tally: Tally, seen: list[DeadEnd]) -> None:
     if dead_ends:
         typer.echo("\n== Dead ends recorded since your last review (they steer the agent; retire wrong ones)")
-    for de in dead_ends:
-        typer.echo(f"{de.id} ({de.source}, {de.created_at.date().isoformat()}) scope: {', '.join(de.scope.paths)}")
-        typer.echo(f"  tried:  {de.approach}")
-        typer.echo(f"  failed: {de.failure_symptom[:300]}")
+    for n, de in enumerate(dead_ends, 1):
+        divider(f"Dead end {n} of {len(dead_ends)} · {de.id}")
+        typer.echo(f"  Recorded: {de.source}, {de.created_at.date().isoformat()}")
+        typer.echo(f"  Where:    {', '.join(de.scope.paths)}")
+        typer.echo(f"  Tried:    {de.approach}")
+        typer.echo(f"  Failed:   {de.failure_symptom}")  # in full: the reason is what the reviewer judges
         if _choice("[k]eep  [w]rong, retire it  [q]uit", "kwq", "k") == "w":
             reason = typer.prompt("  Why is it wrong?", default="marked wrong in review")
             lifecycle.retire_dead_end(store, de.id, reason)
@@ -205,11 +256,11 @@ def _review_dead_ends(store: Store, dead_ends: list[DeadEnd], tally: Tally, seen
 def _review_requests(store: Store, cfg: Config, reqs: list[requests.SupersedeRequest], tally: Tally) -> None:
     if reqs:
         typer.echo("\n== Supersede requests (a locked rule would stop running)")
-    for req in reqs:
+    for n, req in enumerate(reqs, 1):
         inv = store.get(req.invariant_id)
         assert isinstance(inv, Invariant)
-        show_invariant(store, inv)
-        typer.echo(f"  requested: {req.reason} (replacement: {req.replacement_id or 'none'}, {req.requested_at})")
+        show_invariant(store, inv, f"Supersede request {n} of {len(reqs)}")
+        typer.echo(f"\n  Requested: {req.reason} (replacement: {req.replacement_id or 'none'}, {req.requested_at})")
         key = _choice("[a]pprove supersede  [d]ecline request  [s]kip  [q]uit", "adsq", "s")
         if key == "a":
             lifecycle.supersede(store, cfg, req.invariant_id)
@@ -224,11 +275,11 @@ def _review_requests(store: Store, cfg: Config, reqs: list[requests.SupersedeReq
 def _review_proposals(store: Store, cfg: Config, proposals: list[Invariant], config_ok: bool, tally: Tally) -> None:
     if proposals:
         typer.echo("\n== Proposed rules")
-    for inv in proposals:
+    for n, inv in enumerate(proposals, 1):
+        show_invariant(store, inv, f"Proposed rule {n} of {len(proposals)}")
         typer.echo("")
-        show_invariant(store, inv)
         if typer.confirm("Run it now to check it fails without your change?", default=True):
-            typer.echo("  " + redgreen.check(store, cfg, inv).line())
+            typer.echo(_style("  " + redgreen.check(store, cfg, inv).line(), bold=True))
         key = _choice("[a]pprove  [r]eject  [s]kip  [q]uit", "arsq", "s")
         if key == "a":
             if not config_ok:

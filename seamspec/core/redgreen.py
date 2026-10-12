@@ -47,7 +47,9 @@ class RedGreen:
     detail: str  # one line for the reviewer
 
     def line(self) -> str:
-        return f"fails without your change: {self.verdict} ({self.detail})"
+        """The one line the reviewer reads: the verdict in capitals, then why."""
+        verdict = {"yes": "YES", "no": "NO", "n/a": "COULDN'T TELL"}[self.verdict]
+        return f"Fails without your change: {verdict} ({self.detail})"
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
