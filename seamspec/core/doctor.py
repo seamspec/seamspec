@@ -136,8 +136,16 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
     except RecordError:
         report.add("warning", "journal", "skipped: fix the broken record(s) above first")
     if (root / "CLAUDE.md").is_file() and directive.drift(root):
-        report.add("warning", "directive",
-                   "the SeamSpec block in CLAUDE.md is missing or outdated: rerun `seamspec init`")  # fmt: skip
+        foreign = len(directive.foreign_in(root))
+        if foreign:  # init keeps them (ADR-20261011-b1c8): say so, or the owner hesitates to rerun it
+            message = (
+                f"{foreign} line{'s' if foreign != 1 else ''} inside the SeamSpec block in CLAUDE.md"
+                f" {'were' if foreign != 1 else 'was'} not written by SeamSpec: rerun `seamspec init`,"
+                " which keeps them (moved above the block) and updates the block"
+            )
+        else:
+            message = "the SeamSpec block in CLAUDE.md is missing or outdated: rerun `seamspec init`"
+        report.add("warning", "directive", message)
     hooks = _git(root, "rev-parse", "--git-path", "hooks")
     hook = (root / hooks.strip() / "pre-commit") if hooks else None
     text = hook.read_text(encoding="utf-8", errors="replace") if hook and hook.is_file() else ""

@@ -88,6 +88,10 @@ def test_detection(tmp_path: Path, files: dict[str, str], runners: list[str], un
 # --- CLAUDE.md directive block (SPEC §18, ADR-20261005-c41d) ---
 
 
+# Rule 6 as the first version of the block worded it: SeamSpec's own line, though no longer in the template.
+OLD_RULE_6 = "6. Only humans approve invariants. Remind the user to run `seamspec review` when proposals are pending."
+
+
 def test_merge_into_empty_and_missing() -> None:
     assert directive.merge("") == directive.render_block() + "\n"
 
@@ -100,16 +104,16 @@ def test_merge_appends_and_preserves_user_content() -> None:
 
 
 def test_merge_replaces_block_in_place() -> None:
-    old = f"# Top\n\n{BEGIN}\nold rules\n{END}\n\n## After\nkeep me\n"
+    old = f"# Top\n\n{BEGIN}\n{OLD_RULE_6}\n{END}\n\n## After\nkeep me\n"
     out = directive.merge(old)
-    assert "old rules" not in out
+    assert OLD_RULE_6 not in out
     assert out.startswith("# Top\n\n" + BEGIN)
     assert out.endswith(f"{END}\n\n## After\nkeep me\n")
     assert directive.merge(out) == out
 
 
 def test_merge_accepts_edited_begin_marker() -> None:
-    old = "<!-- seamspec:begin anything -->\nx\n<!-- seamspec:end -->\n"
+    old = f"<!-- seamspec:begin anything -->\n{OLD_RULE_6}\n<!-- seamspec:end -->\n"
     assert directive.merge(old) == directive.render_block() + "\n"
 
 
@@ -135,6 +139,63 @@ def test_install_and_drift(tmp_path: Path) -> None:
     path.write_text(path.read_text().replace("Only humans approve", "Agents approve"))
     assert directive.drift(tmp_path)
     assert directive.install(tmp_path) == "updated"
+
+
+# --- lines someone else wrote inside the block are kept (dogfooding #8, ADR-20261011-b1c8) ---
+
+SOLO = "This is a solo project: commit directly to `main`; don't create feature branches."
+
+
+def test_a_line_written_inside_the_block_is_kept_above_it() -> None:
+    """The specagent case: an agent put the owner's instruction right after the begin marker."""
+    old = directive.render_block().replace(BEGIN, f"{BEGIN}\n{SOLO}\n") + "\n"
+    out, kept = directive.merge_keeping(old)
+    assert kept == [SOLO]
+    assert out == f"{SOLO}\n\n{directive.render_block()}\n"
+    assert directive.merge_keeping(out) == (out, [])  # nothing left to move the second time
+
+
+def test_kept_lines_keep_their_order_and_the_text_around_the_block() -> None:
+    body = directive.directive_text().splitlines()
+    inner = "\n".join(["first of mine", *body[:5], "", "  - second of mine", *body[5:], "third of mine"])
+    old = f"# Top\n\nintro\n{BEGIN}\n{inner}\n{END}\n\n## After\nkeep me\n"
+    out, kept = directive.merge_keeping(old)
+    assert kept == ["first of mine", "  - second of mine", "third of mine"]
+    assert out == (
+        "# Top\n\nintro\n\nfirst of mine\n  - second of mine\nthird of mine\n\n"
+        f"{directive.render_block()}\n\n## After\nkeep me\n"
+    )
+
+
+def test_upgrading_from_older_wording_keeps_nothing() -> None:
+    """SeamSpec's own earlier lines are recognised, so an ordinary upgrade moves nothing out of the block."""
+    assert OLD_RULE_6 not in directive.directive_text()
+    old = f"{BEGIN}\n# SeamSpec Protocol\n\n   {OLD_RULE_6}  \n{END}\n"  # indentation doesn't matter
+    assert directive.foreign_lines(old) == []
+    out, kept = directive.merge_keeping(old)
+    assert kept == [] and out == directive.render_block() + "\n"
+
+
+def test_known_lines_file_covers_the_current_template() -> None:
+    """After editing directive.md, run `uv run python -m seamspec.installers.directive`: the next wording
+    change must still recognise today's lines as SeamSpec's."""
+    from importlib.resources import files
+
+    recorded = set(files("seamspec.templates").joinpath(directive.KNOWN_LINES).read_text("utf-8").split())
+    current = {directive._key(ln) for ln in directive.directive_text().splitlines() if ln.strip()}
+    assert current <= recorded
+
+
+def test_init_reports_the_lines_it_kept(tmp_path: Path) -> None:
+    scaffold.init(tmp_path)
+    path = tmp_path / "CLAUDE.md"
+    path.write_text(path.read_text().replace(BEGIN, f"{BEGIN}\n{SOLO}"))
+    assert directive.foreign_in(tmp_path) == [SOLO]
+    report = scaffold.init(tmp_path)
+    assert report.kept_lines == [SOLO] and dict(report.actions)["CLAUDE.md"] == "updated"
+    assert path.read_text().startswith(f"{SOLO}\n\n{BEGIN}\n# SeamSpec Protocol")
+    assert directive.foreign_in(tmp_path) == [] and not directive.drift(tmp_path)
+    assert scaffold.init(tmp_path).kept_lines == []
 
 
 def test_v01_directive_leaves_out_v02_rules() -> None:

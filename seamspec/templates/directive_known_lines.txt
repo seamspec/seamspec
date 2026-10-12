@@ -1,0 +1,33 @@
+# Every line SeamSpec has ever shipped in its CLAUDE.md block, as sha256[:16] of the stripped line.
+# `seamspec init` uses it to tell SeamSpec's own (possibly older) wording from lines someone else wrote
+# inside the block, which it keeps (ADR-20261011-b1c8). Append-only: after editing directive.md, run
+#   uv run python -m seamspec.installers.directive
+19dea89a7118b86a
+2ca5def640bc13f0
+4190253b0dd3fcdf
+437e0ceb9ebd2b7e
+4509c9d5568025c8
+585448a37d43f10b
+5efb5a53001b01b5
+6d1b490138ed66d2
+6ed38ef42e5f8180
+6f7de7a605775f94
+79f2d87c968cf84d
+7fb8c2760567754f
+81a4f8b8fd5d70f9
+89383589df62e980
+9d9101fc4707ba50
+a0de0a86581cc029
+a430855f93c7e22d
+a8537ab9f9dc6fca
+b3cca594aa427108
+b9f95911a226346e
+cce0bc29d0caa3ce
+ce667654e882e901
+d773bbd8c2946818
+dabda6ff91bb6d20
+dfdb9ff924f2f0e3
+e889f865d6b15942
+e9995ca0be901e54
+f0e1d59ebf6ce687
+f54c7f99bff3553b

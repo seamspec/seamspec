@@ -206,6 +206,14 @@ def init(
     typer.echo(f"SeamSpec initialised in {root} (mode: {report.mode})")
     for rel, what in report.actions:
         typer.echo(f"  {what:<9} {rel}")
+    if report.kept_lines:  # never drop someone's own instruction silently (ADR-20261011-b1c8)
+        n = len(report.kept_lines)
+        typer.echo(
+            f"  CLAUDE.md: {n} line{'s' if n != 1 else ''} inside SeamSpec's block {'were' if n != 1 else 'was'}"
+            " not SeamSpec's. Kept, and moved above the block:"
+        )
+        for line in report.kept_lines:
+            typer.echo(f"    | {review_mod.cut(line, 160)}")
     found = report.detection
     typer.echo(
         "Runners: "

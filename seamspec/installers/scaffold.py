@@ -47,6 +47,8 @@ class InitReport:
     consent: bool = False
     trusted: bool = False
     hook: git_hooks.HookResult | None = None
+    # Lines someone wrote inside SeamSpec's CLAUDE.md block, which init moved above it instead of deleting.
+    kept_lines: list[str] = field(default_factory=list)
 
     def add(self, path: str, what: str) -> None:
         self.actions.append((path, what))
@@ -219,7 +221,8 @@ def init(
     _record_initial_fingerprints(root, report)
     report.add(".gitignore", merge_gitignore(root))
     if claude_md:
-        report.add("CLAUDE.md", directive.install(root))
+        status, report.kept_lines = directive.install_keeping(root)
+        report.add("CLAUDE.md", status)
 
     store = Store(root)
     who = actor or approver_identity(store)
