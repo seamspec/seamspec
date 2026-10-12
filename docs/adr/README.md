@@ -62,3 +62,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261011-d4a1](ADR-20261011-d4a1-mcp-server-finds-the-moved-session.md) | The MCP server finds the project of a session that was moved to another folder | ACCEPTED |
 | [ADR-20261011-e7c5](ADR-20261011-e7c5-layout-aware-hints.md) | Runner hints fit the project - how to import its code, and which program a runner resolves to | ACCEPTED |
 | [ADR-20261011-a9f3](ADR-20261011-a9f3-ci-workflow-install-source.md) | The CI workflow installs the SeamSpec version that wrote it; an unreleased build doesn't offer the workflow | ACCEPTED |
+| [ADR-20261011-b1c8](ADR-20261011-b1c8-init-keeps-lines-inside-its-block.md) | `seamspec init` keeps lines someone else wrote inside its CLAUDE.md block | ACCEPTED |
