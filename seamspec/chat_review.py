@@ -336,7 +336,8 @@ def _apply_proposal(store: Store, cfg: Config, state: dict[str, Any], inv_id: st
         if choice == "run":
             inv = store.get(inv_id)
             assert isinstance(inv, Invariant)
-            state["rg"] = redgreen.check(store, cfg, inv).line()
+            result = redgreen.check(store, cfg, inv)
+            state["rg"] = result.line() + (f" {result.hint()}" if result.hint() else "")
         else:
             state["rg"] = "not run (you chose not to run it)"
         return None

@@ -313,7 +313,7 @@ def _review_requests(
             show_invariant(store, rep, f"{where}: its replacement")
             typer.echo("")
             if typer.confirm("Run the replacement now to check it fails without your change?", default=True):
-                typer.echo(_style("  " + redgreen.check(store, cfg, rep).line(), bold=True))
+                _show_red_green(redgreen.check(store, cfg, rep))
             typer.echo(f"  One decision: approving locks {rep.id} and then retires {inv.id}.")
             keys, prompt = "adsq", "[a]pprove the replacement and retire the old rule  [d]ecline  [s]kip  [q]uit"
         elif rep is not None and rep.status == InvStatus.LOCKED:
@@ -373,6 +373,12 @@ def _approve_request(
     typer.echo(f"  SUPERSEDED {req.invariant_id}{by}")
 
 
+def _show_red_green(result: redgreen.RedGreen) -> None:
+    typer.echo(_style("  " + result.line(), bold=True))
+    if result.hint():
+        typer.echo(f"  {result.hint()}")
+
+
 def _review_proposals(store: Store, cfg: Config, proposals: list[Invariant], config_ok: bool, tally: Tally) -> None:
     if proposals:
         typer.echo("\n== Proposed rules")
@@ -380,7 +386,7 @@ def _review_proposals(store: Store, cfg: Config, proposals: list[Invariant], con
         show_invariant(store, inv, f"Proposed rule {n} of {len(proposals)}")
         typer.echo("")
         if typer.confirm("Run it now to check it fails without your change?", default=True):
-            typer.echo(_style("  " + redgreen.check(store, cfg, inv).line(), bold=True))
+            _show_red_green(redgreen.check(store, cfg, inv))
         key = _choice("[a]pprove  [r]eject  [s]kip  [q]uit", "arsq", "s")
         if key == "a":
             if not config_ok:
