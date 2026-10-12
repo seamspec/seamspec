@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -41,15 +42,43 @@ Verdict = Literal["yes", "no", "n/a"]
 LINKED = (".venv", "venv", "node_modules")
 
 
+# What a HEAD failure looks like when the code under test simply isn't there yet (dogfooding #9,
+# ADR-20261013-a5d3): the test can't import or find what it tests. Matched against the first line
+# of each failure in the runner's report, never against terminal output.
+MISSING_CODE = re.compile(
+    r"^(ModuleNotFoundError|ImportError|FileNotFoundError|NameError)\b"
+    r"|^AttributeError: (partially initialized )?(module|type object) .*\bhas no attribute\b"
+    r"|Cannot find module|Failed to resolve import|does not provide an export named"
+    r"|\bis not a function\b|\bis not defined\b|\bis not a constructor\b"
+)
+ON_HEAD_MAX = 120
+
+
 @dataclass
 class RedGreen:
     verdict: Verdict  # "yes" = fails without the change (good), "no" = passes on HEAD too
     detail: str  # one line for the reviewer
+    # "yes", but only because HEAD doesn't have the code the test needs. True for any test of new
+    # code, so it says nothing about whether the test would catch a wrong change.
+    new_code: bool = False
+    proposal_id: str | None = None
 
     def line(self) -> str:
         """The one line the reviewer reads: the verdict in capitals, then why."""
         verdict = {"yes": "YES", "no": "NO", "n/a": "COULDN'T TELL"}[self.verdict]
+        if self.new_code:
+            verdict = "YES, BUT ONLY BECAUSE THE CODE IS NEW"
         return f"Fails without your change: {verdict} ({self.detail})"
+
+    def hint(self) -> str | None:
+        """What the reviewer can do when the verdict proves little."""
+        if not self.new_code:
+            return None
+        target = f" --proposed {self.proposal_id}" if self.proposal_id else ""
+        return (
+            "To see this test catch something: break the new code on purpose, run "
+            f"`seamspec verify{target}`, and check that it fails."
+        )
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
@@ -132,7 +161,26 @@ def check(store: Store, cfg: Config, inv: Invariant) -> RedGreen:
         return RedGreen("n/a", "the test couldn't run against HEAD")
     if before.passed:
         return RedGreen("no", "it passes on HEAD too: fine if it protects behavior that already existed")
-    return RedGreen("yes", "it fails on HEAD and passes with your change")
+    said = _head_failures(before, inv.id)
+    if said and all(MISSING_CODE.search(message) for message in said):
+        return RedGreen(
+            "yes",
+            f"the last commit doesn't have what this test needs: {_cut(said[0])}. Expected for new code, but it "
+            "doesn't show the test would catch a wrong change",
+            new_code=True,
+            proposal_id=inv.id,
+        )
+    on_head = f"; on HEAD: {_cut(said[0])}" if said else ""
+    return RedGreen("yes", f"it fails on HEAD and passes with your change{on_head}")
+
+
+def _head_failures(report: verifier.VerifyReport, inv_id: str) -> list[str]:
+    """The first line of each failure of this test on HEAD, when the runner's report gives them."""
+    return [check.message for result in report.results for check in result.checks.get(inv_id, [])]
+
+
+def _cut(text: str) -> str:
+    return text if len(text) <= ON_HEAD_MAX else text[: ON_HEAD_MAX - 1].rstrip() + "…"
 
 
 def _prepare(root: Path, wt_root: Path, cfg: Config, inv: Invariant) -> None:

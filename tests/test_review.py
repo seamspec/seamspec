@@ -52,8 +52,56 @@ def test_new_behavior_fails_on_head(git_repo: Path) -> None:
     inv_id = propose(git_repo, code=JITTER_TEST, assertion="Jitter halves the delay.")["id"]
     result = check(git_repo, inv_id)
     assert result.verdict == "yes", result.detail
+    # Dogfooding #9: HEAD has no `jitter` to import, so any test of it fails there. Say so.
+    assert result.new_code and "ImportError: cannot import name 'jitter'" in result.detail
+    assert result.line().startswith("Fails without your change: YES, BUT ONLY BECAUSE THE CODE IS NEW (the last commit")
+    assert f"`seamspec verify --proposed {inv_id}`" in (result.hint() or "")
     assert worktrees(git_repo) == 1, "temporary worktree was not removed"
     assert not list((git_repo / ".seamspec/tests").glob("test_inv_*.py")), "proposed test left in place"
+
+
+def test_changed_behavior_is_a_plain_yes_that_shows_what_failed_on_head(git_repo: Path) -> None:
+    """The code exists on HEAD and behaves differently there: the strong kind of "yes"."""
+    (git_repo / "src/queue.py").write_text("def backoff_delay(n):\n    return min(0.1 * 2 ** n, 60.0)\n")
+    code = "from src.queue import backoff_delay\n\n\ndef test_cap():\n    assert backoff_delay(100) == 60\n"
+    inv_id = propose(git_repo, code=code, assertion="Retry delay is capped at 60 seconds.")["id"]
+    result = check(git_repo, inv_id)
+    assert result.verdict == "yes" and not result.new_code and result.hint() is None
+    assert result.line() == (
+        "Fails without your change: YES (it fails on HEAD and passes with your change; on HEAD: assert 30.0 == 60)"
+    )
+
+
+@pytest.mark.parametrize(
+    "message,missing",
+    [
+        ("ModuleNotFoundError: No module named 'specagent.phase0.draft'", True),
+        ("ImportError: cannot import name 'jitter' from 'src.queue'", True),
+        ("AttributeError: module 'src.queue' has no attribute 'jitter'", True),
+        ("FileNotFoundError: config/policy.yaml not found above this test", True),
+        ("(0 , jitter) is not a function", True),
+        ('Error: Failed to resolve import "../../src/new" from "tests/seamspec/inv_1.test.ts"', True),
+        ("assert 4 == 5", False),
+        ("AssertionError: assert 'not found' == 'found'", False),
+        ("AttributeError: 'NoneType' object has no attribute 'id'", False),  # the code ran and gave a wrong value
+        ("AttributeError: type object 'Gateway' has no attribute 'retry'", True),
+        ("TypeError: unsupported operand type(s) for +: 'int' and 'str'", False),
+        ("expected 9 to be less than or equal to 3", False),
+    ],
+)
+def test_missing_code_messages(message: str, missing: bool) -> None:
+    assert bool(redgreen.MISSING_CODE.search(message)) is missing
+
+
+def test_review_prints_the_hint_for_new_code(in_repo: Path) -> None:
+    (in_repo / "src/queue.py").write_text(JITTER_CODE)
+    inv_id = propose(in_repo, code=JITTER_TEST, assertion="Jitter halves the delay.")["id"]
+    out = runner.invoke(app, ["review"], input="y\ns\n")
+    assert "YES, BUT ONLY BECAUSE THE CODE IS NEW" in out.output
+    assert (
+        f"To see this test catch something: break the new code on purpose, run `seamspec verify --proposed {inv_id}`"
+        in out.output
+    )
 
 
 def test_existing_behavior_passes_on_head(git_repo: Path) -> None:
@@ -516,7 +564,8 @@ def test_red_green_real_failure_mentioning_not_found_is_yes(git_repo: Path) -> N
         "    assert getattr(queue, 'lookup', lambda k: 'not found')('x') == 'found'\n"
     )
     inv_id = propose(git_repo, code=code, assertion="Lookup finds existing keys.")["id"]
-    assert check(git_repo, inv_id).verdict == "yes"
+    result = check(git_repo, inv_id)
+    assert result.verdict == "yes" and not result.new_code  # an assertion failed: not "the code is missing"
 
 
 def test_red_green_filesystem_error_is_not_applicable(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

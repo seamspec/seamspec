@@ -135,6 +135,7 @@ def test_red_green_in_a_typescript_repo(ts_repo: Path) -> None:
     old = lifecycle.propose_invariant(
         store, cfg, title="Cap", assertion="Retry delay never exceeds 30 seconds.", harness_code=PASS, **common
     )
-    assert redgreen.check(store, cfg, store.get(new["id"])).verdict == "yes"
+    result = redgreen.check(store, cfg, store.get(new["id"]))
+    assert result.verdict == "yes" and result.new_code and "is not a function" in result.detail  # dogfooding #9
     assert redgreen.check(store, cfg, store.get(old["id"])).verdict == "no"
     assert git(ts_repo, "worktree", "list").count("\n") == 1
