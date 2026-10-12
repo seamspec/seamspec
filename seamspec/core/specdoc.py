@@ -6,9 +6,10 @@ only prints it. Rules of the document:
 
 - **Only what a human approved.** LOCKED rules, the rules they replaced, and active dead ends.
   Proposed and rejected rules are not in it.
-- **Built from the committed ledger alone,** so two clones of the same commit print the same
-  bytes and a written copy can be checked in CI (`--check`). No timestamps of the run, no local
-  journal, no folder names, and no email addresses (the approver's name only).
+- **Built from the ledger alone** (the records and the rule tests they point to), so two clones of
+  the same commit print the same bytes and a written copy can be checked in CI (`--check`). No
+  time of the run, no local journal, no folder names, nothing else read from disk (areas come
+  from the scope text, never from whether a folder exists), and no email addresses.
 - **Never edited by hand.** A written copy starts with `GENERATED`; SeamSpec refuses to overwrite a
   file that doesn't.
 """
@@ -60,10 +61,10 @@ def _paths(paths: list[str]) -> str:
     return ", ".join(f"`{_flat(p)}`" for p in paths)
 
 
-def _by_area(store: Store, records: list) -> list[tuple[str, list]]:
+def _by_area(records: list) -> list[tuple[str, list]]:
     groups: dict[str, list] = {}
     for record in records:
-        groups.setdefault(area(list(record.scope.paths), store.root), []).append(record)
+        groups.setdefault(area(list(record.scope.paths)), []).append(record)  # no root: never looks on disk
     return sorted(groups.items(), key=lambda item: (item[0] == ROOT_AREA, item[0]))
 
 
@@ -112,7 +113,8 @@ def render(store: Store, generated_line: bool = False) -> str:
     out: list[str] = [GENERATED, ""] if generated_line else []
     out += [TITLE, ""]
     if not locked:
-        out += ["No rules have been approved yet.", ""]
+        # Retired rules mean approvals did happen (Copilot, #58); dead ends don't, an agent records those itself.
+        out += ["No rules are in force at the moment." if retired else "No rules have been approved yet.", ""]
     else:
         out += [
             f"{_n(len(locked), 'rule')} in force. A person approved each one, and each has a test that must "
@@ -122,7 +124,7 @@ def render(store: Store, generated_line: bool = False) -> str:
             "## Rules in force",
             "",
         ]
-        for name, rules in _by_area(store, locked):
+        for name, rules in _by_area(locked):
             out += [f"### `{name}` ({_n(len(rules), 'rule')})", ""]
             for inv in rules:
                 out += [*_rule(store, inv, [o for o in retired if o.superseded_by == inv.id]), ""]
@@ -144,7 +146,7 @@ def render(store: Store, generated_line: bool = False) -> str:
         out += ["## Tried and failed", "",
                 "Approaches that were tried and did not work. They carry no test; they are here so nobody "
                 "repeats them without knowing why they failed.", ""]  # fmt: skip
-        for name, items in _by_area(store, dead):
+        for name, items in _by_area(dead):
             out += [f"### `{name}`", ""]
             for de in items:
                 out += [

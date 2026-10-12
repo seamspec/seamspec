@@ -154,3 +154,43 @@ def test_out_never_overwrites_a_file_it_did_not_write(in_repo: Path) -> None:
     assert both.exit_code == 1 and "not both" in both.output and not (in_repo / "a.md").exists()
     missing = runner.invoke(app, ["spec", "--check", "nope.md"])
     assert missing.exit_code == 1 and "seamspec spec --out nope.md" in missing.output
+
+
+# --- Copilot's review of #58 -----------------------------------------------------------------------
+
+
+def test_a_folder_on_disk_never_changes_the_document(in_repo: Path) -> None:
+    """Finding 2: a scope written like a file name is grouped the same whether or not a folder of that
+    name happens to exist on this machine (an ignored `runs/`, say), so `--check` agrees with CI."""
+    store, cfg = Store(in_repo), load_config(in_repo)
+    lifecycle.approve(store, cfg, propose(in_repo, scope_paths=["runs"])["id"])
+    before = specdoc.render(store)
+    assert "### `(repository root)` (1 rule)" in before
+    (in_repo / "runs").mkdir()
+    assert specdoc.render(store) == before
+
+
+def test_out_reports_a_write_error_and_sees_through_a_symlinked_project(in_repo: Path, tmp_path_factory) -> None:
+    """Finding 1: a failed write is a plain message, and `.seamspec/` is recognised through a symlink."""
+    ledger(in_repo)
+    (in_repo / "blocker").write_text("a file, not a folder\n")
+    failed = runner.invoke(app, ["spec", "--out", "blocker/SPEC.md"])
+    assert failed.exit_code == 1 and "blocker/SPEC.md: can't write it" in failed.output
+    assert "Traceback" not in failed.output
+
+    link = tmp_path_factory.mktemp("links") / "project"
+    link.symlink_to(in_repo, target_is_directory=True)
+    inside = runner.invoke(app, ["spec", "--out", str(link / ".seamspec" / "SPEC.md")])
+    assert inside.exit_code == 1 and "can't be written inside .seamspec/" in inside.output
+    assert not (in_repo / ".seamspec/SPEC.md").exists()
+
+
+def test_no_rules_in_force_is_not_no_rules_ever(in_repo: Path) -> None:
+    """Finding 3: with every rule retired, "none approved yet" would be false."""
+    store, cfg = Store(in_repo), load_config(in_repo)
+    old = propose(in_repo)["id"]
+    lifecycle.approve(store, cfg, old)
+    lifecycle.supersede(store, cfg, old, reason="Feature removed.")
+    text = specdoc.render(store)
+    assert "No rules are in force at the moment." in text and "approved yet" not in text
+    assert "## Retired rules" in text and "  - Not replaced." in text

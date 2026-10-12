@@ -398,7 +398,8 @@ def spec(
             typer.echo(waiting, err=True)  # beside the document, never in it
         return
     target = out if out.is_absolute() else Path.cwd() / out
-    if store.root / ".seamspec" in [target.resolve(), *target.resolve().parents]:
+    resolved = target.resolve()  # both sides resolved, so a symlinked project folder is still recognised
+    if (store.root / ".seamspec").resolve() in [resolved, *resolved.parents]:
         raise _fail("the spec can't be written inside .seamspec/: that folder holds the records it is generated from")
     if target.is_dir():
         raise _fail(f"{out} is a folder: give a file name, for example `{out}/SPEC.md`")
@@ -411,7 +412,10 @@ def spec(
             raise _fail(
                 f"{out} exists and wasn't written by `seamspec spec`, so it is left alone. Choose another name."
             )
-    atomic_write(target, document)
+    try:
+        atomic_write(target, document)
+    except OSError as exc:  # no permission, a parent that is a file, a full disk
+        raise _fail(f"{out}: can't write it ({exc})") from None
     typer.echo(f"Wrote {out}: {counts.line()}.")
     if waiting:
         typer.echo(waiting)
