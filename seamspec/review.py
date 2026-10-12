@@ -85,6 +85,8 @@ def show_invariant(store: Store, inv: Invariant, position: str | None = None) ->
     typer.echo(f"  Rule:   {inv.assertion}")
     typer.echo(f"  Where:  {', '.join(inv.scope.paths)}")
     typer.echo(f"  Why:    {inv.origin.type}: {cut(inv.origin.text)}")
+    for old_id, title, note in replaces(store, inv):
+        typer.echo(f"  Replaces: {old_id} · {title} ({note})")
     harness = store.root / inv.verification.harness_path
     where = f"{inv.verification.harness_path} (runner: {inv.verification.runner})"
     if not harness.is_file():
@@ -108,6 +110,40 @@ def show_invariant(store: Store, inv: Invariant, position: str | None = None) ->
             typer.echo(_style(f"    {number:>4} > {line}", bold=True))
         else:
             typer.echo(_style(f"    {number:>4} | {line}", dim=True))
+
+
+def replaces(store: Store, inv: Invariant) -> list[tuple[str, str, str]]:
+    """What this rule replaces, for its card, as (id, title, SeamSpec's note): rules already retired
+    in its favor, and locked rules with a pending supersede request that names it (dogfooding #10: a
+    replacement's screen didn't say what it replaced). The title is the agent's text."""
+    asked = {r.invariant_id for r in requests.load_all(store) if r.replacement_id == inv.id}
+    asked &= requests.pending_supersede_ids(store)
+    lines = []
+    for other in sorted(store.load_all("inv"), key=lambda i: i.id):
+        if not isinstance(other, Invariant) or other.id == inv.id:
+            continue
+        if other.id in asked:
+            lines.append((other.id, other.title, "still locked; retired when its supersede request is approved"))
+        elif other.status == InvStatus.SUPERSEDED and other.superseded_by == inv.id:
+            lines.append((other.id, other.title, "retired"))
+    return lines
+
+
+def paired_replacements(store: Store, reqs: list[requests.SupersedeRequest]) -> set[str]:
+    """Proposed rules that are the replacement in a pending supersede request. They are decided
+    together with that request, never on their own in the proposals list (ADR-20261013-7c2e)."""
+    found = (_replacement(store, req) for req in reqs)
+    return {rep.id for rep in found if rep is not None and rep.status == InvStatus.PROPOSED}
+
+
+def _replacement(store: Store, req: requests.SupersedeRequest) -> Invariant | None:
+    if not req.replacement_id:
+        return None
+    try:
+        rep = store.get(req.replacement_id)
+    except KeyError:
+        return None
+    return rep if isinstance(rep, Invariant) else None
 
 
 def show_config_changes(store: Store, cfg: Config) -> dict[str, str]:
@@ -198,13 +234,16 @@ def run(store: Store, cfg: Config) -> Tally:
     started = utcnow()  # dead ends created while reviewing still count as new next time
     previous = _last_review(store)
     dead_ends, reqs, proposals = pending(store)
+    paired = paired_replacements(store, reqs)  # decided with their supersede request, as one item
+    proposals = [p for p in proposals if p.id not in paired]
     config_changed = bool(verifier.check_fingerprints(store.root, cfg))
     if not (config_changed or dead_ends or reqs or proposals):
         typer.echo("Nothing to review.")
         _save_review(store, started)
         return tally
+    with_replacement = f" ({len(paired)} with a replacement rule)" if paired else ""
     typer.echo(
-        f"To review: {len(proposals)} proposed rule(s), {len(reqs)} supersede request(s), "
+        f"To review: {len(proposals)} proposed rule(s), {len(reqs)} supersede request(s){with_replacement}, "
         f"{len(dead_ends)} new dead end(s)" + (", runner config changes" if config_changed else "") + "."
     )
     seen: list[DeadEnd] = []  # dead ends actually shown and answered
@@ -212,7 +251,7 @@ def run(store: Store, cfg: Config) -> Tally:
     try:
         config_ok = _review_config(store, cfg) if config_changed else True
         _review_dead_ends(store, dead_ends, tally, seen)
-        _review_requests(store, cfg, reqs, tally)
+        _review_requests(store, cfg, reqs, config_ok, tally)
         _review_proposals(store, cfg, proposals, config_ok, tally)
     except Quit:
         typer.echo("Stopped. Anything not decided stays waiting.")
@@ -253,23 +292,85 @@ def _review_dead_ends(store: Store, dead_ends: list[DeadEnd], tally: Tally, seen
         seen.append(de)
 
 
-def _review_requests(store: Store, cfg: Config, reqs: list[requests.SupersedeRequest], tally: Tally) -> None:
+def _review_requests(
+    store: Store, cfg: Config, reqs: list[requests.SupersedeRequest], config_ok: bool, tally: Tally
+) -> None:
+    """A supersede request and its replacement are one decision (dogfooding #10, ADR-20261013-7c2e):
+    approving locks the replacement first and retires the old rule only then, so stopping at any
+    point never leaves the behavior without a rule."""
     if reqs:
         typer.echo("\n== Supersede requests (a locked rule would stop running)")
     for n, req in enumerate(reqs, 1):
         inv = store.get(req.invariant_id)
         assert isinstance(inv, Invariant)
-        show_invariant(store, inv, f"Supersede request {n} of {len(reqs)}")
-        typer.echo(f"\n  Requested: {req.reason} (replacement: {req.replacement_id or 'none'}, {req.requested_at})")
-        key = _choice("[a]pprove supersede  [d]ecline request  [s]kip  [q]uit", "adsq", "s")
+        where = f"Supersede request {n} of {len(reqs)}"
+        rep = _replacement(store, req)
+        swap = rep is not None and rep.status == InvStatus.PROPOSED
+        show_invariant(store, inv, f"{where}: the rule that would stop running")
+        typer.echo(f"\n  Requested: {req.reason} ({req.requested_at})")
+        if swap:
+            assert rep is not None
+            show_invariant(store, rep, f"{where}: its replacement")
+            typer.echo("")
+            if typer.confirm("Run the replacement now to check it fails without your change?", default=True):
+                typer.echo(_style("  " + redgreen.check(store, cfg, rep).line(), bold=True))
+            typer.echo(f"  One decision: approving locks {rep.id} and then retires {inv.id}.")
+            keys, prompt = "adsq", "[a]pprove the replacement and retire the old rule  [d]ecline  [s]kip  [q]uit"
+        elif rep is not None and rep.status == InvStatus.LOCKED:
+            typer.echo(f"  Replacement: {rep.id} · {rep.title} (already locked)")
+            keys, prompt = "adsq", "[a]pprove: retire the old rule  [d]ecline request  [s]kip  [q]uit"
+        elif req.replacement_id:
+            state = rep.status.value if rep is not None else "missing"
+            typer.echo(
+                f"  Replacement: {req.replacement_id} is {state}, so this request can't be approved as it stands."
+            )
+            typer.echo("  Decline it and ask for a new request, or retire the rule yourself: `seamspec supersede`.")
+            keys, prompt = "dsq", "[d]ecline request  [s]kip  [q]uit"
+        else:
+            typer.echo(_style("  No replacement: after this, no rule protects this behavior.", bold=True))
+            keys, prompt = "adsq", "[a]pprove: retire the rule  [d]ecline request  [s]kip  [q]uit"
+
+        key = _choice(prompt, keys, "s")
         if key == "a":
-            lifecycle.supersede(store, cfg, req.invariant_id)
-            tally.superseded.append(req.invariant_id)
+            _approve_request(store, cfg, req, rep if swap else None, config_ok, tally)
         elif key == "d":
             requests.clear(store, req.invariant_id)
             tally.declined.append(req.invariant_id)
+            if swap and typer.confirm(f"  Also reject the replacement {req.replacement_id}?", default=True):
+                assert rep is not None
+                lifecycle.reject(store, cfg, rep.id, f"the supersede request for {inv.id} was declined")
+                tally.rejected.append(rep.id)
+                typer.echo(f"  REJECTED {rep.id}")
         else:
             tally.skipped.append(req.invariant_id)
+
+
+def _approve_request(
+    store: Store, cfg: Config, req: requests.SupersedeRequest, rep: Invariant | None, config_ok: bool, tally: Tally
+) -> None:
+    """`rep`: the proposed replacement to lock first, or None when there is nothing to lock."""
+    if rep is not None:
+        if not config_ok:
+            typer.echo("  can't approve while runner config changes are unconfirmed; nothing changed, skipped.")
+            tally.skipped.append(req.invariant_id)
+            return
+        try:
+            lifecycle.approve(store, cfg, rep.id)
+        except lifecycle.LifecycleError as exc:
+            typer.echo(f"  the replacement was not approved, so {req.invariant_id} stays locked: {exc}")
+            tally.skipped.append(req.invariant_id)
+            return
+        tally.approved.append(rep.id)
+        typer.echo(f"  LOCKED {rep.id}")
+    try:
+        out = lifecycle.supersede(store, cfg, req.invariant_id)
+    except lifecycle.LifecycleError as exc:
+        typer.echo(f"  {req.invariant_id} was not retired and stays locked: {exc}")
+        tally.skipped.append(req.invariant_id)
+        return
+    tally.superseded.append(req.invariant_id)
+    by = f" (replaced by {out['superseded_by']})" if out["superseded_by"] else " (no replacement)"
+    typer.echo(f"  SUPERSEDED {req.invariant_id}{by}")
 
 
 def _review_proposals(store: Store, cfg: Config, proposals: list[Invariant], config_ok: bool, tally: Tally) -> None:

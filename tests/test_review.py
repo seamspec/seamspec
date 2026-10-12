@@ -373,6 +373,115 @@ def test_supersede_requests(in_repo: Path) -> None:
     assert "declined 1" in out.output
 
 
+# --- a supersede request and its replacement are one decision (dogfooding #10, ADR-20261013-7c2e) ---
+
+
+def swap(root: Path, code: str = PASS) -> tuple[Store, str, str]:
+    """A locked rule, a proposed replacement, and the agent's request to swap them."""
+    store, cfg = Store(root), load_config(root)
+    old = propose(root)["id"]
+    lifecycle.approve(store, cfg, old)
+    new = propose(root, code=code, title="Retry delay is capped at 60s", assertion="Never above 60 seconds.")["id"]
+    lifecycle.request_supersede(store, old, "batch jobs need 60s", new)
+    return store, old, new
+
+
+def test_supersede_with_replacement_is_one_decision(in_repo: Path) -> None:
+    store, old, new = swap(in_repo)
+    out = runner.invoke(app, ["review"], input="n\na\n")
+    assert out.exit_code == 0, out.output
+    text = out.output
+    assert "To review: 0 proposed rule(s), 1 supersede request(s) (1 with a replacement rule)" in text
+    order = [
+        f"Supersede request 1 of 1: the rule that would stop running · {old}",
+        "Requested: batch jobs need 60s",
+        f"Supersede request 1 of 1: its replacement · {new}",
+        f"Replaces: {old} · Retry delay is capped (still locked; retired when its supersede request is approved)",
+        f"One decision: approving locks {new} and then retires {old}.",
+        f"LOCKED {new}",  # the replacement first: at no point is the behavior without a rule
+        f"SUPERSEDED {old} (replaced by {new})",
+    ]
+    assert [text.index(part) for part in order] == sorted(text.index(part) for part in order), text
+    assert "== Proposed rules" not in text  # the replacement is not offered a second time, on its own
+    assert store.get(new).status == InvStatus.LOCKED
+    assert store.get(old).status == InvStatus.SUPERSEDED and store.get(old).superseded_by == new
+    assert "approved 1" in text and "superseded 1" in text
+
+
+@pytest.mark.parametrize("keys", ["n\ns\n", "n\nq\n", "n\n"])  # skip, quit, or the input just ends
+def test_stopping_a_swap_changes_nothing_and_never_offers_the_replacement_alone(in_repo: Path, keys: str) -> None:
+    store, old, new = swap(in_repo)
+    out = runner.invoke(app, ["review"], input=keys)
+    assert "Proposed rule 1 of" not in out.output and "LOCKED" not in out.output
+    assert store.get(old).status == InvStatus.LOCKED and store.get(new).status == InvStatus.PROPOSED
+    assert requests.pending_supersede_ids(store) == {old}
+
+
+def test_a_failing_replacement_leaves_the_old_rule_locked(in_repo: Path) -> None:
+    from .test_lifecycle import FAIL
+
+    store, old, new = swap(in_repo, code=FAIL)
+    out = runner.invoke(app, ["review"], input="n\na\n")
+    assert f"the replacement was not approved, so {old} stays locked" in out.output
+    assert store.get(old).status == InvStatus.LOCKED and store.get(new).status == InvStatus.PROPOSED
+    assert requests.pending_supersede_ids(store) == {old} and "superseded" not in out.output.split("Review done")[1]
+
+
+def test_declining_a_swap_keeps_the_old_rule_and_offers_to_reject_the_replacement(in_repo: Path) -> None:
+    store, old, new = swap(in_repo)
+    out = runner.invoke(app, ["review"], input="n\nd\ny\n")
+    assert out.exit_code == 0, out.output
+    assert store.get(old).status == InvStatus.LOCKED and requests.pending_supersede_ids(store) == set()
+    rejected = store.get(new)
+    assert rejected.status == InvStatus.REJECTED and old in rejected.status_reason
+    # Kept as an ordinary proposal instead: it is offered on its own next time.
+    store, old, new = swap(in_repo)
+    runner.invoke(app, ["review"], input="n\nd\nn\n")
+    assert store.get(new).status == InvStatus.PROPOSED
+    again = runner.invoke(app, ["review"], input="n\ns\n")
+    assert f"Proposed rule 1 of 1 · {new}" in again.output and "Replaces:" not in again.output
+
+
+def test_a_request_whose_replacement_was_rejected_cannot_be_approved(in_repo: Path) -> None:
+    store, old, new = swap(in_repo)
+    lifecycle.reject(store, load_config(in_repo), new, "wrong number")
+    out = runner.invoke(app, ["review"], input="a\ns\n")
+    assert f"Replacement: {new} is REJECTED, so this request can't be approved as it stands." in out.output
+    assert "please answer one of: d, s, q" in out.output  # there is no approve key
+    assert store.get(old).status == InvStatus.LOCKED
+
+
+def test_a_retirement_without_replacement_says_nothing_will_protect_the_behavior(in_repo: Path) -> None:
+    store, cfg = Store(in_repo), load_config(in_repo)
+    old = propose(in_repo)["id"]
+    lifecycle.approve(store, cfg, old)
+    lifecycle.request_supersede(store, old, "feature removed")
+    out = runner.invoke(app, ["review"], input="a\n")
+    assert "No replacement: after this, no rule protects this behavior." in out.output
+    assert f"SUPERSEDED {old} (no replacement)" in out.output and store.get(old).status == InvStatus.SUPERSEDED
+
+
+def test_an_unrelated_proposal_is_still_reviewed_after_the_swap(in_repo: Path) -> None:
+    """What happened in dogfooding: an unrelated proposal sat between the request and its replacement."""
+    other = propose(in_repo, title="Unrelated", assertion="Something else holds.")["id"]
+    store, old, new = swap(in_repo)
+    out = runner.invoke(app, ["review"], input="n\na\nn\ns\n")
+    text = out.output
+    assert "To review: 1 proposed rule(s), 1 supersede request(s) (1 with a replacement rule)" in text
+    assert text.index(f"SUPERSEDED {old}") < text.index(f"Proposed rule 1 of 1 · {other}")
+    assert store.get(new).status == InvStatus.LOCKED and store.get(other).status == InvStatus.PROPOSED
+
+
+def test_a_locked_replacement_card_says_what_it_replaced(in_repo: Path) -> None:
+    store, old, new = swap(in_repo)
+    from seamspec import review
+
+    assert review.replaces(store, store.get(new))[0][2].startswith("still locked")
+    runner.invoke(app, ["review"], input="n\na\n")
+    assert review.replaces(store, store.get(new)) == [(old, "Retry delay is capped", "retired")]
+    assert review.replaces(store, store.get(old)) == []
+
+
 def test_bad_key_is_asked_again(in_repo: Path) -> None:
     inv_id = propose(in_repo)["id"]
     out = runner.invoke(app, ["review"], input="n\nx\ns\n")

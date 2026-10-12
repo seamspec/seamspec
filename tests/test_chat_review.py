@@ -266,7 +266,8 @@ def test_red_green_asks_before_running_and_needs_trust(project: Path, monkeypatc
     assert len(ran) == 1 and "Red-green: Fails without your change: YES (fake)" in human.shown[2][0]
 
 
-def test_supersede_in_chat_then_approve_the_replacement(project: Path) -> None:
+def test_replacement_is_approved_in_chat_before_the_old_rule_is_retired(project: Path) -> None:
+    """Dogfooding #10: the replacement's dialog comes first; the old rule is retired only once it is locked."""
     store, cfg = Store(project), load_config(project)
     old = propose(project)["id"]
     review(Human(pick("approve")))
@@ -274,18 +275,42 @@ def test_supersede_in_chat_then_approve_the_replacement(project: Path) -> None:
         "id"
     ]
     lifecycle.request_supersede(store, old, "The SLA allows 60 seconds now", new)
-    human = Human(pick("supersede"), pick("approve"))
+    human = Human(pick("approve"), pick("supersede"))
     out = review(human)
-    assert "The SLA allows 60 seconds now" in human.shown[0][0] and "needs its own approval" in human.shown[0][0]
+    first, dialog = human.shown[0][0], human.shown[1][0]
+    assert f"· {new}" in first and f"Replaces {old} (still locked; retired when its supersede request" in first
+    assert "The SLA allows 60 seconds now" in dialog and f"Replacement {new} (LOCKED):" in dialog
     # Copilot, #52: the supersede dialog carries the same readable card for the test that would stop running.
-    dialog = human.shown[0][0]
     order = ["The test that would stop running:", "Test: 5 lines · 1 check", "What this test checks",
              "│ line 5: assert backoff_delay(100) <= 30", "│ def test_cap():", "supersede: the rule stops"]  # fmt: skip
     assert [dialog.index(part) for part in order] == sorted(dialog.index(part) for part in order), dialog
-    assert out["reviewed"][0].startswith(f"{old}: superseded by {new}")
+    assert out["reviewed"] == [
+        f"{new}: approved (LOCKED)",
+        f"{old}: superseded by {new} (The SLA allows 60 seconds now)",
+    ]
     assert inv(project, old).status == InvStatus.SUPERSEDED and inv(project, old).decided_via == "chat"
     assert inv(project, new).status == InvStatus.LOCKED and not requests.get(store, old)
     assert cfg  # config still loads
+
+
+def test_chat_cannot_retire_a_rule_whose_replacement_is_not_approved(project: Path) -> None:
+    """Skip the replacement: the supersede dialog then offers no "supersede", and says why."""
+    store = Store(project)
+    old = propose(project)["id"]
+    review(Human(pick("approve")))
+    new = propose(project, title="Retry delay is capped at 60s", assertion="Retry delay never exceeds 60 seconds.")[
+        "id"
+    ]
+    lifecycle.request_supersede(store, old, "The SLA allows 60 seconds now", new)
+    human = Human(pick("skip"), pick("skip"))
+    out = review(human, ids=[old])  # asking for the request alone still brings its replacement, first
+    assert f"· {new}" in human.shown[0][0]
+    dialog, choices = human.shown[1]
+    assert "The replacement isn't approved, so this rule can't be retired now" in dialog
+    assert "supersede: the rule stops" not in dialog
+    assert not any(c.startswith("supersede-") for c in choices) and any(c.startswith("decline-") for c in choices)
+    assert out["reviewed"] == [f"{new}: skipped", f"{old}: supersede request skipped"]
+    assert inv(project, old).status == InvStatus.LOCKED and inv(project, new).status == InvStatus.PROPOSED
 
 
 def test_declining_a_supersede_needs_a_reason_the_agent_sees(project: Path) -> None:
