@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import failtext, hookguard, journal, verifier
+from ..core.area import area as _area
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
 from ..core.models import DeadEnd, Invariant, InvStatus
@@ -258,23 +259,6 @@ def _flat(text: str) -> str:
 def _clip(text: str, limit: int = 100) -> str:
     text = _flat(text)
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
-
-
-def _area(paths: list[str], root: Path) -> str:
-    """The folder a scope is about (Copilot, #41). With a glob: the whole path segments before the
-    first one that holds a glob (`src/billing/**` and `src/billing/gen*.py` -> `src/billing`,
-    `.github/**` -> `.github`). Without one, the path names a folder or a file (gitignore rules):
-    a folder that exists, or one written with a trailing `/`, is its own area; a file's area is its folder."""
-    first = _flat(paths[0]).lstrip("!/") if paths else ""
-    parts = first.split("/")
-    globbed = next((i for i, part in enumerate(parts) if any(c in part for c in "*?[")), None)
-    if globbed is not None:
-        area = "/".join(parts[:globbed])
-    elif first.endswith("/") or (root / first).is_dir():
-        area = first.rstrip("/")
-    else:
-        area = "/".join(parts[:-1])
-    return area or "(repository root)"
 
 
 def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | None:
