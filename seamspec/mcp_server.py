@@ -11,6 +11,7 @@ runs LOCKED rules only, and only where automatic runs are allowed (consent + tru
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -24,8 +25,8 @@ from mcp_types import InputRequiredResult, ListRootsResult
 from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
 from . import chat_review
-from .core import adr, lifecycle, tree, verifier
-from .core.config import Config, ConfigError, load_config
+from .core import adr, lifecycle, runners, tree, verifier
+from .core.config import Config, ConfigError, RunnerCfg, load_config
 from .core.context import constraints_for
 from .core.models import Invariant, InvStatus
 from .core.root import CONFIG_REL, RootNotFound, project_at
@@ -132,24 +133,39 @@ def _with_services(fn, roots: ListRootsResult | None = None, hints: list[str] | 
         return {"error": "invalid", "message": str(exc)}
 
 
-IMPORT_HINTS = {
-    "pytest": "Import project code from the repo root, e.g. `from src.queue import backoff_delay`; "
-    "SeamSpec's own pytest.ini puts the root on sys.path and ignores conftest.py files.",
-    "vitest": "Import project code with paths relative to tests/seamspec/, e.g. `../../src/queue`; "
-    "SeamSpec's own vitest config applies, not the project's setupFiles or aliases.",
-}
-
-
 def _runner_hints(svc: Services, rels: list[str]) -> list[dict[str, str]]:
-    """Which runner to use for these files, where its tests live, and how they import the project (§12A.6)."""
+    """Which runner to use for these files, where its tests live, how they import the project, and
+    which program the runner's command resolves to (§12A.6, ADR-20261011-e7c5)."""
     hints = []
     for name, runner in sorted(svc.cfg.runners.items()):
         if not runner.paths or any(matches(runner.paths, r) for r in rels):
             hint = {"runner": name, "test_location": runner.harness_path("<id>")}
-            if name in IMPORT_HINTS:
-                hint["import_hint"] = IMPORT_HINTS[name]
+            if text := runners.import_hint(svc.root, name):
+                hint["import_hint"] = text
+            hint["command"] = _command_note(svc, runner)
             hints.append(hint)
     return hints
+
+
+def _command_note(svc: Services, runner: RunnerCfg) -> str:
+    """Where the runner's program comes from. An agent reading `cmd = ["pytest", ...]` in config.toml
+    can't know SeamSpec looks in the project's own tool folders first, without activation (§12.4.7)."""
+    command = runner.cmd[0]
+    env = verifier.build_env(svc.cfg, root=svc.root, overrides=runner.env)
+    found = shutil.which(command, path=env.get("PATH", "")) if "/" not in command else command
+    if found is None:
+        return (
+            f"`{command}` was not found in the project's .venv, venv or node_modules/.bin, nor on PATH: "
+            "install it in the project before running rule tests."
+        )
+    try:
+        shown = Path(found).resolve().relative_to(svc.root.resolve()).as_posix()
+    except ValueError:
+        shown = found
+    return (
+        f"`{command}` resolves to {shown}. SeamSpec looks in the project's .venv, venv and node_modules/.bin "
+        "first, without activation, so config.toml needs no change."
+    )
 
 
 def _adr_summaries(svc: Services, rels: list[str], linked: set[str]) -> list[dict[str, str]]:

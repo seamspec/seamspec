@@ -71,3 +71,69 @@ def detect(root: Path) -> Detection:
     if (root / "Cargo.toml").is_file():
         found.unsupported.append("cargo")
     return found
+
+
+# --- hints for agents writing rule tests (§12A.6, ADR-20261011-e7c5) ---------------------------------
+
+NOT_PACKAGES = {"tests", "test", "docs", "doc", "examples", "scripts", "build", "dist", "node_modules"}
+
+
+def _packages(folder: Path) -> list[str]:
+    """Importable packages directly inside `folder`: sub-folders with an __init__.py."""
+    if not folder.is_dir():
+        return []
+    return sorted(
+        d.name
+        for d in folder.iterdir()
+        if d.is_dir() and d.name.isidentifier() and d.name not in NOT_PACKAGES and (d / "__init__.py").is_file()
+    )
+
+
+def _project_name(root: Path) -> str | None:
+    try:
+        data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    name = data.get("project", {}).get("name") if isinstance(data.get("project"), dict) else None
+    return name.replace("-", "_").replace(".", "_").lower() if isinstance(name, str) else None
+
+
+def python_layout(root: Path) -> tuple[str, str | None]:
+    """How this project's Python code is imported, and one package to use as an example:
+    - ("src-package", None): `src/` is itself a package (`from src.queue import ...`);
+    - ("src", pkg): packages live under `src/` and are imported by name once the project is installed;
+    - ("flat", pkg): packages sit at the repository root;
+    - ("flat", None): nothing recognisable yet."""
+    if (root / "src" / "__init__.py").is_file():
+        return "src-package", None
+    preferred = _project_name(root)
+    for kind, folder in (("src", root / "src"), ("flat", root)):
+        found = _packages(folder)
+        if found:
+            return kind, preferred if preferred in found else found[0]
+    return "flat", None
+
+
+def import_hint(root: Path, runner: str) -> str | None:
+    """How a rule test for this runner imports the project's code."""
+    if runner == "vitest":
+        return (
+            "Import project code with paths relative to tests/seamspec/, e.g. `../../src/queue`; "
+            "SeamSpec's own vitest config applies, not the project's setupFiles or aliases."
+        )
+    if runner != "pytest":
+        return None
+    kind, package = python_layout(root)
+    tail = "SeamSpec's own pytest.ini puts the root on sys.path and ignores conftest.py files."
+    if kind == "src-package":
+        return f"Import project code from the repo root, e.g. `from src.queue import backoff_delay`; {tail}"
+    if kind == "src":
+        return (
+            f"This project keeps its package under src/: import it by name, e.g. `from {package} import ...`, "
+            f"never `src.{package}` (that would load a second copy of the code). It is importable because the "
+            "project is installed in its virtualenv (`uv sync`, `pip install -e .`); if the import fails, install "
+            "it first. SeamSpec's own pytest.ini ignores conftest.py files."
+        )
+    if package:
+        return f"Import project code from the repo root, e.g. `from {package} import ...`; {tail}"
+    return f"Import project code from the repo root, or by package name if the project is installed; {tail}"
