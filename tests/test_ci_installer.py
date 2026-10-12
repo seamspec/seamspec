@@ -94,8 +94,17 @@ def test_enforced_with_flag_adds_the_workflow_only(tmp_path: Path) -> None:
     assert (tmp_path / ci.WORKFLOW_REL).is_file() and not (tmp_path / ci.CODEOWNERS_REL).exists()
 
 
+@pytest.fixture
+def released_build(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Pretend this SeamSpec is a published version (the checkout is a development build)."""
+    monkeypatch.setattr(ci, "__version__", "0.1.0")
+    return "0.1.0"
+
+
 @pytest.mark.parametrize("answer", ["y", "n"])
-def test_enforced_in_a_terminal_asks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
+def test_enforced_in_a_terminal_asks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, released_build: str, answer: str
+) -> None:
     monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
     out = init(tmp_path, input=f"y\n{answer}\n")  # auto-run consent, then the CI question
     assert "runs your approved rules on every PR" in out
@@ -111,3 +120,63 @@ def test_strict_always_adds_workflow_and_codeowners(tmp_path: Path) -> None:
 def test_advisory_never_adds_ci(tmp_path: Path) -> None:
     out = init(tmp_path, "--mode", "advisory", "--ci")
     assert "advisory mode never adds one" in out and not (tmp_path / ".github").exists()
+
+
+# --- how the workflow gets SeamSpec (dogfooding finding #1, ADR-20261011-a9f3) ---------------------
+
+
+@pytest.mark.parametrize(
+    ("version", "is_release"),
+    [("0.1.0", True), ("1.2.3", True), ("0.1.0rc1", True), ("0.2.0b2", True), ("1.0.0.post1", True),
+     ("0.1.0.dev0", False), ("0.1.0+local", False), ("0.2.0a1.dev3", False), ("", False)],
+)  # fmt: skip
+def test_which_versions_count_as_released(version: str, is_release: bool) -> None:
+    assert ci.released(version) is is_release
+
+
+def test_a_release_pins_the_version_that_wrote_the_workflow(tmp_path: Path, released_build: str) -> None:
+    root = _repo(tmp_path, "pyproject.toml", "uv.lock")
+    text = ci.render_workflow(root, load_config(root))
+    assert '      - run: uv tool install "seamspec==0.1.0"\n' in text and "git+" not in text
+    assert text.index("uv tool install") < text.index("uv sync --locked") < text.index("seamspec doctor --ci")
+
+
+def test_an_unreleased_build_installs_from_the_repository_and_says_so(tmp_path: Path) -> None:
+    """`uv tool install seamspec` would fetch whatever is on PyPI under that name, not this build."""
+    assert not ci.released()  # the checkout is a development build
+    root = _repo(tmp_path, "pyproject.toml", "uv.lock")
+    text = ci.render_workflow(root, load_config(root))
+    assert f'      - run: uv tool install "git+{ci.REPOSITORY}@main"\n' in text
+    assert "which your CI must be able to read" in text
+    runs = [line.strip() for line in text.splitlines() if line.strip().startswith("- run:")]
+    assert "- run: uv tool install seamspec" not in runs and len([r for r in runs if "uv tool install" in r]) == 1
+
+
+def test_both_install_steps_are_valid_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    yaml = pytest.importorskip("yaml")
+    root = _repo(tmp_path, "pyproject.toml", "uv.lock")
+    for version in ("0.1.0.dev0", "0.1.0"):
+        monkeypatch.setattr(ci, "__version__", version)
+        doc = yaml.safe_load(ci.render_workflow(root, load_config(root)))
+        runs = [s.get("run", "") for s in doc["jobs"]["verify"]["steps"]]
+        assert sum("uv tool install" in r for r in runs) == 1 and "seamspec doctor --ci" in runs
+
+
+def test_an_unreleased_build_does_not_offer_the_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """In a terminal, enforced mode used to ask. A workflow that can't install SeamSpec isn't worth offering."""
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    out = init(tmp_path, input="y\n")  # the auto-run consent only: no CI question follows
+    assert "CI workflow: not offered yet" in out and "seamspec init --ci" in out
+    assert "runs your approved rules on every PR" not in out and not (tmp_path / ci.WORKFLOW_REL).exists()
+
+
+@pytest.mark.parametrize("args", [("--accept-auto-run", "--ci"), ("--mode", "strict", "--accept-auto-run")])
+def test_an_unreleased_build_still_writes_it_when_asked_and_explains(tmp_path: Path, args: tuple[str, ...]) -> None:
+    out = init(tmp_path, *args)
+    assert (tmp_path / ci.WORKFLOW_REL).is_file()
+    assert "your CI must be able to read that repository" in out and ci.REPOSITORY in out
+
+
+def test_a_release_writes_it_without_the_note(tmp_path: Path, released_build: str) -> None:
+    out = init(tmp_path, "--accept-auto-run", "--ci")
+    assert (tmp_path / ci.WORKFLOW_REL).is_file() and "must be able to read" not in out

@@ -246,7 +246,15 @@ def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
         return
     if mode == "strict" and wanted is False:
         typer.echo("CI workflow: strict mode always adds it (§7.3); --no-ci is ignored.")
+    released = ci_installer.released()
     if mode == "enforced" and wanted is None:
+        if not released:
+            # Not offered: it couldn't install SeamSpec in most CI setups yet (ADR-20261011-a9f3).
+            typer.echo(
+                "CI workflow: not offered yet. This SeamSpec isn't a released version, so the workflow would install "
+                "it from its repository, which your CI may not be able to read. To add it anyway: `seamspec init --ci`."
+            )
+            return
         if not _interactive():
             typer.echo("CI workflow: not added (no terminal). Run `seamspec init --ci` to add it.")
             return
@@ -254,7 +262,13 @@ def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
         if not typer.confirm(question, default=True):
             return
     cfg = load_config(root)
-    typer.echo(f"  {ci_installer.install_workflow(root, cfg):<9} {ci_installer.WORKFLOW_REL}")
+    outcome = ci_installer.install_workflow(root, cfg)
+    typer.echo(f"  {outcome:<9} {ci_installer.WORKFLOW_REL}")
+    if outcome == "created" and not released:
+        typer.echo(
+            f"            It installs SeamSpec from {ci_installer.REPOSITORY} (unreleased build): your CI must be "
+            "able to read that repository. After the release, change that line to a version."
+        )
     if mode == "strict":
         typer.echo(f"  {ci_installer.install_codeowners(root, cfg):<9} {ci_installer.CODEOWNERS_REL}"
                    " (replace @your-team/leads with your reviewers)")  # fmt: skip

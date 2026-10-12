@@ -18,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0  # doctor --ci compares the ledger with the base branch
       - uses: astral-sh/setup-uv@v6
-      - run: uv tool install seamspec
+{{install}}
 {{toolchain}}
       - run: seamspec doctor --ci  # rules only move forward; the retirement summary goes to the job summary
       - run: seamspec verify --all --ci  # --ci skips local trust and consent: this workflow is the consent

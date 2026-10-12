@@ -12,6 +12,7 @@ import re
 from importlib.resources import files
 from pathlib import Path
 
+from .. import __version__
 from ..core.config import Config
 from ..core.store import atomic_write
 
@@ -19,6 +20,31 @@ WORKFLOW_REL = ".github/workflows/seamspec.yml"
 CODEOWNERS_REL = ".github/CODEOWNERS"
 OWNERS_BEGIN = "# seamspec:begin (managed by `seamspec init`; replace @your-team/leads)"
 OWNERS_END = "# seamspec:end"
+REPOSITORY = "https://github.com/seamspec/seamspec"
+_RELEASE = re.compile(r"\d+(\.\d+)*((a|b|rc)\d+)?(\.post\d+)?")  # PEP 440 versions that get published
+
+
+def released(version: str | None = None) -> bool:
+    """Is this SeamSpec a published version? A development build (`0.1.0.dev0`, a local `+tag`) is not:
+    a CI runner can't install it by version (dogfooding finding #1, ADR-20261011-a9f3)."""
+    return _RELEASE.fullmatch(__version__ if version is None else version) is not None
+
+
+def install_step(version: str | None = None) -> list[str]:
+    """How the workflow gets SeamSpec. A release: the version that wrote the file, so CI and the
+    developer's machine run the same SeamSpec. A development build: from the repository."""
+    version = __version__ if version is None else version
+    if released(version):
+        return [
+            "      # The SeamSpec version that wrote this file. When you upgrade SeamSpec, update this line too.",
+            f'      - run: uv tool install "seamspec=={version}"',
+        ]
+    return [
+        "      # This file was written by an unreleased SeamSpec, so it installs SeamSpec from its repository,",
+        "      # which your CI must be able to read. After the release, replace it with a version:",
+        '      #   - run: uv tool install "seamspec==<version>"',
+        f'      - run: uv tool install "git+{REPOSITORY}@main"',
+    ]
 
 
 def _toolchain(root: Path, cfg: Config) -> list[str]:
@@ -41,6 +67,7 @@ def _toolchain(root: Path, cfg: Config) -> list[str]:
 
 def render_workflow(root: Path, cfg: Config) -> str:
     template = files("seamspec.templates").joinpath("seamspec.yml").read_text("utf-8")
+    template = template.replace("{{install}}", "\n".join(install_step()))
     return template.replace("{{toolchain}}", "\n".join(_toolchain(root, cfg)))
 
 
