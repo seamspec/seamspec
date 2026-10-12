@@ -129,6 +129,103 @@ def test_adr_resources(project: Path) -> None:
     assert read("seamspec://adrs/ADR-20990101-ffff") == "No decision record ADR-20990101-ffff."
 
 
+# --- a session moved to another folder (dogfooding finding #2, ADR-20261011-d4a1) ------------------
+
+
+def call_from(roots: list[Path] | None, name: str, args: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Call a tool from a client whose session has these folders open. Also: how often it was asked for them."""
+    from mcp_types import ListRootsResult, Root
+
+    asked = 0
+
+    async def list_roots(context: Any) -> ListRootsResult:
+        nonlocal asked
+        asked += 1
+        return ListRootsResult(roots=[Root(uri=p.resolve().as_uri()) for p in roots or []])
+
+    async def go() -> dict[str, Any]:
+        async with Client(mcp, list_roots_callback=list_roots if roots is not None else None) as client:
+            result = await client.call_tool(name, args)
+            return result.structured_content or json.loads(result.content[0].text)
+
+    return anyio.run(go), asked
+
+
+@pytest.fixture
+def moved(git_repo: Path, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The server was started for a launch folder that isn't a SeamSpec project; the session then
+    moved to `git_repo`. The plugin's SEAMSPEC_ROOT still names the launch folder."""
+    launch = tmp_path_factory.mktemp("scratch-launch-folder")
+    monkeypatch.setenv("SEAMSPEC_ROOT", str(launch))
+    monkeypatch.chdir(launch)
+    return git_repo
+
+
+def test_tools_find_the_project_among_the_sessions_folders(moved: Path) -> None:
+    launch = Path.cwd()
+    out, asked = call_from([launch, moved], "get_constraints", {"files": ["src/queue.py"]})
+    assert "error" not in out and out["files"] == ["src/queue.py"] and asked == 1
+    dead_end = {"scope_paths": ["src/**"], "approach": "A global retry counter", "failure_symptom": "It starved jobs"}
+    out, _ = call_from([launch, moved], "log_dead_end", dead_end)
+    assert out["status"] == "ACTIVE" and (moved / ".seamspec/dead_ends" / f"{out['id']}.json").is_file()
+    out, _ = call_from([launch, moved / "src"], "verify", {"scope": "all"})  # a subfolder of the project counts
+    assert "error" not in out or out["error"] == "not_permitted"
+
+
+@pytest.mark.parametrize("name", ["my project", "project%20name", "proj#1 & co"])
+def test_project_folders_with_awkward_names_are_found(
+    name: str, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Copilot, #49: a root arrives as a file:// URL; its path must be decoded once, not twice."""
+    from seamspec.installers import scaffold
+
+    project = tmp_path_factory.mktemp("parent") / name
+    project.mkdir()
+    (project / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    scaffold.init(project, auto_run=True, actor="Maya Rao <maya@example.com>")
+    launch = tmp_path_factory.mktemp("launch")
+    monkeypatch.setenv("SEAMSPEC_ROOT", str(launch))
+    monkeypatch.chdir(launch)
+    out, asked = call_from([launch, project], "get_constraints", {"files": ["x.py"]})
+    assert "error" not in out and asked == 1, out
+
+
+def test_the_usual_session_is_not_asked_for_its_folders(project: Path) -> None:
+    """No extra round trip when the launch folder is the project."""
+    out, asked = call_from([project], "get_constraints", {"files": ["src/queue.py"]})
+    assert "error" not in out and asked == 0
+
+
+def test_the_servers_own_folder_counts(moved: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(moved / "src")  # started inside the project, though SEAMSPEC_ROOT names the launch folder
+    out, asked = call_from([], "get_constraints", {"files": ["src/queue.py"]})
+    assert "error" not in out and asked == 0
+
+
+def test_an_absolute_file_path_points_to_the_project(moved: Path) -> None:
+    out, _ = call_from(None, "get_constraints", {"files": [str(moved / "src/queue.py")]})
+    assert "error" not in out and out["files"] == ["src/queue.py"]
+
+
+def test_no_project_anywhere_says_which_folder_was_tried(moved: Path) -> None:
+    launch = Path.cwd()
+    for roots in (None, [launch]):  # a client without roots, and roots that don't help
+        out, _ = call_from(roots, "get_constraints", {"files": ["x.py"]})
+        assert out["error"] == "not_a_seamspec_project"
+        assert str(launch) in out["message"] and "Start a new session in your project folder" in out["message"]
+
+
+def test_two_projects_in_one_session_is_not_guessed(moved: Path, tmp_path_factory: pytest.TempPathFactory) -> None:
+    from seamspec.installers import scaffold
+
+    other = tmp_path_factory.mktemp("other-project")
+    (other / "pyproject.toml").write_text('[project]\nname = "other"\n')
+    scaffold.init(other, auto_run=True, actor="Maya Rao <maya@example.com>")
+    out, _ = call_from([moved, other], "get_constraints", {"files": ["x.py"]})
+    assert out["error"] == "not_a_seamspec_project" and "2 SeamSpec projects" in out["message"]
+    assert str(moved) in out["message"] and str(other.resolve()) in out["message"]
+
+
 def test_not_a_seamspec_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     assert call("get_constraints", {"files": ["x.py"]})["error"] == "not_a_seamspec_project"

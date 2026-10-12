@@ -15,6 +15,7 @@ JSON printed to stdout; the exit code is always 0, so a crash in SeamSpec can't 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -25,7 +26,7 @@ from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
 from ..core.models import DeadEnd, Invariant, InvStatus
 from ..core.requests import pending_supersede_ids
-from ..core.root import find_root, to_rel
+from ..core.root import find_root, project_at, to_rel
 from ..core.scope import effective_protected_paths, matches
 from ..core.session import SessionState
 from ..core.store import Store, atomic_write
@@ -82,18 +83,47 @@ def pre_tool_use(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str
         return None
 
     cs = constraints_for(store, [rel])
-    if cs.empty:
-        return None
+    note = moved_note(store)
     state = SessionState.load(store, str(payload.get("session_id") or "unknown"))
+    if cs.empty:
+        # No rule covers this file, e.g. in a project with an empty ledger. A session moved here from
+        # another SeamSpec project still has to hear, once, whose rules its tools serve (Copilot, #49).
+        if note is None or MOVED_KEY in state.acknowledged:
+            return None
+        state.acknowledged.append(MOVED_KEY)
+        state.save(store)
+        return _context(note)
     key = f"{rel}:{store.revision()}"
     if key in state.acknowledged:
         return None
-    state.acknowledged.append(key)
+    state.acknowledged += [key] + ([MOVED_KEY] if note and MOVED_KEY not in state.acknowledged else [])
     state.save(store)
     text = f"SeamSpec: {rel} is governed by:\n{cs.render()}"
+    if note:
+        text += "\n" + note
     if cfg.hooks.gate_mode == "deny_once" or not (store.root / rel).exists():  # brand-new file
         return _deny(text + "\nRe-attempt the edit once your change respects these constraints.")
     return _context(text + "\nMake sure this edit respects the locked rules.")
+
+
+MOVED_KEY = "moved-note"  # in SessionState.acknowledged once the note below was shown
+
+
+def moved_note(store: Store) -> str | None:
+    """A session that was launched in one SeamSpec project and moved to another (ADR-20261011-d4a1).
+    Hooks follow the move: they get the current folder with every event. The MCP server is started
+    with the launch folder (`CLAUDE_PROJECT_DIR` never changes), so its tools still answer for the
+    project the session came from, and it has no way to notice. Hooks see both folders, so they say so."""
+    launched = os.environ.get("CLAUDE_PROJECT_DIR")
+    origin = project_at(Path(launched)) if launched else None
+    if origin is None or origin == store.root.resolve():
+        return None
+    return (
+        f"SeamSpec: this session started in another SeamSpec project ({origin}). The rules shown here are for "
+        f"this project ({store.root}), but SeamSpec's tools (get_constraints, propose_invariant, verify, ...) "
+        "still answer for the other one. Tell the user, and use the `seamspec` command in this folder "
+        "(`seamspec context <files>`, `seamspec propose`) until a new session is started here."
+    )
 
 
 def _retry_key(payload: dict[str, Any]) -> str:
@@ -264,8 +294,9 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
     dead = sorted((r for r in records if isinstance(r, DeadEnd) and r.status == "ACTIVE"), key=lambda r: r.id)
     waiting = sum(isinstance(r, Invariant) and r.status == InvStatus.PROPOSED for r in records)
     waiting += len(pending_supersede_ids(store))
+    moved = moved_note(store)
     if not locked and not dead and not waiting:
-        return None
+        return moved  # an empty ledger says nothing, unless the session's tools point at another project
     # Only LOCKED rules are human-approved; dead ends are recorded by agents or people, never approved.
     tail = []
     if locked:
@@ -274,6 +305,8 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
                     "`get_constraints`.")  # fmt: skip
     if waiting:
         tail.append(f"SeamSpec: {waiting} item(s) wait for the user's review: remind them to run `seamspec review`.")
+    if moved:
+        tail.append(moved)
 
     def scope(r: Invariant, most: int | None = None) -> str:
         paths = [_flat(p) for p in r.scope.paths]

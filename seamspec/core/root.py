@@ -30,6 +30,18 @@ def find_root(start: Path | None = None) -> Path:
     )
 
 
+def project_at(start: Path) -> Path | None:
+    """The SeamSpec project `start` is in: the nearest folder at or above it with .seamspec/config.toml."""
+    try:
+        current = start.resolve()
+    except OSError:
+        return None
+    for candidate in (current, *current.parents):
+        if (candidate / CONFIG_REL).is_file():
+            return candidate
+    return None
+
+
 def to_rel(root: Path, path: str | Path) -> str | None:
     """Repo-relative POSIX path, or None if outside the repo."""
     p = Path(path)
