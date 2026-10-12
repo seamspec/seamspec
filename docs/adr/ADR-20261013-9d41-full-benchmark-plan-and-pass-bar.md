@@ -1,7 +1,7 @@
 ---
 id: ADR-20261013-9d41
 title: "Full benchmark: plan and pass bar, fixed before the run"
-status: PROPOSED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
+status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-13
 scopes: ["bench/**", "docs/SPEC.md"]
 invariants: []
@@ -11,7 +11,7 @@ superseded_by: null
 
 # ADR-20261013-9d41: Full benchmark: plan and pass bar, fixed before the run
 
-> **Status: PROPOSED.** The harness work described here is built and tested without any model call. The plan, the pass bar and the spend need the owner's answers (last section) before any paid run. Nothing below may change after the first counted run.
+> **Status: ACCEPTED** (2026-10-13, with section 9 added the same day; see "The owner's answers" at the end). Everything here is built and tested without any model call. Nothing below may change after the first counted run.
 
 ## Context
 
@@ -31,8 +31,8 @@ So the full run must be able to come back with "SeamSpec doesn't beat a notes fi
 | | |
 |---|---|
 | **Tasks** | T1 job queue (Python), T2 price calculator (TypeScript), and new **T3 export tool** (Python command-line tool) |
-| **Conditions** | A baseline · B SeamSpec advisory · C SeamSpec enforced · D plain tests + Stop hook · E rules as notes in `CLAUDE.md` · **F decisions as ADRs only** |
-| **Runs** | 3 tasks × 6 conditions × **5 runs** = **90 runs**, all in one batch, interleaved (run 1 of every cell, then run 2, …) |
+| **Conditions** | A baseline · B SeamSpec advisory · C SeamSpec enforced · D plain tests + Stop hook · E rules as notes in `CLAUDE.md` · **F decisions as ADRs only** · **G and H, the same as E and C with many more rules** (section 9) |
+| **Runs** | 3 tasks × 8 conditions × **5 runs** = **120 runs**, all in one batch, interleaved (run 1 of every cell, then run 2, …) |
 | **Model** | Claude Sonnet 5.5, as in the rough run. Same tools, settings and per-prompt budget for every condition |
 | **Scripts** | 3 fresh sessions of 3 prompts per run, unchanged for T1 and T2 |
 
@@ -93,6 +93,7 @@ Decided now, so the pitch follows the numbers and not the other way round. The s
 | Fewer broken agreements than the same rules written in `CLAUDE.md` | E reads "clearly worse" |
 | Fewer broken agreements than the same decisions kept as ADRs | F reads "clearly worse" |
 | Enforced mode breaks fewer agreements than advisory mode | V(B) − V(C) ≥ 3 |
+| With about 40 agreed rules, fewer broken agreements than the same rules in `CLAUDE.md` | G reads "clearly worse" than H (section 9) |
 
 A claim that isn't allowed is not made, in the README, the site or the launch post. If "beats notes" is not allowed, the pitch leads with what a notes file can't do (a test behind every rule, tests the agent can't quietly rewrite, a human approval on record, CI for the whole team), as ADR-20261006-b270 already said.
 
@@ -115,16 +116,32 @@ Measured basis: the rough run cost **$27.40 for 24 runs, about $1.14 a run** on 
 | Batch | Runs | Estimate |
 |---|---|---|
 | T3 calibration (A only, up to two checks) | 2 to 4 | $2 to $5 |
-| Main batch, Sonnet 5.5 | 90 | about **$105** (range $85 to $135; E and F cost less per run, C more) |
+| Main batch, Sonnet 5.5 | 120 | about **$140** (range $115 to $180; the notes conditions cost less per run, the SeamSpec ones more, H probably the most) |
 | Second model, Haiku 5.5 | 36 | $10 to $25 |
-| **Total** | | **about $120 to $165** |
+| **Total** | | **about $155 to $210** |
 
-About 4 to 5 hours of wall time for the main batch.
+About 5 to 7 hours of wall time for the main batch.
 
 - Billed to the owner's API key, as before; the owner sets a spending limit in the Anthropic Console first and runs the command in their own terminal.
 - Every prompt is capped (`--max-budget-usd`); a billing mismatch or an authentication error stops the batch.
 - **New: `--resume`.** A batch that stops can continue under the same label; runs already scored are kept, not paid for twice.
 - We stop and report after the calibration, and again after the main batch, before the second model.
+
+### 9. Many rules: conditions G and H (added 2026-10-13, before any run)
+
+The owner's objection to the plan above: each task has two or three rules, and with that few a notes file is plainly enough for an agent to remember them. The quick E run agrees. So the comparison with notes at this size says little about a project a few months old.
+
+**G and H give every task 36 more agreed rules.**
+- The extra rules are about two small helper packages added to the working copy (`src/common`: ids, config, log lines; `src/shared`: paging, text, timestamps), six rules per module. They read like the agreements a team accumulates ("log lines are JSON with sorted keys", "a page past the end is empty, not an error"). None of the tasks' requests asks to change those packages.
+- **G** is condition E with all of them in `CLAUDE.md`, one section per part of the code. The order is fixed in the harness: the `common` modules, then the task's own rules, then the `shared` modules, so the scored rules sit in the middle of the file, neither first nor last. Same dead end and same closing "ask first" lines as E.
+- **H** is condition C with the same rules, same wording, locked in SeamSpec's ledger, each with a real test that passes on the helper code (36 tests in Python, 36 in TypeScript).
+- **Only the task's own rules are scored**, by the same hidden tests as everywhere else. The question is whether they still hold when they are three among thirty-nine.
+
+**How it is read.** G against H by the rule of section 4 (with 15 runs: a gap of 8 or more is "clearly worse", 3 or less "matches"). It gates one claim (section 5) and never changes the verdict of section 3. The summary also prints E and C beside them, so the reader sees whether either side got worse with more rules.
+
+**What it is and isn't.** The notes file in G is about 70 lines. This is the first step up in size, not a project with hundreds of rules, and a careful model may read 70 lines as well as 10. If G matches H, the write-up says so in those words. The extra rules are not about the code the requests touch; a project where most rules concern the same files would be a different test.
+
+**Seen while building** (no model involved): with 38 or 39 locked rules SeamSpec's session-start summary still lists every rule in full (about 6,900 characters, under its 8,000 limit), `get_constraints` for a task's own file returns only that file's rules, and all rule tests run in about 2.5 seconds.
 
 **Alternatives considered:**
 - **Keep "strictly fewer" for C against D.** With 15 runs per cell a difference of one run is chance. A margin fixed in advance is harder to pass and easier to defend.
@@ -146,12 +163,14 @@ None. The benchmark harness is test infrastructure; its detectors and both pass 
 
 ## Consequences
 
-- `bench/` gains task `t3_export`, condition F, the full run's bar as code (`decide_full`), `--bar` and `--resume`. The rough run's bar is untouched.
+- `bench/` gains task `t3_export`, conditions F, G and H, the helper packages and their 36 rules (`bench/scale/`, `harness/scale.py`), the full run's bar as code (`decide_full`), `--bar` and `--resume`. The rough run's bar is untouched.
 - SPEC §23 points here for the full run.
 - Once accepted, the order is: T3 calibration, the main batch, the second model, then the write-up and the README with only the claims the numbers allow.
 
-## Questions for the owner
+## The owner's answers (2026-10-13)
 
-1. **The pass bar and the claims table** (sections 3 to 5): accept as written?
-2. **The second model:** Haiku 5.5 on A, C, D, E with 3 runs, or skip it, or a different model?
-3. **The spend:** about $120 to $165 in total on the API key, with a stop after calibration and after the main batch?
+The three questions were: accept the pass bar and the claims table as written; run the second model (Haiku 5.5 on A, C, D, E, 3 runs); and the spend, with a stop after calibration and after the main batch.
+
+- The owner first asked whether a notes file wouldn't do as well with so few rules, and was given three options: run as planned, add a many-rules variant, or add a step that has the agent tidy the notes file.
+- **Answer: "go with option 1 and option 2."** The plan runs as written, with the many-rules variant (section 9) added. The third option was not taken.
+- The spend rose with section 9, from about $120 to $165 to **about $155 to $210**. Every paid batch is started by the owner from their own terminal, which is the go-ahead for that batch; we stop and report after the calibration and after the main batch.

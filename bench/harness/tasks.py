@@ -19,7 +19,7 @@ from pathlib import Path
 
 TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
 TASK_IDS = ("t1_queue", "t2_prices", "t3_export")
-CONDITIONS = ("A", "B", "C", "D", "E", "F")
+CONDITIONS = ("A", "B", "C", "D", "E", "F", "G", "H")
 PASS_BAR_CONDITIONS = ("A", "B", "C", "D")  # E and F are read separately (ADR-20261007-e1a7, ADR-20261013-9d41)
 CONDITION_NAMES = {
     "A": "baseline (no SeamSpec)",
@@ -28,7 +28,10 @@ CONDITION_NAMES = {
     "D": "plain tests + Stop hook",
     "E": "rules written in CLAUDE.md",
     "F": "decisions in ADRs only",
+    "G": "many rules written in CLAUDE.md",
+    "H": "SeamSpec enforced, many rules",
 }
+USES_PLUGIN = ("B", "C", "H")  # conditions that load the SeamSpec plugin
 
 
 @dataclass(frozen=True)

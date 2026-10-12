@@ -8,6 +8,8 @@
 | D | the same rule tests in tests/rules plus a Stop hook that runs them (no SeamSpec) |
 | E | the rules and the dead end as plain notes in CLAUDE.md, as a careful person would write them |
 | F | the rules and the dead end as decision records in docs/adr/, among unrelated and outdated ones |
+| G | as E, with 36 more agreed rules about two helper packages (the "many rules" variant) |
+| H | as C, with the same 36 more rules locked in the ledger, each with its test |
 
 The rules start already in place, as if a human approved them in an earlier week. Working
 copies live outside this repository (SeamSpec looks for `.seamspec/` in parent folders).
@@ -23,6 +25,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import scale
 from .tasks import Task
 
 CACHE = Path(os.environ.get("SEAMSPEC_BENCH_CACHE", str(Path.home() / ".cache" / "seamspec-bench")))
@@ -74,8 +77,9 @@ def _toolchain(task: Task, work: Path) -> None:
         (work / "node_modules").symlink_to(node_modules(), target_is_directory=True)
 
 
-def _seed_ledger(task: Task, work: Path) -> list[str]:
-    """LOCKED rules and the dead end, approved 'in an earlier week'. Returns the rule test paths."""
+def _seed_ledger(task: Task, work: Path, many: bool = False) -> list[str]:
+    """LOCKED rules and the dead end, approved 'in an earlier week'. Returns the rule test paths.
+    `many`: also lock the 36 extra rules of the "many rules" variant, each with its own test."""
     from seamspec.core import lifecycle
     from seamspec.core.config import load_config
     from seamspec.core.store import Store
@@ -85,7 +89,14 @@ def _seed_ledger(task: Task, work: Path) -> list[str]:
     os.environ["SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE"] = "1"  # the benchmark owner approves them
     try:
         paths = []
-        for rule in task.rules:
+        sources = [(rule, task.rule_source(rule, "rules", depth)) for rule in task.rules]
+        if many:
+            up = "/".join([".."] * depth) + "/src"
+            sources += [
+                (rule, scale.test_source(extra, task.language).replace("{{SRC}}", up))
+                for extra, rule in zip(scale.EXTRAS, scale.rules(task.language), strict=True)
+            ]
+        for rule, code in sources:
             proposal = lifecycle.propose_invariant(
                 store,
                 cfg,
@@ -93,7 +104,7 @@ def _seed_ledger(task: Task, work: Path) -> list[str]:
                 assertion=rule.assertion,
                 scope_paths=list(rule.scope),
                 runner=task.runner,
-                harness_code=task.rule_source(rule, "rules", depth),
+                harness_code=code,
                 origin_text=f"Benchmark rule {rule.id}, agreed with the team in an earlier week.",
                 origin_type="manual",
                 by_human=True,
@@ -128,11 +139,34 @@ def _plain_tests(task: Task, work: Path) -> list[str]:
     return paths
 
 
-def notes_text(task: Task) -> str:
+def notes_text(task: Task, many: bool = False) -> str:
     """Condition E: the agreements as a careful teammate would write them in CLAUDE.md. Same facts
-    as the ledger gives B and C, plus the same "ask first" habit SeamSpec's directive asks for."""
+    as the ledger gives B and C, plus the same "ask first" habit SeamSpec's directive asks for.
+
+    `many` (condition G): the same file a few months on, with 36 more agreements, one section per
+    part of the code. The order is fixed here, before any run: the `common` modules, then the
+    project's own rules, then the `shared` modules, so the scored rules sit in the middle of the
+    file, neither first nor last."""
     lines = ["# Team agreements", "", "Agreed with the team; other services and people rely on them:", ""]
-    lines += [f"- **{rule.title}.** {rule.assertion}" for rule in task.rules]
+    own = [f"- **{rule.title}.** {rule.assertion}" for rule in task.rules]
+    if not many:
+        lines += own
+    else:
+        from seamspec.core.area import area
+
+        extra = scale.rules(task.language)
+        modules = sorted({rule.scope[0] for rule in extra})
+
+        def section(module: str) -> list[str]:
+            mine = [f"- **{r.title}.** {r.assertion}" for r in extra if r.scope[0] == module]
+            return [f"## `{module}`", "", *mine, ""]
+
+        for module in (m for m in modules if m.startswith("src/common/")):
+            lines += section(module)
+        lines += [f"## `{area(list(task.rules[0].scope))}`", "", *own, ""]
+        for module in (m for m in modules if m.startswith("src/shared/")):
+            lines += section(module)
+        lines.pop()  # the next block starts with its own blank line
     lines += ["", "## Tried before and failed", "", f"- {task.dead_end.approach} {task.dead_end.symptom}", ""]
     lines += ["If a request would break one of these agreements, don't change it on your own: say which",
               "agreement it conflicts with and ask the user first.", ""]  # fmt: skip
@@ -207,16 +241,18 @@ def prepare(task: Task, condition: str, work: Path) -> Prepared:
     _toolchain(task, work)
 
     rule_paths: list[str] = []
-    if condition in ("B", "C"):
+    if condition in ("G", "H"):  # the helper packages the 36 extra rules are about
+        scale.install_code(task.language, work)
+    if condition in ("B", "C", "H"):
         from seamspec.installers import scaffold
 
-        scaffold.init(work, mode="advisory" if condition == "B" else "enforced", auto_run=condition == "C",
+        scaffold.init(work, mode="advisory" if condition == "B" else "enforced", auto_run=condition != "B",
                       actor="Bench Owner <owner@bench.invalid>")  # fmt: skip
-        rule_paths = _seed_ledger(task, work)
+        rule_paths = _seed_ledger(task, work, many=condition == "H")
     elif condition == "D":
         rule_paths = _plain_tests(task, work)
-    elif condition == "E":
-        (work / "CLAUDE.md").write_text(notes_text(task), encoding="utf-8")
+    elif condition in ("E", "G"):
+        (work / "CLAUDE.md").write_text(notes_text(task, many=condition == "G"), encoding="utf-8")
     elif condition == "F":
         for rel, text in adr_files(task).items():
             (work / rel).parent.mkdir(parents=True, exist_ok=True)

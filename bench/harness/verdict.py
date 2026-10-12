@@ -141,7 +141,7 @@ class FullVerdict:
     title: str
     reasons: list[str] = field(default_factory=list)
     totals: dict[str, dict[str, float]] = field(default_factory=dict)
-    readings: dict[str, str] = field(default_factory=dict)  # "E" / "F" -> worse | match | unclear
+    readings: dict[str, str] = field(default_factory=dict)  # "E" / "F" / "G" -> worse | match | unclear
     claims: dict[str, bool] = field(default_factory=dict)  # what the write-up may say
 
 
@@ -152,6 +152,7 @@ CLAIMS = {
     "beats_notes": "Fewer broken agreements than the same rules written in CLAUDE.md",
     "beats_adrs": "Fewer broken agreements than the same decisions kept as ADRs",
     "enforcement_adds_to_memory": "Enforced mode breaks fewer agreements than advisory mode",
+    "beats_notes_with_many_rules": "With about 40 agreed rules, fewer broken agreements than those rules in CLAUDE.md",
 }
 
 
@@ -181,6 +182,16 @@ def decide_full(scores: list[RunScore]) -> FullVerdict:
         claims["beats_notes"] = readings["E"] == "worse"
     if "F" in readings:
         claims["beats_adrs"] = readings["F"] == "worse"
+    if "G" in t and "H" in t:  # the many-rules pair is read against each other, not against C
+        readings["G"] = read_against_c(v["H"], v["G"], runs["G"])
+        claims["beats_notes_with_many_rules"] = readings["G"] == "worse"
+        what = {
+            "worse": "clearly worse than",
+            "match": "matches",
+            "unclear": "is neither clearly worse than nor a match for",
+        }
+        reasons.append(f"With about 40 rules: notes G ({v['G']:g}) {what[readings['G']]} SeamSpec H ({v['H']:g});"
+                       f" with 3: E ({v.get('E', float('nan')):g}), C ({v['C']:g})")  # fmt: skip
 
     def verdict(code: str, title: str, *more: str) -> FullVerdict:
         return FullVerdict(code, title, [*reasons, *more], t, readings, claims)
