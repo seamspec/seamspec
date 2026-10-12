@@ -60,3 +60,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261011-3c7e](ADR-20261011-3c7e-redgreen-editable-installs.md) | Red-green points the HEAD run at HEAD's code when the project is installed in editable mode | ACCEPTED |
 | [ADR-20261011-6b2d](ADR-20261011-6b2d-session-summary-keeps-reasons.md) | The session-start summary keeps each dead end's reason, shrinks in smaller steps, and may use 8,000 characters | ACCEPTED |
 | [ADR-20261011-d4a1](ADR-20261011-d4a1-mcp-server-finds-the-moved-session.md) | The MCP server finds the project of a session that was moved to another folder | ACCEPTED |
+| [ADR-20261011-e7c5](ADR-20261011-e7c5-layout-aware-hints.md) | Runner hints fit the project - how to import its code, and which program a runner resolves to | ACCEPTED |

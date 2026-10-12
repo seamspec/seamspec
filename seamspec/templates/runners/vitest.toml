@@ -1,5 +1,6 @@
 [runners.vitest]
 # SeamSpec's own vitest config: project setupFiles don't apply (§12.3).
+# `npx` is looked up on PATH; vitest itself comes from the project's node_modules/.bin (§12.4.7).
 cmd = ["npx", "vitest", "run", "--config", ".seamspec/vitest.config.mjs", "--reporter=default", "--reporter=junit", "--outputFile.junit={report}", "{each}"]
 harness_dir = "tests/seamspec"
 filename = "{id}.test.ts"

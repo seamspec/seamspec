@@ -45,7 +45,10 @@ The docs don't say which folder a stdio server process is started in, nor whethe
 
 - `open_review` and the two ADR resources use steps 1 and 2 only. `open_review` runs its own multi-round flow, which the SDK doesn't let a tool combine with resolver parameters.
 - MCP marks `roots` as deprecated from protocol 2026-07-28 on. Claude Code still supports it; if it goes away, steps 1, 2 and the file-path hint remain.
-- **Not yet checked in a real moved session:** whether the folder a session was moved to is among the roots Claude Code reports, and where it starts the server. If neither holds, the moved session still gets the clear message of point 4 instead of working tools.
+- **Checked in real sessions on 2026-10-11** (Claude Code 2.1.296, Claude Haiku 5.5, two runs, about $0.012 on the plan login; a probe MCP server reported what a server sees):
+  - a session launched in a folder that isn't a SeamSpec project, with the project given as an additional folder (`--add-dir`): the server was started **in the launch folder**, `CLAUDE_PROJECT_DIR` was the launch folder, and `roots` listed the launch folder and the project. `get_constraints` then found the project through `roots` and returned its rule. Step 3 of the lookup works end to end.
+  - with no project among the session's folders, the agent received the message of point 4 and reported "start a new session in your SeamSpec project folder" as the next step.
+- **Still not checked:** a session moved with `/cd`. Non-interactive sessions answer *"/cd isn't available in this environment"*, so it couldn't be scripted. The open point is whether the folder a session is moved to appears among its `roots`. If it doesn't, the moved session gets the message of point 4 instead of working tools.
 
 ## Enforced Invariants
 
