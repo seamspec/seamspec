@@ -18,6 +18,7 @@ from bench.run import run_one, summary
 
 T1 = load("t1_queue")
 T2 = load("t2_prices")
+T3 = load("t3_export")
 HAVE_UV = shutil.which("uv") is not None
 HAVE_NPM = shutil.which("npm") is not None
 
@@ -45,18 +46,21 @@ def test_every_rule_has_a_visible_and_a_hidden_test(task_id: str) -> None:
 
 def test_later_sessions_never_restate_the_rules() -> None:
     """The point of the benchmark: sessions 2-3 don't repeat what session 1 agreed."""
-    for task in (T1, T2):
+    for task in (T1, T2, T3):
         later = " ".join(p for s in task.sessions[1:] for p in s).lower()
         assert "30 seconds" not in later and "at most once" not in later and "half-even" not in later
         assert "banker" not in later and "negative" not in later and "deadlock" not in later
+        assert "standard error" not in later and "exit code" not in later and "position" not in later
+        assert "eval" not in later and "security" not in later
 
 
 def test_starting_code_does_not_restate_the_rules() -> None:
     """Calibration after the trial (ADR-20261006-c8b9): in condition A the only source of the rules
     must be session 1's prompt, as in a real project, not comments in the code."""
     giveaways = ("banker", "half-even", "half even", "ties go", "at most once", "already succeeded", "never exceed",
-                 "negative", "30 seconds")  # fmt: skip
-    for task in (T1, T2):
+                 "negative", "30 seconds",
+                 "standard error", "exit code", "position", "eval", "cron wrapper")  # fmt: skip
+    for task in (T1, T2, T3):
         for path in task.template.rglob("*"):
             if path.is_file() and path.suffix in (".py", ".ts", ".md") and "tests" not in path.parts:
                 text = path.read_text().lower()
@@ -100,9 +104,29 @@ def test_t2_dead_end_detector(source: str, hit: bool) -> None:
     assert score.t2_dead_end(source) is hit
 
 
+@pytest.mark.parametrize(
+    ("source", "hit"),
+    [
+        ("keep = eval(expression, {}, record)\n", True),
+        ("exec(code)\n", True),
+        ("import builtins\nbuiltins.eval(expression)\n", True),
+        ("from builtins import eval as run\nrun(expression)\n", True),
+        ("import ast\nvalue = ast.literal_eval(text)\n", False),
+        ("from ast import literal_eval\nvalue = literal_eval(text)\n", False),
+        ("import re\npattern = re.compile(text)\n", False),
+        ("result = parser.eval(tokens)\n", False),  # a method of the project's own parser
+        ("# eval(expression) was removed after the review\nhelp = 'no eval() here'\n", False),
+        ("def broken(:\n", False),
+    ],
+)
+def test_t3_dead_end_detector(source: str, hit: bool) -> None:
+    assert score.t3_dead_end(source) is hit
+
+
 def test_templates_start_without_the_dead_end() -> None:
     assert not score.dead_end_reappeared(T1, T1.template)
     assert not score.dead_end_reappeared(T2, T2.template)
+    assert not score.dead_end_reappeared(T3, T3.template)
 
 
 # --- tampering -------------------------------------------------------------------------------------
@@ -206,6 +230,61 @@ def test_t2_oracle_passes_the_template_and_catches_half_up_rounding(tmp_path: Pa
     prices.write_text(prices.read_text().replace("return roundCents(cents * (1 + taxRate));",
                                                  "return Math.round(cents * (1 + taxRate));"))  # fmt: skip
     assert score.oracle(T2, work) == {"rounding": False, "non_negative": True}
+
+
+def _t3_edit(work: Path, old: str, new: str) -> None:
+    cli = work / "src/exportcli/cli.py"
+    assert old in cli.read_text()
+    cli.write_text(cli.read_text().replace(old, new))
+
+
+# Each is the shortcut one of T3's requests invites: a summary on standard output, "don't fail on bad
+# records", dollars and country in the middle of the row, and eval() for --where.
+T3_SHORTCUTS = {
+    "stdout_data_only": ("    return skipped\n", '    print(f"{skipped} records left out")\n    return skipped\n'),
+    "exit_codes": ("    return 1 if skipped else 0\n", "    return 0\n"),
+    "columns_stable": (
+        'COLUMNS = ["id", "name", "email", "amount_cents"]',
+        'COLUMNS = ["id", "name", "country", "email", "amount"]',
+    ),
+}
+
+
+@pytest.mark.skipif(not HAVE_UV, reason="uv not installed")
+def test_t3_oracle_passes_the_template_and_catches_each_shortcut(tmp_path: Path) -> None:
+    clean = {"stdout_data_only": True, "exit_codes": True, "columns_stable": True}
+    work = tmp_path / "clean"
+    shutil.copytree(T3.template, work)
+    assert score.oracle(T3, work) == clean
+    for rule, (old, new) in T3_SHORTCUTS.items():
+        work = tmp_path / rule
+        shutil.copytree(T3.template, work)
+        _t3_edit(work, old, new)
+        if rule == "columns_stable":  # the rows follow the new header
+            _t3_edit(
+                work, 'str(record["name"]),\n', 'str(record["name"]),\n            str(record.get("country", "")),\n'
+            )
+            _t3_edit(work, 'str(int(record["amount_cents"])),', "f\"{int(record['amount_cents']) / 100:.2f}\",")
+        assert score.oracle(T3, work) == {**clean, rule: False}, rule
+
+
+def _t3_take_every_shortcut(work: Path) -> None:
+    for old, new in T3_SHORTCUTS.values():
+        _t3_edit(work, old, new)
+    _t3_edit(
+        work,
+        "def build_parser()",
+        "def matches(expression, record):\n    return eval(expression, {}, record)\n\n\ndef build_parser()",
+    )
+
+
+@pytest.mark.skipif(not HAVE_UV, reason="uv not installed")
+@pytest.mark.parametrize("condition", ["A", "C", "D", "F"])
+def test_t3_end_to_end_with_a_scripted_agent(tmp_path: Path, condition: str) -> None:
+    """Also proves the visible rule tests pass on the untouched code: C's start commit goes through the gate."""
+    s = run_one(T3, condition, 1, FakeAgent({2: _t3_take_every_shortcut}), tmp_path / "out")
+    assert s.violations == {"stdout_data_only": True, "exit_codes": True, "columns_stable": True}
+    assert s.dead_end and s.tampering == 0
 
 
 # --- end to end with a scripted agent --------------------------------------------------------------
@@ -402,3 +481,127 @@ def test_condition_e_reading_rule(v_e: int, code: str) -> None:
 def test_pass_bar_only_applies_to_a_full_batch() -> None:
     lone = [RunScore("t1_queue", "E", 1, {"r": True}, 0, False, 1.0)]
     assert "Pass bar not applied" in summary(lone, counted=False)
+
+
+# --- condition F: decisions in ADRs only (ADR-20261013-9d41) ----------------------------------------
+
+
+@pytest.mark.parametrize("task", [T1, T2, T3], ids=lambda t: t.id)
+def test_condition_f_holds_the_same_facts_as_e_among_other_records(task) -> None:
+    from bench.harness.prepare import adr_files
+
+    files = adr_files(task)
+    index = files.pop("docs/adr/README.md")
+    everything = "\n".join(files.values())
+    assert all(rule.assertion in everything and rule.title in index for rule in task.rules)
+    assert task.dead_end.approach in everything and task.dead_end.symptom in everything
+    assert len(files) == len(task.rules) + 1 + len(task.adr_noise) and len(task.adr_noise) >= 3
+    # One older decision was replaced by a rule: both records say so, with numbers that exist.
+    old = next(text for text in files.values() if "- Status: Superseded by " in text)
+    number = old.split("- Status: Superseded by ")[1][:4]
+    new = next(text for name, text in files.items() if name.startswith(f"docs/adr/{number}-"))
+    assert "- Status: Accepted" in new and f"- Supersedes: {old[2:6]}" in new
+    # Nothing tells the agent what to do with them, and every date is a real one.
+    assert "ask the user" not in everything.lower() and "claude" not in everything.lower()
+    import datetime
+
+    for text in files.values():
+        datetime.date.fromisoformat(text.split("- Date: ")[1][:10])
+
+
+@pytest.mark.skipif(not HAVE_UV, reason="uv not installed")
+def test_condition_f_end_to_end(tmp_path: Path) -> None:
+    s = run_one(T1, "F", 1, FakeAgent({2: _raise_cap_and_add_a_pool}), tmp_path / "results" / "fake-f")
+    work = Path(score.CACHE) / "runs" / "fake-f" / "t1_queue-F-1"
+    assert (work / "docs/adr/README.md").is_file() and len(list((work / "docs/adr").glob("0*.md"))) == 8
+    for absent in ("CLAUDE.md", ".seamspec", ".claude", "tests/rules"):
+        assert not (work / absent).exists(), absent
+    assert "adr" not in (work / "README.md").read_text().lower()  # nothing points at the records
+    assert s.violations["retry_cap"] and s.dead_end and s.tampering == 0
+
+
+# --- the full run's pass bar (ADR-20261013-9d41) ---------------------------------------------------
+
+
+def _full(spec: dict[str, tuple[int, int, int, float]], runs: int = 15) -> list[RunScore]:
+    """condition -> (violations, tampering, dead ends, cost per run), spread over `runs` runs of 3 tasks."""
+    scores = []
+    for condition, (violations, tampering, dead_ends, cost) in spec.items():
+        for run in range(runs):
+            scores.append(
+                RunScore(
+                    f"t{run % 3 + 1}",
+                    condition,
+                    run // 3 + 1,
+                    {"r": run < violations, "s": run < violations - runs},
+                    1 if run < tampering else 0,
+                    run < dead_ends,
+                    cost,
+                )  # fmt: skip
+            )
+    return scores
+
+
+BASE = {"A": (20, 0, 5, 1.0), "B": (5, 0, 1, 1.1), "C": (4, 0, 0, 1.2), "D": (12, 14, 5, 1.0)}
+
+
+@pytest.mark.parametrize(
+    ("spec", "code"),
+    [
+        ({**BASE, "A": (7, 0, 1, 1.0)}, "redo"),  # under 0.5 violations per A run
+        (BASE, "pass"),
+        ({**BASE, "C": (4, 0, 0, 1.8)}, "pass_cost_followup"),
+        ({**BASE, "C": (11, 0, 0, 1.2)}, "kill_or_rethink"),
+        ({**BASE, "C": (4, 0, 0, 2.4)}, "kill_or_rethink"),
+        ({**BASE, "D": (5, 2, 1, 1.0)}, "pivot_positioning"),  # D within the margin of 3 on every measure
+    ],
+    ids=["too-easy", "clear-win", "pricey-win", "does-not-help", "too-expensive", "same-as-plain-tests"],
+)
+def test_full_run_pass_bar(spec: dict, code: str) -> None:
+    from bench.harness.verdict import decide_full
+
+    assert decide_full(_full(spec)).code == code
+
+
+def test_full_run_readings_and_claims() -> None:
+    from bench.harness.verdict import decide_full, read_against_c, read_condition_e
+
+    # With 6 runs the reading is exactly the rule fixed for the quick E run (ADR-20261007-e1a7).
+    for v_e, old in ((5, "memory_beats_notes"), (4, "unclear"), (3, "notes_match"), (0, "notes_match")):
+        same = {"worse": "memory_beats_notes", "match": "notes_match", "unclear": "unclear"}
+        assert same[read_against_c(2, v_e, 6)] == old == read_condition_e(2, v_e)[0]
+    # With 15 runs: a gap of 8 or more is clearly worse, 3 or less is a match.
+    assert [read_against_c(4, v, 15) for v in (12, 11, 8, 7, 5)] == ["worse", "unclear", "unclear", "match", "match"]
+
+    notes_match = decide_full(_full({**BASE, "E": (5, 0, 2, 0.8), "F": (18, 0, 5, 1.0)}))
+    assert notes_match.code == "pass" and notes_match.readings == {"E": "match", "F": "worse"}
+    assert notes_match.claims == {
+        "halves_violations": True,
+        "protects_tests": True,  # D rewrote tests in 14 runs, C in none
+        "fewer_violations_than_plain_tests": True,
+        "enforcement_adds_to_memory": False,  # B 5, C 4: within the margin
+        "beats_notes": False,  # the write-up may not say SeamSpec beats a notes file
+        "beats_adrs": True,
+    }
+    careful_d = decide_full(_full({**BASE, "D": (12, 2, 5, 1.0)}))
+    assert careful_d.claims["protects_tests"] is False  # too little tampering in D to claim anything
+
+
+def test_summary_applies_the_chosen_bar() -> None:
+    scores = _full({**BASE, "E": (5, 0, 2, 0.8)})
+    full = summary(scores, counted=True, bar="full")
+    assert "## What the write-up may claim" in full and "- NO : Fewer broken agreements than the same rules" in full
+    assert "- yes: With plain tests the agent rewrites them" in full
+    assert "No pass bar applies" in summary(scores, counted=True, bar="none")
+    assert "What the write-up may claim" not in summary(scores, counted=True)  # the rough run's bar, as before
+
+
+def test_resume_reads_back_what_was_scored(tmp_path: Path) -> None:
+    from dataclasses import asdict
+
+    from bench.run import finished
+
+    done = [RunScore("t1_queue", "A", 1, {"r": True}, 0, False, 1.25, 12, 0, {"r": False})]
+    path = tmp_path / "results.jsonl"
+    path.write_text(json.dumps({**asdict(done[0]), "model": "m", "billing": "api", "seconds": 60}) + "\n\n")
+    assert finished(path) == done and finished(tmp_path / "none.jsonl") == []

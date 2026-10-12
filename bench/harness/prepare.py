@@ -7,6 +7,7 @@
 | C | SeamSpec enforced: B plus the plugin's hooks and the git pre-commit gate |
 | D | the same rule tests in tests/rules plus a Stop hook that runs them (no SeamSpec) |
 | E | the rules and the dead end as plain notes in CLAUDE.md, as a careful person would write them |
+| F | the rules and the dead end as decision records in docs/adr/, among unrelated and outdated ones |
 
 The rules start already in place, as if a human approved them in an earlier week. Working
 copies live outside this repository (SeamSpec looks for `.seamspec/` in parent folders).
@@ -138,6 +139,66 @@ def notes_text(task: Task) -> str:
     return "\n".join(lines)
 
 
+ADR_DIR = "docs/adr"
+
+
+def _slug(title: str) -> str:
+    keep = "".join(c.lower() if c.isalnum() else "-" for c in title)
+    return "-".join(part for part in keep.split("-") if part)[:60]
+
+
+def adr_files(task: Task) -> dict[str, str]:
+    """Condition F (ADR-20261013-9d41): the agreements as decision records, the way many teams keep
+    them. Older records come first, one of them an earlier decision that a rule later replaced, so
+    reading only part of the folder can mislead. Same facts as E's notes; no "ask first" line and no
+    pointer from anywhere else in the repo: whether the agent looks is what F measures."""
+    entries: list[dict] = [  # (title, status, sections, key) in the order they were decided
+        {
+            "title": n.title,
+            "status": n.status,
+            "sections": [("Context and decision", n.body)],
+            "replaced_by": n.superseded_by,
+        }
+        for n in task.adr_noise
+    ]
+    number_of_rule: dict[str, int] = {}
+    for rule in task.rules:
+        entries.append({
+            "title": rule.title,
+            "status": "Accepted",
+            "sections": [("Decision", rule.assertion),
+                         ("Consequences", "Agreed with the team; other services and people rely on it.")],
+            "rule": rule.id,
+        })  # fmt: skip
+        number_of_rule[rule.id] = len(entries)
+    entries.append({
+        "title": "Rejected: " + (task.dead_end.short or task.dead_end.approach.rstrip(".")),
+        "status": "Rejected",
+        "sections": [("What we tried", task.dead_end.approach), ("What happened", task.dead_end.symptom)],
+    })  # fmt: skip
+
+    files: dict[str, str] = {}
+    index = ["# Decision records", "", "| No. | Decision | Status |", "|---|---|---|"]
+    for number, entry in enumerate(entries, start=1):
+        name = f"{number:04d}-{_slug(entry['title'])}.md"
+        status = entry["status"]
+        if entry.get("replaced_by"):
+            status = f"Superseded by {number_of_rule[entry['replaced_by']]:04d}"
+        lines = [f"# {number:04d}. {entry['title']}", "", f"- Status: {status}",
+                 f"- Date: 2026-{min(number, 9):02d}-{10 + number % 18:02d}"]  # fmt: skip
+        replaces = [
+            n for n, e in enumerate(entries, start=1) if e.get("replaced_by") and e["replaced_by"] == entry.get("rule")
+        ]
+        if replaces:
+            lines.append("- Supersedes: " + ", ".join(f"{n:04d}" for n in replaces))
+        for heading, text in entry["sections"]:
+            lines += ["", f"## {heading}", "", text]
+        files[f"{ADR_DIR}/{name}"] = "\n".join(lines) + "\n"
+        index.append(f"| {number:04d} | [{entry['title']}]({name}) | {status} |")
+    files[f"{ADR_DIR}/README.md"] = "\n".join(index) + "\n"
+    return files
+
+
 def prepare(task: Task, condition: str, work: Path) -> Prepared:
     if work.exists():
         shutil.rmtree(work)
@@ -156,6 +217,10 @@ def prepare(task: Task, condition: str, work: Path) -> Prepared:
         rule_paths = _plain_tests(task, work)
     elif condition == "E":
         (work / "CLAUDE.md").write_text(notes_text(task), encoding="utf-8")
+    elif condition == "F":
+        for rel, text in adr_files(task).items():
+            (work / rel).parent.mkdir(parents=True, exist_ok=True)
+            (work / rel).write_text(text, encoding="utf-8")
     elif condition != "A":
         raise ValueError(f"unknown condition {condition!r}")
 

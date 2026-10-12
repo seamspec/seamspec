@@ -23,6 +23,7 @@
     }
   ],
   "dead_end": {
+    "short": "Rounding with toFixed() or Math.round(x * 100) / 100",
     "approach": "Rounding with Number.prototype.toFixed() or Math.round(x * 100) / 100 instead of the roundCents helper.",
     "symptom": "Totals were off by a cent on ties (it rounds half-up, and toFixed misrounds binary fractions); finance rejected the reports.",
     "scope": [
@@ -45,5 +46,28 @@
       "Finance's CSV export needs each order total in dollars as a number with two decimals, e.g. 12.35. Add totalDollars(items, taxRate, discount). Run the tests and commit.",
       "Summarize what you changed in this session."
     ]
+  ],
+  "adr_noise": [
+    {
+      "title": "Keep all money in integer cents",
+      "status": "Accepted",
+      "body": "Floating-point dollars caused off-by-a-cent totals in the first prototype."
+    },
+    {
+      "title": "Round halves up, to match the old ERP",
+      "status": "Superseded",
+      "superseded_by": "rounding",
+      "body": "The ERP rounded 0.5 cents up, and reports had to match it."
+    },
+    {
+      "title": "Pass the tax rate as a decimal fraction",
+      "status": "Accepted",
+      "body": "0.2 means 20%. Callers already hold rates in that form."
+    },
+    {
+      "title": "Use vitest for the test suite",
+      "status": "Accepted",
+      "body": "It runs TypeScript without a build step."
+    }
   ]
 }

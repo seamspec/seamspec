@@ -2,7 +2,8 @@
 
 Each task lives in `bench/tasks/<id>/`:
 - `template/`: the repo the agent works on;
-- `task.json`: rules, the known dead end and the session prompts;
+- `task.json`: rules, the known dead end, the session prompts, and the unrelated or outdated
+  decision records that surround the real ones in condition F (`adr_noise`);
 - `rules/`: the visible rule tests (enforced in B, C and D);
 - `oracle/`: the hidden tests that score every condition. The agent never sees them.
 
@@ -17,15 +18,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
-TASK_IDS = ("t1_queue", "t2_prices")
-CONDITIONS = ("A", "B", "C", "D", "E")
-PASS_BAR_CONDITIONS = ("A", "B", "C", "D")  # E is read separately (ADR-20261007-e1a7)
+TASK_IDS = ("t1_queue", "t2_prices", "t3_export")
+CONDITIONS = ("A", "B", "C", "D", "E", "F")
+PASS_BAR_CONDITIONS = ("A", "B", "C", "D")  # E and F are read separately (ADR-20261007-e1a7, ADR-20261013-9d41)
 CONDITION_NAMES = {
     "A": "baseline (no SeamSpec)",
     "B": "SeamSpec advisory",
     "C": "SeamSpec enforced",
     "D": "plain tests + Stop hook",
     "E": "rules written in CLAUDE.md",
+    "F": "decisions in ADRs only",
 }
 
 
@@ -43,6 +45,17 @@ class DeadEnd:
     approach: str
     symptom: str
     scope: tuple[str, ...]
+    short: str = ""  # a few words, for a decision record's title (condition F)
+
+
+@dataclass(frozen=True)
+class NoiseAdr:
+    """A decision record that is not one of the rules: unrelated, or an older decision a rule replaced."""
+
+    title: str
+    status: str  # Accepted | Superseded
+    body: str
+    superseded_by: str | None = None  # a rule id
 
 
 @dataclass(frozen=True)
@@ -54,6 +67,7 @@ class Task:
     dead_end: DeadEnd
     sessions: tuple[tuple[str, ...], ...]
     dir: Path
+    adr_noise: tuple[NoiseAdr, ...] = ()  # condition F
 
     @property
     def template(self) -> Path:
@@ -75,7 +89,10 @@ def load(task_id: str) -> Task:
         language=data["language"],
         runner=data["runner"],
         rules=rules,
-        dead_end=DeadEnd(de["approach"], de["symptom"], tuple(de["scope"])),
+        dead_end=DeadEnd(de["approach"], de["symptom"], tuple(de["scope"]), de.get("short", "")),
         sessions=tuple(tuple(s) for s in data["sessions"]),
         dir=d,
+        adr_noise=tuple(
+            NoiseAdr(n["title"], n["status"], n["body"], n.get("superseded_by")) for n in data.get("adr_noise", [])
+        ),
     )
