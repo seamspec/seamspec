@@ -58,3 +58,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261011-8013](ADR-20261011-8013-readable-review.md) | A readable review - summary first, the test's checks pulled out, the full test still shown | ACCEPTED |
 | [ADR-20261011-0995](ADR-20261011-0995-generated-spec-and-positioning.md) | A spec generated from the ledger; positioning and order of work after dogfooding | ACCEPTED |
 | [ADR-20261011-3c7e](ADR-20261011-3c7e-redgreen-editable-installs.md) | Red-green points the HEAD run at HEAD's code when the project is installed in editable mode | ACCEPTED |
+| [ADR-20261011-6b2d](ADR-20261011-6b2d-session-summary-keeps-reasons.md) | The session-start summary keeps each dead end's reason, shrinks in smaller steps, and may use 8,000 characters | ACCEPTED |
