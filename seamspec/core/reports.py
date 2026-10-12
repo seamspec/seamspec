@@ -12,11 +12,24 @@ Each parser returns `(failed, empty)` or None when the report is unusable:
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 Attribution = tuple[set[str], set[str]]
+
+MESSAGE_MAX = 200
+
+
+@dataclass
+class FailedCheck:
+    """One way a rule's test failed, for the summary a human reads first (ADR-20261013-4e9b)."""
+
+    line: int | None  # line in the rule's test file, when the report names one
+    message: str  # the failure's first line, as the runner reported it
+    cases: int = 1  # test cases that failed this way (a parametrized test fails once per case)
 
 
 def junit(report_path: Path, ids: list[str]) -> Attribution | None:
@@ -38,6 +51,51 @@ def junit(report_path: Path, ids: list[str]) -> Attribution | None:
                 passed[o] += 1
     empty = {i for i in ids if passed[i] == 0} - failed
     return failed, empty
+
+
+_STACK_LINE = re.compile(r"^\s*(❯|at)\s", re.MULTILINE)  # vitest / node stacks list the deepest frame first
+
+
+def _line_in_harness(body: str, inv_id: str) -> int | None:
+    """The line of the rule's own test file where the failure happened. Its path contains the rule's
+    id (§12A.4). A pytest traceback ends at the failing line; a JavaScript stack starts with it."""
+    found = re.findall(rf"[^\s:()]*{re.escape(inv_id)}[^\s:()]*:(\d+)", body)
+    if not found:
+        return None
+    return int(found[0] if _STACK_LINE.search(body) else found[-1])
+
+
+def _message(node: ET.Element) -> str:
+    """The failure's first line. pytest reports a collection error as the bare words "collection
+    failure" and keeps the reason (an ImportError, say) in the body's `E   ` lines."""
+    first = next((ln.strip() for ln in (node.get("message") or "").splitlines() if ln.strip()), "")
+    body = node.text or ""
+    if not first or first == "collection failure":
+        reasons = [ln[1:].strip() for ln in body.splitlines() if ln.startswith("E ") and ln[1:].strip()]
+        first = (reasons[-1] if reasons else first) or next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
+    first = first or "failed (the runner's report gives no message)"
+    return first if len(first) <= MESSAGE_MAX else first[: MESSAGE_MAX - 1].rstrip() + "…"
+
+
+def junit_checks(report_path: Path, ids: list[str]) -> dict[str, list[FailedCheck]]:
+    """What failed, per invariant, read from the same JUnit report as `junit()`. Identical failures
+    (same line, same message) are counted, not repeated. Empty when the report is unusable: the
+    caller then falls back to the runner's raw output."""
+    try:
+        tree = ET.parse(report_path)  # local file written by the runner SeamSpec just started
+    except (OSError, ET.ParseError):
+        return {}
+    found: dict[str, dict[tuple[int | None, str], int]] = defaultdict(dict)
+    for case in tree.iter("testcase"):
+        where = " ".join(case.get(k, "") for k in ("file", "classname", "name"))
+        for node in [*case.findall("failure"), *case.findall("error")]:
+            for owner in (i for i in ids if i in where):
+                key = (_line_in_harness(node.text or "", owner), _message(node))
+                found[owner][key] = found[owner].get(key, 0) + 1
+    return {
+        owner: [FailedCheck(line, message, cases) for (line, message), cases in checks.items()]
+        for owner, checks in found.items()
+    }
 
 
 def go_test_json(stdout: str, ids: list[str]) -> tuple[Attribution | None, str]:

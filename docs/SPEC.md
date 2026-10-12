@@ -1082,6 +1082,25 @@ One command runs many harnesses. Without attribution, one failure would mark eve
 2. **`go-test-json`:** every event carries the `Package`, and each harness package path ends in the invariant ID. The JSON is turned into plain text before it is shown to the agent.
 3. **Isolated reruns (fallback):** used when `report = "none"`, or when the report is missing or doesn't cover every harness (e.g. the test crashed before writing it). If the group failed and has at most `verify.isolate_on_failure` (10) harnesses, each one is rerun alone. Reruns only happen on failure and only for `LOCKED` tests that already have consent. Above the limit, the whole group is reported.
 
+**What the human reads when a rule fails** (ADR-20261013-4e9b). Every failure report has one short block per failing rule, built from the ledger and the JUnit report, never by parsing terminal output:
+
+```
+SeamSpec: commit blocked.
+
+1 rule fails:
+  inv_246b5fb8 · The gateway gives up after exactly 5 attempts by default
+    line 29: assert len(backend.requests) == 5
+      AssertionError: assert 4 == 5  (3 test cases)
+    Test: .seamspec/tests/test_inv_246b5fb8.py
+
+Fix the regression, or if the change is intentional, supersede the rule (`seamspec supersede <id> --reason ...`).
+Full test output: `seamspec verify --all`
+```
+
+- **The rule:** its id and title. **The check:** the line of the rule's own test file where the failure happened (its text read from disk) and the first line of what the runner reported. Identical failures are counted, not repeated: a parametrized test that fails three times is one line with *"(3 test cases)"*. A pytest collection error shows its reason (for example the `ImportError`), not the words "collection failure".
+- **Where it goes:** at a refused commit (`verify --gate`) the block replaces the runner's output for every failure it explains, and the last line says how to get the full output. A plain `seamspec verify` and CI keep the runner's output and put the block after it, where the eye lands. The Stop hook puts the block first and the runner's output after it, because the agent needs both and Claude Code keeps the start of a long hook message.
+- **A summary never hides a failure.** A rule whose failure the report can't explain is still listed, with the reason (*"its test timed out"*, *"the runner's report doesn't say where"*, *"harness modified since approval"*, *"ran no tests, or skipped every test"*), and the runner's output for that group is shown in every mode.
+
 ### 12A.5 Where Tests Live
 
 When `harness_dir` is outside `.seamspec/`, LOCKED harnesses sit in the project's normal test tree:
@@ -1363,7 +1382,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec supersede <id> --reason [--replacement <id>]` | Human-initiated supersede, or approve a pending request |
 | `seamspec retire-dead-end <id> --reason` | Retire a dead end |
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
-| `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
+| `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder; on failure it prints *"SeamSpec: commit blocked."* and the short block per failing rule (§12A.4) in place of the runner's output. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
 | `seamspec drain [--json] [--tidy]` *(v0.2)* | List pending braindump items; `--tidy` moves processed items below the marker |
 | `seamspec doctor [--ci] [--base <ref>] [--json]` | Validate config, record schemas, hashes, runner config fingerprints, approval provenance and scopes. Locally it also checks the approval journal, `CLAUDE.md` directive drift (§18; it says so when lines inside the block aren't SeamSpec's, and that `init` keeps them), the git pre-commit hook, and hosts allowlisting SeamSpec commands (§12.4.3). `--ci` replaces the local-state checks with ledger forward-only checks against the base branch and the retirement summary (§16.5). Exits 1 on any error; warnings never fail. v0.1 scope: ADR-20261006-9623 |
 | `seamspec spec [--out FILE] [--check FILE]` *(planned, week 5)* | Print the spec the code has earned: a readable document generated from the ledger (§15.2, ADR-20261011-0995) |
@@ -1987,7 +2006,7 @@ Only the rules are described as human-approved: dead ends appear under their own
 ```json
 {
   "decision": "block",
-  "reason": "SeamSpec: locked invariant failed.\n[FAIL] inv_1a2b3c4d — Retry delay never exceeds 30s\n<truncated runner output>\nFix the regression. If this behavior change is intentional, call request_supersede('inv_1a2b3c4d', reason, replacement_id) and tell the user. Attempt 2 of 3."
+  "reason": "SeamSpec: locked rule check failed.\n  inv_1a2b3c4d · Retry delay never exceeds 30s\n    line 5: assert backoff_delay(100) <= 30\n      assert 51.2 <= 30\n    Test: .seamspec/tests/test_inv_1a2b3c4d.py\n[FAIL] inv_1a2b3c4d (pytest)\n<truncated runner output>\nFix the regression. If this behavior change is intentional, call request_supersede('inv_1a2b3c4d', reason, replacement_id) and tell the user. Attempt 2 of 3."
 }
 ```
 
@@ -2306,6 +2325,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - **Environment:** `build_env(cfg, environ=None, root=None, overrides=None, first_on_path=())` keeps only `BASE_ENV_KEYS`, `LC_*` and `execution.env_passthrough`, applies `overrides` (the runner's `env`), and adds **no** "under verification" flag. With `root`, `local_bin_dirs()` (the existing `LOCAL_BIN_DIRS`, minus `.venv` / `venv` when `VIRTUAL_ENV` is set) then go ahead of the resulting `PATH`, including a runner's own `PATH`; `argv[0]` is resolved against that `PATH` (§12.4.7). `first_on_path` (also on `run()`) goes ahead of those folders; only red-green passes it, for its copy of the runner's start script (§11.4). `PATH` is still the only variable set.
 - **Fingerprints:** `current_fingerprints()` / `read_fingerprints()` / `check_fingerprints(confirmed=None)`. A missing runner config file is a failure. `approve` passes the hashes it is confirming (§19.8).
 - `RunnerResult.could_not_run` marks results where no test ran at all (missing runner executable, unknown runner), so callers never have to parse output.
+- **What failed:** `reports.junit_checks(report_path, ids)` gives, per invariant, `FailedCheck(line, message, cases)` entries read from the JUnit report (the line inside the rule's own test file, the failure's first line, how many test cases failed that way). `RunnerResult.checks` carries them for failing results (also in `--json` and `last_verify.json`). [`failtext.py`](../seamspec/core/failtext.py) turns a report into the block of §12A.4: `summary(store, report) -> (lines, unexplained results)`, `raw(result)`, `count(report)`. The CLI and the Stop hook both use it (ADR-20261013-4e9b).
 - `save_last(root, report)` writes `.seamspec/.local/last_verify.json` (`at`, `passed`, `failing_ids`, `incomplete`, results) for `status` and the Stop hook.
 - Tested against **real pytest and vitest runs** (`tests/test_verifier.py`, `tests/test_verifier_vitest.py`): attribution, collection errors, empty and all-skipped harnesses, planted conftests, project `setupFiles`, scrubbed env, process-group kill, deadline, isolated reruns (ADR-20261005-4b1e).
 
@@ -2614,6 +2634,7 @@ seamspec/
 │   │   ├── trust.py                # auto-run consent + repo trust (§12.4)
 │   │   ├── runners.py              # presets, language detection, harness paths + protection globs (§12A)
 │   │   ├── reports.py              # JUnit XML + go test -json parsing, test counts (§12A.4)
+│   │   ├── failtext.py             # the short block a human reads when a rule fails (§12A.4)
 │   │   └── tree.py                 # tree fingerprint (git-visible files only), changed files
 │   ├── adapters/
 │   │   ├── claude.py

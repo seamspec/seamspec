@@ -107,7 +107,8 @@ def test_pre_commit_blocks_a_typescript_regression(ts_repo: Path, monkeypatch: p
     assert commit("lock").returncode == 0
     (root / "src/queue.ts").write_text("export const backoffDelay = (n: number) => 0.1 * 2 ** n;\n")
     blocked = commit("remove the cap")
-    assert blocked.returncode != 0 and f"[FAIL] {out['id']} (vitest)" in blocked.stderr, blocked.stderr
+    assert blocked.returncode != 0 and "SeamSpec: commit blocked." in blocked.stderr, blocked.stderr
+    assert f"  {out['id']} · " in blocked.stderr and "    line " in blocked.stderr, blocked.stderr
 
 
 def test_red_green_in_a_typescript_repo(ts_repo: Path) -> None:

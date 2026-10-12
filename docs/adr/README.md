@@ -64,3 +64,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261011-a9f3](ADR-20261011-a9f3-ci-workflow-install-source.md) | The CI workflow installs the SeamSpec version that wrote it; an unreleased build doesn't offer the workflow | ACCEPTED |
 | [ADR-20261011-b1c8](ADR-20261011-b1c8-init-keeps-lines-inside-its-block.md) | `seamspec init` keeps lines someone else wrote inside its CLAUDE.md block | ACCEPTED |
 | [ADR-20261013-7c2e](ADR-20261013-7c2e-supersede-locks-replacement-first.md) | A rule is retired only after its replacement is locked; the review decides both as one | ACCEPTED |
+| [ADR-20261013-4e9b](ADR-20261013-4e9b-readable-failure-message.md) | When a rule fails, say which rule and which check, before any test output | ACCEPTED |

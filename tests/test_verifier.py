@@ -368,3 +368,96 @@ def test_go_test_json_parser() -> None:
     assert attributed == ({"inv_00000002"}, {"inv_00000003"})
     assert "boom" in text and "# build noise" in text
     assert reports.go_test_json("not json at all", ids)[0] is None
+
+
+# --- what failed, for the summary (dogfooding #11, ADR-20261013-4e9b) -------------------------------
+
+PARAM = (
+    "import pytest\nfrom src.queue import backoff_delay\n\n\n"
+    '@pytest.mark.parametrize("n", [50, 100, 200])\ndef test_cap(n):\n    assert backoff_delay(n) <= 30\n'
+)
+
+
+def test_junit_checks_reads_line_and_message_and_counts_repeats(tmp_path: Path) -> None:
+    xml = tmp_path / "r.xml"
+    trace = (
+        "def test_cap(n):\n&gt;   assert f(n) == 5\nE   assert 4 == 5\n\n"
+        ".seamspec/tests/test_inv_00000001.py:29: AssertionError"
+    )
+    case = '<testcase classname="t.test_inv_00000001" name="a[{n}]">'
+    one = case + '<failure message="assert 4 == 5&#10; + where 4 = f({n})">'
+    xml.write_text(
+        "<testsuites><testsuite>"
+        f"{one.format(n=1)}{trace}</failure></testcase>"
+        f"{one.format(n=2)}{trace}</failure></testcase>"
+        '<testcase classname="" name="t.test_inv_00000002"><error message="collection failure">'
+        "ImportError while importing test module\n.seamspec/tests/test_inv_00000002.py:1: in &lt;module&gt;\n"
+        "    from src.queue import x\nE   ImportError: cannot import name 'x'</error></testcase>"
+        '<testcase classname="tests/seamspec/inv_00000003.test.ts" name="cap"><failure message="expected 9 to be 3">'
+        "AssertionError: expected 9 to be 3\n ❯ helper tests/seamspec/inv_00000003.test.ts:3:40\n"
+        " ❯ tests/seamspec/inv_00000003.test.ts:9:1</failure></testcase>"
+        '<testcase classname="t.test_inv_00000004" name="ok"/>'
+        "</testsuite></testsuites>"
+    )
+    ids = [f"inv_0000000{n}" for n in range(1, 5)]
+    checks = reports.junit_checks(xml, ids)
+    assert checks == {
+        "inv_00000001": [reports.FailedCheck(29, "assert 4 == 5", 2)],  # two cases, one line
+        "inv_00000002": [reports.FailedCheck(1, "ImportError: cannot import name 'x'")],
+        "inv_00000003": [reports.FailedCheck(3, "expected 9 to be 3")],  # a JavaScript stack starts at the failure
+    }
+    assert reports.junit_checks(tmp_path / "missing.xml", ids) == {}
+    (tmp_path / "bad.xml").write_text("<not xml")
+    assert reports.junit_checks(tmp_path / "bad.xml", ids) == {}
+
+
+def test_failure_summary_names_the_rule_and_the_check(py_repo: Path) -> None:
+    from seamspec.core import failtext
+    from seamspec.core.store import Store
+
+    cfg = load_config(py_repo)
+    a = write_locked(py_repo, cfg, "inv_00000001", PARAM)
+    b = write_locked(py_repo, cfg, "inv_00000002", PASS)
+    assert run(py_repo, [a, b]).results[0].checks == {}  # nothing recorded for a passing run
+    (py_repo / "src/queue.py").write_text("def backoff_delay(n):\n    return 99.0\n")
+    report = run(py_repo, [a, b])
+    lines, unexplained = failtext.summary(Store(py_repo), report)
+    assert unexplained == [] and failtext.count(report) == "2 rules fail"
+    assert lines == [
+        "  inv_00000001 · Rule inv_00000001",
+        "    line 7: assert backoff_delay(n) <= 30",
+        "      assert 99.0 <= 30  (3 test cases)",
+        "    Test: .seamspec/tests/test_inv_00000001.py",
+        "",
+        "  inv_00000002 · Rule inv_00000002",
+        "    line 4: assert backoff_delay(100) <= 30",
+        "      assert 99.0 <= 30",
+        "    Test: .seamspec/tests/test_inv_00000002.py",
+    ]
+    assert report.to_dict()["results"][0]["checks"]["inv_00000002"] == [
+        {"line": 4, "message": "assert 99.0 <= 30", "cases": 1}
+    ]
+
+
+def test_failure_summary_never_hides_what_it_cannot_explain(py_repo: Path) -> None:
+    """A timeout, a tampered test, a test that ran nothing: each is listed with its reason, and a
+    result with no report keeps its raw output."""
+    from seamspec.core import failtext
+    from seamspec.core.store import Store
+
+    cfg = load_config(py_repo)
+    empty = write_locked(py_repo, cfg, "inv_00000001", "def helper():\n    pass\n")
+    tampered = write_locked(py_repo, cfg, "inv_00000002", PASS)
+    (py_repo / tampered.verification.harness_path).write_text(PASS + "# edited\n")
+    report = run(py_repo, [empty, tampered])
+    lines, unexplained = failtext.summary(Store(py_repo), report)
+    assert "  inv_00000002 · Rule inv_00000002" in lines and "    harness modified since approval" in lines
+    assert "    ran no tests, or skipped every test (counts as a failure)" in lines and unexplained == []
+
+    _custom_runner(py_repo, [sys.executable, "-c", "import sys; sys.exit(3)"], report="none")
+    cfg = load_config(py_repo)
+    one, two = (write_locked(py_repo, cfg, f"inv_0000000{n}", PASS) for n in (3, 4))
+    report = run(py_repo, [one, two])
+    lines, unexplained = failtext.summary(Store(py_repo), report)
+    assert len(unexplained) == 1 and failtext.raw(unexplained[0]).startswith("[FAIL] ")
+    assert any("the runner's report doesn't say" in ln for ln in lines)
