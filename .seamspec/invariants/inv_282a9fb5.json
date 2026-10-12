@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "id": "inv_282a9fb5",
+  "title": "Re-running init never removes a line it didn't write from CLAUDE.md",
+  "assertion": "When `seamspec init` replaces its marked block in CLAUDE.md, every line inside the block that SeamSpec never shipped is kept (moved above the block, once, in order), text outside the block is untouched, and SeamSpec's own older wording is not kept as if it were someone else's.",
+  "scope": {
+    "paths": [
+      "seamspec/installers/directive.py",
+      "seamspec/templates/directive.md",
+      "seamspec/templates/directive_known_lines.txt"
+    ],
+    "tags": []
+  },
+  "status": "PROPOSED",
+  "origin": {
+    "type": "prompt",
+    "text": "prompt: \"yes, start part 1 and propose the rules too\". Promised in ADR-20261011-b1c8 (\"To be proposed\").",
+    "ref": null
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/proposed/inv_282a9fb5/test_inv_282a9fb5.py",
+    "harness_sha256": null,
+    "assertion_sha256": null
+  },
+  "adr_id": null,
+  "created_at": "2026-10-12T20:22:02.338163Z",
+  "approved_at": null,
+  "approved_by": null,
+  "superseded_by": null,
+  "status_reason": null,
+  "decided_via": null
+}
