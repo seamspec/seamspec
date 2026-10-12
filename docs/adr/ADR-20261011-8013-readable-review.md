@@ -61,7 +61,8 @@ To be proposed when built: "review shows the full test before the approve prompt
 
 * **No screen clearing.** "One item per screen" became one block per item, opened by a rule and a position line. Clearing the terminal would hide the answer just given (*"LOCKED inv_…"*) and the scrollback.
 * **Check lines are marked `>`** in the full test, besides bold and dim styling, so the marking survives `NO_COLOR`, pipes and copy-paste.
-* **The check list also counts `pytest.warns` and unittest-style `self.assert…(…)` calls,** and a file that can't be parsed falls back to a plain scan with a warning.
+* **The check list also counts `pytest.warns`, `pytest.fail(…)`, `raise AssertionError` and unittest-style `self.assert…(…)` calls,** and a file that can't be parsed falls back to a plain scan with a warning. A check made through a helper isn't recognised, so the "no checks" warning says *"no recognized assert / expect checks found: look for checks made another way…"* and doesn't claim the test checks nothing (from Copilot's review of #52).
+* **Supersede dialogs in chat carry the same card** for the test that would stop running (also from that review).
 * **A dead end's reason is shown in full** in review (it was cut at 300 characters with nothing to show it, dogfooding finding #7); a long origin is cut with a visible `…`.
 * **The red-green verdicts are YES / NO / COULDN'T TELL.**
 * **Invariants:** not proposed in this PR; the two named above stay candidates for the owner's next review round.

@@ -4,8 +4,10 @@ A reading aid for the human reviewer: the test's check lines listed above the co
 warnings. Model-free (§3) and built from the file alone, never from what the agent said about its
 own test. It shows what is asserted, not whether that is enough.
 
-- pytest: `assert` statements, `pytest.raises` / `pytest.warns` blocks and `self.assert…(…)` calls,
-  found with Python's `ast`, so a commented-out assert or the word in a string doesn't count.
+- pytest: `assert` statements, `pytest.raises` / `pytest.warns` blocks, `pytest.fail(…)` calls,
+  `raise AssertionError` and `self.assert…(…)` calls, found with Python's `ast`, so a commented-out
+  assert or the word in a string doesn't count. A check made through a helper function isn't
+  recognised, which is why "no checks found" is worded as a prompt to look, not as a verdict.
 - vitest: lines containing `expect(`, found by a plain scan and labeled as such.
 """
 
@@ -51,13 +53,19 @@ def _one_line(text: str, limit: int = CHECK_TEXT_MAX) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def _name(func: ast.expr) -> str:
+    """The last name of what is called or raised: `pytest.fail` -> `fail`, `raises` -> `raises`."""
+    return func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
+
+
+def _raises_assertion(exc: ast.expr) -> bool:
+    """`raise AssertionError` or `raise AssertionError("...")`."""
+    return _name(exc.func if isinstance(exc, ast.Call) else exc) == "AssertionError"
+
+
 def _is_raises(expr: ast.expr) -> bool:
     """`pytest.raises(...)`, `pytest.warns(...)`, or the bare names after `from pytest import raises`."""
-    if not isinstance(expr, ast.Call):
-        return False
-    func = expr.func
-    name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
-    return name in ("raises", "warns", "deprecated_call")
+    return isinstance(expr, ast.Call) and _name(expr.func) in ("raises", "warns", "deprecated_call")
 
 
 def _python(code: str, view: TestView) -> None:
@@ -85,6 +93,10 @@ def _python(code: str, view: TestView) -> None:
             isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr.startswith("assert")
         ):
             found[node.lineno] = _one_line(ast.get_source_segment(code, node) or node.func.attr)  # unittest style
+        elif isinstance(node, ast.Call) and _name(node.func) == "fail":  # pytest.fail(...), self.fail(...)
+            found[node.lineno] = _one_line(ast.get_source_segment(code, node) or "fail(…)")
+        elif isinstance(node, ast.Raise) and node.exc is not None and _raises_assertion(node.exc):
+            found[node.lineno] = _one_line(ast.get_source_segment(code, node) or "raise AssertionError")
         elif isinstance(node, ast.Import):
             outside |= {alias.name.split(".")[0] for alias in node.names} & PY_OUTSIDE
         elif isinstance(node, ast.ImportFrom) and node.module:
@@ -111,7 +123,11 @@ def analyze(code: str, runner: str) -> TestView:
     view = TestView(lines=code.splitlines())
     (_javascript if runner == "vitest" else _python)(code, view)
     if not view.checks:
-        view.warnings.insert(0, "no checks found (no assert / expect): this test passes whatever the code does")
+        view.warnings.insert(
+            0,
+            "no recognized assert / expect checks found: look for checks made another way (a helper, an "
+            "exception); if there are none, this test passes whatever the code does",
+        )
     if len(view.lines) > LONG_TEST_LINES:
         view.warnings.append(f"long test ({len(view.lines)} lines): a rule test should be short enough to read")
     return view

@@ -1400,13 +1400,13 @@ Run it now to check it fails without your change? [Y/n]:
 ```
 
 - **One block per item,** opened by a rule and a line saying where the reviewer is (*"Proposed rule 1 of 3"*, *"Dead end 2 of 2"*, *"Supersede request 1 of 1"*). The screen isn't cleared, so earlier answers stay visible.
-- **"What this test checks":** the test's check lines with their line numbers. pytest: `assert` statements, `pytest.raises` / `pytest.warns` blocks and `self.assert…(…)` calls, found with Python's `ast`, so a commented-out assert or the word inside a string doesn't count. vitest: lines containing `expect(`, labeled *"lines that look like checks"*. A reading aid, not a verdict: it shows what is asserted, not whether that is enough.
-- **Facts and warnings** (never blocking): lines of test code and number of checks; `!` lines for a test with **no checks**, one longer than 80 lines, one importing network or subprocess modules, or one that couldn't be parsed.
+- **"What this test checks":** the test's check lines with their line numbers. pytest: `assert` statements, `pytest.raises` / `pytest.warns` blocks, `pytest.fail(…)` calls, `raise AssertionError` and `self.assert…(…)` calls, found with Python's `ast`, so a commented-out assert or the word inside a string doesn't count. A check made through a helper function isn't recognised. vitest: lines containing `expect(`, labeled *"lines that look like checks"*. A reading aid, not a verdict: it shows what is asserted, not whether that is enough.
+- **Facts and warnings** (never blocking): lines of test code and number of checks; `!` lines for a test with **no recognised checks** (worded as a prompt to look for checks made another way, since the scan can't prove there are none), one longer than 80 lines, one importing network or subprocess modules, or one that couldn't be parsed.
 - **The full test** follows with line numbers, check lines marked `>` (bold in a terminal that supports color; the rest dimmed; `NO_COLOR` and non-terminals get plain text). It stays on screen before the approve prompt (§12.4.3 rule 4).
 - **The red-green line** (§11.4) reads *"Fails without your change: YES / NO / COULDN'T TELL (why)"*.
 - **Long text is cut visibly.** An origin longer than 300 characters ends in `…`. A dead end's reason is shown in full, since it is what the reviewer judges.
 - **In chat:** the `lock` and `supersede` skills tell the user what the test does **not** cover before offering the review. That is the agent's view, said in the chat, never stored or shown by `seamspec review`.
-- Chat dialogs (§11.5) put the summary, the facts and the check list first, with the agent's code under the quote bar, then the full test.
+- Chat dialogs (§11.5) put the summary, the facts and the check list first, with the agent's code under the quote bar, then the full test. A supersede dialog shows the same for the test that would stop running.
 
 Later: old and new side by side for replaced proposals and supersedes, and the review page in the browser (ADR-20261006-c300 option B).
 

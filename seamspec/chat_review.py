@@ -168,6 +168,10 @@ def _message(store: Store, cfg: Config, state: dict[str, Any]) -> str:
                 lines += [f"Replacement {rep.id} ({rep.status.value}):", _quote(f"{rep.title}: {rep.assertion}")]
                 if rep.status == InvStatus.PROPOSED:
                     lines.append("The replacement needs its own approval; it's shown after this one.")
+        # The same readable card as a proposal (ADR-20261011-8013 item 7): what would stop being
+        # checked is the old rule's test, so the reviewer sees its check list and the test itself.
+        lines += ["", "The test that would stop running:", *_checks_text(store, record), "",
+                  _test_text(store, record)]  # fmt: skip
         lines += ["", "supersede: the rule stops being enforced and its test moves out of the test tree.",
                   "decline: the rule stays locked (give a reason; the agent sees it)."]  # fmt: skip
     else:

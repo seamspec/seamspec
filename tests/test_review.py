@@ -503,7 +503,7 @@ def test_review_warns_about_a_test_with_no_checks_and_a_long_one(in_repo: Path) 
     propose(in_repo, code=no_checks)
     propose(in_repo, code=long_test)
     out = runner.invoke(app, ["review"], input="n\ns\nn\ns\n").output
-    assert "! no checks found (no assert / expect): this test passes whatever the code does" in out
+    assert "! no recognized assert / expect checks found: look for checks made another way" in out
     assert "! it imports subprocess: a behavior test rarely needs the network or other programs" in out
     assert "! long test (92 lines): a rule test should be short enough to read" in out
     assert out.count("What this test checks") == 1  # the test without checks has no list
@@ -545,7 +545,19 @@ def test_vitest_checks_are_labeled_as_a_plain_scan() -> None:
         ("def test_x():\n    assert (\n        1\n        == 1\n    )\n", [(2, "assert ( 1 == 1 )")], None),
         ("def test_x(:\n    assert 1\n", [(2, "assert 1")], "couldn't be parsed as Python"),
         ("import requests\n\ndef test_x():\n    assert requests\n", [(4, "assert requests")], "it imports requests"),
-        ("def test_x():\n    pass\n", [], "no checks found"),
+        ("def test_x():\n    pass\n", [], "no recognized assert / expect checks found"),
+        (
+            "import pytest\n\ndef test_x():\n    if 1 != 1:\n        pytest.fail('no')\n",
+            [(5, "pytest.fail('no')")],
+            None,
+        ),
+        (
+            "def test_x():\n    if 1 != 1:\n        raise AssertionError('no')\n",
+            [(3, "raise AssertionError('no')")],
+            None,
+        ),
+        ("def test_x():\n    raise ValueError('not a check')\n", [], "look for checks made another way"),
+        ("from helpers import check\n\ndef test_x():\n    check(1)\n", [], "a helper, an exception"),
     ],
 )
 def test_what_counts_as_a_check(code: str, checks: list[tuple[int, str]], warning: str | None) -> None:
