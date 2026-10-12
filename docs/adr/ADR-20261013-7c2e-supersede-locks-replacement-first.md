@@ -4,7 +4,7 @@ title: A rule is retired only after its replacement is locked; the review decide
 status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-13
 scopes: ["seamspec/core/lifecycle.py", "seamspec/review.py", "seamspec/chat_review.py"]
-invariants: []
+invariants: ["inv_8b1f730d"]
 supersedes: null
 superseded_by: null
 ---
@@ -41,7 +41,7 @@ Between steps 1 and 3 nothing protected the attempt count. If the owner had quit
 
 ## Enforced Invariants
 
-To be proposed: "a locked rule is never retired while the replacement named for it is only proposed".
+* `inv_8b1f730d`: a locked rule is never retired while its replacement is only proposed (approved by the owner in `seamspec review`, 2026-10-13).
 
 ## Consequences
 

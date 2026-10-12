@@ -4,7 +4,7 @@ title: When a rule fails, say which rule and which check, before any test output
 status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-13
 scopes: ["seamspec/core/failtext.py", "seamspec/core/reports.py", "seamspec/core/verifier.py", "seamspec/cli.py", "seamspec/adapters/claude.py"]
-invariants: []
+invariants: ["inv_95fcb155"]
 supersedes: null
 superseded_by: null
 ---
@@ -47,7 +47,7 @@ This is the screen a new user sees the first time SeamSpec stops them. The reada
 
 ## Enforced Invariants
 
-To be proposed: "a refused commit names each failing rule by id and title".
+* `inv_95fcb155`: a refused commit names each failing rule by id and title (approved by the owner in `seamspec review`, 2026-10-13).
 
 ## Consequences
 

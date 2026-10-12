@@ -4,7 +4,7 @@ title: "`seamspec spec` as built: only approved rules, same bytes from the same 
 status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-13
 scopes: ["seamspec/core/specdoc.py", "seamspec/core/area.py", "seamspec/cli.py"]
-invariants: []
+invariants: ["inv_f063b724", "inv_4234c6b3"]
 supersedes: null
 superseded_by: null
 ---
@@ -36,7 +36,9 @@ ADR-20261011-0995 decided that SeamSpec gets a spec generated from the ledger: g
 
 ## Enforced Invariants
 
-To be proposed, as planned in ADR-20261011-0995: "the generated spec lists only human-approved rules" and "the generated spec is built from the ledger alone".
+Approved by the owner in `seamspec review`, 2026-10-13, as planned in ADR-20261011-0995:
+* `inv_f063b724`: the generated spec lists only human-approved rules;
+* `inv_4234c6b3`: the generated spec depends on the ledger alone.
 
 ## Consequences
 

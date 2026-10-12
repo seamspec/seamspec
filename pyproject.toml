@@ -53,7 +53,9 @@ addopts = "-q"
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-extend-exclude = ["docs", "notes"]   # SPEC code blocks are edited by hand, never reformatted
+# docs: SPEC code blocks are edited by hand. .seamspec: approved rule tests are locked by hash, so a
+# linter must never ask for them to be changed (ADR-20261013-c3f7).
+extend-exclude = ["docs", "notes", ".seamspec"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

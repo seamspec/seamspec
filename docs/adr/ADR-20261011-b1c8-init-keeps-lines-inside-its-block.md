@@ -4,7 +4,7 @@ title: "`seamspec init` keeps lines someone else wrote inside its CLAUDE.md bloc
 status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-11
 scopes: ["seamspec/installers/directive.py", "seamspec/templates/directive_known_lines.txt", "seamspec/installers/scaffold.py", "seamspec/cli.py", "seamspec/core/doctor.py"]
-invariants: []
+invariants: ["inv_282a9fb5"]
 supersedes: null
 superseded_by: null
 ---
@@ -48,7 +48,7 @@ A marker comment doesn't stop an agent, or a person in a hurry, from typing in t
 
 ## Enforced Invariants
 
-To be proposed: "re-running `init` never removes a line it didn't write from `CLAUDE.md`".
+* `inv_282a9fb5`: re-running init never removes a line it didn't write from `CLAUDE.md` (approved by the owner in `seamspec review`, 2026-10-13).
 
 ## Consequences
 

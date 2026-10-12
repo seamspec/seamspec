@@ -11,7 +11,7 @@
     ],
     "tags": []
   },
-  "status": "PROPOSED",
+  "status": "LOCKED",
   "origin": {
     "type": "prompt",
     "text": "prompt: \"yes, start part 1 and propose the rules too\". Promised in ADR-20261013-4e9b (\"To be proposed\").",
@@ -19,15 +19,15 @@
   },
   "verification": {
     "runner": "pytest",
-    "harness_path": ".seamspec/proposed/inv_95fcb155/test_inv_95fcb155.py",
-    "harness_sha256": null,
-    "assertion_sha256": null
+    "harness_path": ".seamspec/tests/test_inv_95fcb155.py",
+    "harness_sha256": "3e8138cf113d76071c9bb7dd02a891e309ae621c6d240958780e488446f0b4ec",
+    "assertion_sha256": "148aab1784a54a39e59853a66b04d844cccb1f581771be9eab6080577bdef378"
   },
   "adr_id": null,
   "created_at": "2026-10-12T20:22:02.865206Z",
-  "approved_at": null,
-  "approved_by": null,
+  "approved_at": "2026-10-12T20:41:58.091939Z",
+  "approved_by": "Vamshidhar Pandrapagada <25401978+vamshidhar-pandrapagada@users.noreply.github.com>",
   "superseded_by": null,
   "status_reason": null,
-  "decided_via": null
+  "decided_via": "terminal"
 }
