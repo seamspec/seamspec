@@ -18,6 +18,7 @@ FIXED = datetime(2026, 10, 3, 8, 12, tzinfo=UTC)
 @pytest.fixture(autouse=True)
 def _no_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SEAMSPEC_ROOT", raising=False)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)  # set when the suite runs inside a Claude Code session
 
 
 @pytest.fixture(autouse=True)

@@ -514,6 +514,32 @@ def test_dead_ends_keep_their_reason_at_every_level_that_lists_them(git_repo: Pa
     assert ", +1 more)" in listed[1] and "scope:" not in listed[2]  # long scope lists shrink, then go
 
 
+def test_a_session_moved_between_two_projects_is_told_its_tools_lag(
+    git_repo: Path, human: None, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-20261011-d4a1: hooks follow a moved session, the MCP server can't. The hooks see both
+    folders (CLAUDE_PROJECT_DIR is always the launch folder), so they say whose rules the tools serve."""
+    from seamspec.installers import scaffold
+
+    lock(git_repo)
+    origin = tmp_path_factory.mktemp("origin-project")
+    (origin / "pyproject.toml").write_text('[project]\nname = "origin"\n')
+    scaffold.init(origin, auto_run=True, actor="Maya Rao <maya@example.com>")
+
+    for launched in (None, str(git_repo), str(git_repo / "src"), str(tmp_path_factory.mktemp("not-a-project"))):
+        if launched is None:
+            monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+        else:
+            monkeypatch.setenv("CLAUDE_PROJECT_DIR", launched)
+        assert claude.moved_note(Store(git_repo)) is None, launched  # same project, or no project to confuse with
+
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(origin))
+    summary = claude.session_summary(Store(git_repo))
+    assert summary is not None and "started in another SeamSpec project" in summary and str(origin.resolve()) in summary
+    out = pre(git_repo, "src/queue.py", session="moved")
+    assert out is not None and "started in another SeamSpec project" in out["hookSpecificOutput"]["additionalContext"]
+
+
 def test_the_summary_stays_under_claude_codes_hook_limit(git_repo: Path) -> None:
     """Claude Code swaps hook output over 10,000 characters for a file path and a short preview."""
     assert claude.SESSION_MAX_CHARS < 10_000
