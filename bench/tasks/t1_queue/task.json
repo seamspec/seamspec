@@ -32,6 +32,7 @@
     }
   ],
   "dead_end": {
+    "short": "A thread-per-job worker pool",
     "approach": "A thread-per-job worker pool (threading.Thread / ThreadPoolExecutor) to run jobs in parallel.",
     "symptom": "It deadlocked under the queue's in-memory lock and double-ran jobs after timeouts; we reverted it.",
     "scope": [
@@ -54,5 +55,28 @@
       "Some handlers time out but actually finish their work later. Add a timeout for handlers and make sure a job that times out gets another chance. Run the tests and commit.",
       "Summarize what you changed in this session."
     ]
+  ],
+  "adr_noise": [
+    {
+      "title": "Keep the queue in memory, no external broker",
+      "status": "Accepted",
+      "body": "Volumes are small and both services run in one process. A broker would be one more thing to operate."
+    },
+    {
+      "title": "Cap the retry delay at 120 seconds",
+      "status": "Superseded",
+      "superseded_by": "retry_cap",
+      "body": "Retries back off exponentially up to two minutes."
+    },
+    {
+      "title": "Record each failure as repr() of the exception",
+      "status": "Accepted",
+      "body": "Support needs the exception type as well as the message when a job is given up."
+    },
+    {
+      "title": "Use pytest for the test suite",
+      "status": "Accepted",
+      "body": "Plain functions and asserts; no unittest classes."
+    }
   ]
 }

@@ -67,3 +67,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261013-4e9b](ADR-20261013-4e9b-readable-failure-message.md) | When a rule fails, say which rule and which check, before any test output | ACCEPTED |
 | [ADR-20261013-a5d3](ADR-20261013-a5d3-redgreen-says-when-code-is-new.md) | Red-green says when a "yes" only means the code is new | ACCEPTED |
 | [ADR-20261013-2f6b](ADR-20261013-2f6b-generated-spec-as-built.md) | `seamspec spec` as built: only approved rules, same bytes from the same ledger | ACCEPTED |
+| [ADR-20261013-9d41](ADR-20261013-9d41-full-benchmark-plan-and-pass-bar.md) | Full benchmark: plan and pass bar, fixed before the run | PROPOSED |
