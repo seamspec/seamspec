@@ -101,6 +101,14 @@ def released_build(monkeypatch: pytest.MonkeyPatch) -> str:
     return "0.1.0"
 
 
+@pytest.fixture
+def unreleased_build(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Pin a development version, so these tests don't depend on what the checkout's version is today
+    (Copilot, #51): they must still cover this branch after the first release bumps the version."""
+    monkeypatch.setattr(ci, "__version__", "0.2.0.dev0")
+    return "0.2.0.dev0"
+
+
 @pytest.mark.parametrize("answer", ["y", "n"])
 def test_enforced_in_a_terminal_asks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, released_build: str, answer: str
@@ -141,9 +149,9 @@ def test_a_release_pins_the_version_that_wrote_the_workflow(tmp_path: Path, rele
     assert text.index("uv tool install") < text.index("uv sync --locked") < text.index("seamspec doctor --ci")
 
 
-def test_an_unreleased_build_installs_from_the_repository_and_says_so(tmp_path: Path) -> None:
+def test_an_unreleased_build_installs_from_the_repository_and_says_so(tmp_path: Path, unreleased_build: str) -> None:
     """`uv tool install seamspec` would fetch whatever is on PyPI under that name, not this build."""
-    assert not ci.released()  # the checkout is a development build
+    assert not ci.released()
     root = _repo(tmp_path, "pyproject.toml", "uv.lock")
     text = ci.render_workflow(root, load_config(root))
     assert f'      - run: uv tool install "git+{ci.REPOSITORY}@main"\n' in text
@@ -162,7 +170,9 @@ def test_both_install_steps_are_valid_yaml(tmp_path: Path, monkeypatch: pytest.M
         assert sum("uv tool install" in r for r in runs) == 1 and "seamspec doctor --ci" in runs
 
 
-def test_an_unreleased_build_does_not_offer_the_workflow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unreleased_build_does_not_offer_the_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unreleased_build: str
+) -> None:
     """In a terminal, enforced mode used to ask. A workflow that can't install SeamSpec isn't worth offering."""
     monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
     out = init(tmp_path, input="y\n")  # the auto-run consent only: no CI question follows
@@ -171,7 +181,9 @@ def test_an_unreleased_build_does_not_offer_the_workflow(tmp_path: Path, monkeyp
 
 
 @pytest.mark.parametrize("args", [("--accept-auto-run", "--ci"), ("--mode", "strict", "--accept-auto-run")])
-def test_an_unreleased_build_still_writes_it_when_asked_and_explains(tmp_path: Path, args: tuple[str, ...]) -> None:
+def test_an_unreleased_build_still_writes_it_when_asked_and_explains(
+    tmp_path: Path, unreleased_build: str, args: tuple[str, ...]
+) -> None:
     out = init(tmp_path, *args)
     assert (tmp_path / ci.WORKFLOW_REL).is_file()
     assert "your CI must be able to read that repository" in out and ci.REPOSITORY in out
