@@ -1386,7 +1386,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder; on failure it prints *"SeamSpec: commit blocked."* and the short block per failing rule (§12A.4) in place of the runner's output. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
 | `seamspec drain [--json] [--tidy]` *(v0.2)* | List pending braindump items; `--tidy` moves processed items below the marker |
 | `seamspec doctor [--ci] [--base <ref>] [--json]` | Validate config, record schemas, hashes, runner config fingerprints, approval provenance and scopes. Locally it also checks the approval journal, `CLAUDE.md` directive drift (§18; it says so when lines inside the block aren't SeamSpec's, and that `init` keeps them), the git pre-commit hook, and hosts allowlisting SeamSpec commands (§12.4.3). `--ci` replaces the local-state checks with ledger forward-only checks against the base branch and the retirement summary (§16.5). Exits 1 on any error; warnings never fail. v0.1 scope: ADR-20261006-9623 |
-| `seamspec spec [--out FILE] [--check FILE]` *(planned, week 5)* | Print the spec the code has earned: a readable document generated from the ledger (§15.2, ADR-20261011-0995) |
+| `seamspec spec [--out FILE] [--check FILE]` | Print the spec the code has earned: every approved rule as one readable Markdown document, generated from the ledger (§15.2). `--out` writes a copy marked as generated; `--check` exits 1 when that copy is out of date. Read-only: anyone can run it, the agent included |
 | `seamspec mcp` | Run the MCP server (stdio) |
 | `seamspec trust [--show]` | Trust this clone for automatic test runs (interactive); `--show` prints the current trust state (§12.4.6) |
 | `seamspec hook <host> <event>` | Internal: host hook entry point (reads JSON on stdin) |
@@ -1434,15 +1434,41 @@ Run it now to check it fails without your change? [Y/n]:
 
 Later: old and new side by side for replaced proposals and supersedes, and the review page in the browser (ADR-20261006-c300 option B).
 
-### 15.2 The Generated Spec *(planned, week 5, ADR-20261011-0995)*
+### 15.2 The Generated Spec (ADR-20261011-0995, ADR-20261013-2f6b)
 
-SeamSpec writes no specs up front. The spec **builds up from what a human chose to protect**: `seamspec spec` prints it as one readable document, generated from the ledger every time.
+SeamSpec writes no specs up front. The spec **builds up from what a human chose to protect**: `seamspec spec` prints it as one readable Markdown document, generated from the ledger every time.
 
-- **Grouped by area** of the code (the area rule of the session-start summary, §16.1).
-- **Each LOCKED rule:** title, the rule's own text, where it applies, who approved it and when, where it was decided, its test file and, when it has one, its linked decision record.
-- **Retired rules:** SUPERSEDED ones with the reason and, when there is one, the replacement. **Tried and failed:** active dead ends with why they failed.
-- **PROPOSED rules are not in it,** only counted: the spec is what a human approved.
-- **Single source (ADR-20261007-ac04):** it prints to the terminal by default. `--out FILE` writes it with a "generated, do not edit" line. `--check FILE` exits 1 when a written copy is out of date, for teams that commit one. `init` writes no spec file, and agents don't read one.
+```markdown
+# Spec: what this code guarantees
+
+13 rules in force. A person approved each one, and each has a test that must keep passing. This document is generated from the SeamSpec ledger: it lists what was approved, and nothing else.
+
+## Rules in force
+
+### `src/gateway` (4 rules)
+
+#### The gateway gives up after exactly 5 attempts by default
+
+When the provider fails with a transport error on every attempt, a gateway created with default settings sends the request exactly 5 times and then raises TransportFailure.
+
+- **Applies to:** `src/gateway/client.py`
+- **Approved by:** Maya Rao, 2026-10-12, in the terminal
+- **Test:** `.seamspec/tests/test_inv_246b5fb8.py` (pytest)
+- **Replaces:** The gateway gives up after exactly 4 attempts by default (`inv_e4089fed`)
+- **Id:** `inv_246b5fb8`
+
+## Retired rules
+…
+## Tried and failed
+…
+```
+
+- **Grouped by area** of the code, the same area rule as the session-start summary (§16.1; `core/area.py`), areas in alphabetical order, rules oldest approval first.
+- **Each LOCKED rule:** title, the rule's own text, where it applies, who approved it (the name only, never the email address: the document may be published), when and where (terminal or chat dialog), its test file and runner, what it replaced and, when it has one, its linked decision record. If the test file is missing or was changed since approval, a **Problem** line says so: the document must not claim a test that isn't there.
+- **Retired rules:** SUPERSEDED ones with the reason and what replaced them (or *"Not replaced."*). **Tried and failed:** active dead ends by area, with why they failed.
+- **Only what a human approved.** PROPOSED and REJECTED rules are not in the document. When rules are waiting, the command says so beside the document (*"Not in the spec: 2 proposed rules waiting for review"*), never inside it, so a written copy doesn't go stale each time the agent proposes something.
+- **Same ledger, same bytes.** The document is built from the committed records alone: no time of the run, no local journal, no folder names. Two clones of one commit print the same document.
+- **Single source (ADR-20261007-ac04):** it prints to the terminal by default. `--out FILE` writes it with a first line *"Generated by `seamspec spec` … Do not edit"*; it overwrites only a file that starts with that line, and refuses a path inside `.seamspec/`. `--check FILE` exits 1 when a written copy is out of date (or missing), for teams that commit one and want CI to catch drift; it never writes. `init` writes no spec file, and agents don't read one.
 
 **Positioning.** SeamSpec is a regression guard for agent-written code that works alongside spec-first tools: they say what to build; SeamSpec makes sure it stays built, and shows the spec the code has earned, every approved rule backed by a test (dead ends are history and carry no test).
 
@@ -2362,6 +2388,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 [`redgreen.py`](../seamspec/core/redgreen.py), [`review.py`](../seamspec/review.py)
 
 - `redgreen.check(store, cfg, inv) -> RedGreen(verdict: "yes" | "no" | "n/a", detail)`, per §11.4. It never writes to the ledger; the proposed test is placed temporarily and removed. "Couldn't run" is decided by `RunnerResult.could_not_run` (missing runner executable or unknown runner), never by matching test output; filesystem errors while preparing the `HEAD` copy give `n/a`. For the HEAD run, `_shim_runner()` finds the runner's start script with the same environment the verifier starts it with (`verifier.runner_env()`, so a runner's own `PATH` counts), and `write_shim()` copies it into a temporary folder with a short redirect inserted (`_insert_at()` finds the place; a script with a `from __future__` import anywhere, or a copy that wouldn't compile, isn't copied). That folder goes first on `PATH`; the redirect rewrites `sys.path` entries and `__editable__` import-hook tables from the repository to the worktree and leaves a marker file. `editable_install(root, top, environ)` reads the project's virtualenvs (`.venv`, `venv`, `$VIRTUAL_ENV`) for a `.pth` line, an `__editable__` hook or an editable `direct_url.json` pointing inside the repository; if one exists and the marker is missing, the verdict is `n/a`. It is also `n/a` when a copy was made but its marker is missing: a runner that didn't get through the redirect says nothing about the test (ADR-20261011-3c7e).
+- **The generated spec** ([`specdoc.py`](../seamspec/core/specdoc.py), §15.2): `render(store, generated_line=False) -> str` builds the document from the committed ledger alone (deterministic); `counts(store)` gives rules in force, retired, dead ends and proposals waiting; `is_generated(text)` tells whether a file was written by `--out`. [`area.py`](../seamspec/core/area.py) holds `area(paths, root)`, shared with the session-start summary so both group rules the same way (ADR-20261013-2f6b).
 - `testview.analyze(code, runner) -> TestView` ([`testview.py`](../seamspec/core/testview.py)): the test's lines, its `checks` (line number and one-line text), whether they come from a parse (`parsed`), `facts()` and `warnings` (§15.1). Python is parsed with `ast`; vitest is a plain scan for `expect(`.
 - `review.replaces(store, inv)` lists what a rule replaces as `(id, title, note)`; `review.paired_replacements(store, reqs)` gives the proposed rules that are decided with a pending supersede request, which `run` keeps out of the proposals list and `chat_review` places right before their request (ADR-20261013-7c2e).
 - `review.show_invariant(store, inv, position=None)` prints the block of §15.1; `review.cut(text, limit)` shortens with a visible `…`; `RedGreen.line()` gives *"Fails without your change: YES / NO / COULDN'T TELL (detail)"*; with `RedGreen.new_code` the label is *"YES, BUT ONLY BECAUSE THE CODE IS NEW"* and `RedGreen.hint()` returns the line shown under it (§11.4). `redgreen.MISSING_CODE` is the pattern matched against the first line of each HEAD failure in the runner's report (`RunnerResult.checks`).
@@ -2628,6 +2655,8 @@ seamspec/
 │   │   ├── journal.py              # approval journal + unjournaled-change check (§11.1)
 │   │   ├── redgreen.py             # red-green check in a temporary worktree (§11.4)
 │   │   ├── adr.py
+│   │   ├── area.py                 # the folder a rule is about: session summary and generated spec (§16.1, §15.2)
+│   │   ├── specdoc.py              # `seamspec spec`: the document generated from the ledger (§15.2)
 │   │   ├── braindump.py            # v0.2
 │   │   ├── commands.py             # load templates (+ project overrides), render per host
 │   │   ├── requests.py             # supersede requests

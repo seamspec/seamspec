@@ -13,13 +13,13 @@ import typer
 
 from . import __version__
 from . import review as review_mod
-from .core import failtext, journal, lifecycle, requests, tree, trust, verifier
+from .core import failtext, journal, lifecycle, requests, specdoc, tree, trust, verifier
 from .core.config import ConfigError, load_config
 from .core.context import constraints_for
 from .core.models import DeadEnd, Invariant, InvStatus
 from .core.root import RootNotFound, find_root
 from .core.scope import matches
-from .core.store import RecordError, Store
+from .core.store import RecordError, Store, atomic_write
 from .installers import ci as ci_installer
 from .installers import claude_plugin, scaffold
 from .installers.directive import DirectiveError
@@ -357,6 +357,64 @@ def status(as_json: Annotated[bool, typer.Option("--json", help="Machine-readabl
     typer.echo(f"  last verify {'never' if lv is None else ('passed' if lv.get('passed') else 'FAILED')}")
     if data["awaiting_review"]:
         typer.echo(f"{data['awaiting_review']} awaiting review: run `seamspec review`.")
+
+
+@app.command()
+def spec(
+    out: Annotated[
+        Path | None, typer.Option("--out", help="Write the document to this file (marked as generated).")
+    ] = None,
+    check: Annotated[
+        Path | None, typer.Option("--check", help="Exit 1 if this written copy is out of date (for CI).")
+    ] = None,
+) -> None:
+    """Print the spec this code has earned: every approved rule, generated from the ledger (§15.2)."""
+    _root_dir, _cfg, store = _open()
+    if out is not None and check is not None:
+        raise _fail("use --out or --check, not both")
+    try:
+        counts = specdoc.counts(store)
+        document = specdoc.render(store, generated_line=out is not None or check is not None)
+    except RecordError as exc:
+        raise _fail(f"bad record: {exc}") from None
+    waiting = (
+        f"Not in the spec: {counts.proposed} proposed rule{'' if counts.proposed == 1 else 's'} waiting for review"
+        " (`seamspec review`)."
+        if counts.proposed
+        else None
+    )
+    if check is not None:
+        try:
+            written = check.read_text(encoding="utf-8").replace("\r\n", "\n")
+        except (OSError, ValueError) as exc:
+            raise _fail(f"{check}: can't read it ({exc}). Write it with `seamspec spec --out {check}`.") from None
+        if written != document:
+            raise _fail(f"{check} is out of date: run `seamspec spec --out {check}` and commit the result.")
+        typer.echo(f"{check} is up to date ({counts.line()}).")
+        return
+    if out is None:
+        typer.echo(document, nl=False)
+        if waiting:
+            typer.echo(waiting, err=True)  # beside the document, never in it
+        return
+    target = out if out.is_absolute() else Path.cwd() / out
+    if store.root / ".seamspec" in [target.resolve(), *target.resolve().parents]:
+        raise _fail("the spec can't be written inside .seamspec/: that folder holds the records it is generated from")
+    if target.is_dir():
+        raise _fail(f"{out} is a folder: give a file name, for example `{out}/SPEC.md`")
+    if target.exists():
+        try:
+            mine = specdoc.is_generated(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            mine = False
+        if not mine:
+            raise _fail(
+                f"{out} exists and wasn't written by `seamspec spec`, so it is left alone. Choose another name."
+            )
+    atomic_write(target, document)
+    typer.echo(f"Wrote {out}: {counts.line()}.")
+    if waiting:
+        typer.echo(waiting)
 
 
 @app.command()
