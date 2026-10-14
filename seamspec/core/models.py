@@ -70,6 +70,9 @@ class Invariant(_Record):
     superseded_by: str | None = Field(default=None, pattern=INV_ID)
     status_reason: str | None = None
     decided_via: Via | None = None  # None: decided in the terminal, before this field existed
+    # Always shown to the agent in full, however many rules there are (ADR-20261013-c1a9). Changes how
+    # a rule is shown, never whether it is enforced: every locked rule is enforced the same way.
+    critical: bool = False
 
     @model_validator(mode="after")
     def _status_requirements(self) -> Invariant:

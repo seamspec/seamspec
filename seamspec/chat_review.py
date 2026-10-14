@@ -202,6 +202,8 @@ def _message(store: Store, cfg: Config, state: dict[str, Any]) -> str:
         # Summary and check list first (ADR-20261011-8013): a client that shows only the top of a
         # dialog then shows the part that matters most. The full test still follows.
         lines += ["", _quote(f"Title: {record.title}"), _quote(f"Rule: {record.assertion}"),
+                  *(["Critical: yes, as proposed by the agent (always shown to the agent in full)"]
+                    if record.critical else []),
                   *(part for old_id, title, note in review.replaces(store, record)
                     for part in (f"Replaces {old_id} ({note}):", _quote(title))),
                   *_checks_text(store, record), f"Red-green: {state.get('rg') or 'not run'}",

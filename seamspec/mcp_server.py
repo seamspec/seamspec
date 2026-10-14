@@ -222,11 +222,13 @@ def propose_invariant(
     scope_tags: list[str] | None = None,
     replace_id: str | None = None,
     adr: AdrDraft | None = None,
+    critical: bool = False,
     roots: SessionRoots = None,
 ) -> dict[str, Any]:
     """Propose a rule with a focused behavior-level test. Does NOT run the test: afterwards run
     `seamspec verify --proposed <id>` with your shell. Use replace_id to update your own proposal.
-    On error "queue_full", stop proposing and ask the user to run `seamspec review`."""
+    critical: suggest it always be shown in full (the user decides). On error "queue_full", stop
+    proposing and ask the user to run `seamspec review`."""
 
     def run(svc: Services) -> dict[str, Any]:
         return lifecycle.propose_invariant(
@@ -243,6 +245,7 @@ def propose_invariant(
             scope_tags=scope_tags,
             replace_id=replace_id,
             adr_draft=adr,
+            critical=critical,
         )
 
     return _with_services(run, roots)

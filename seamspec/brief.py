@@ -53,6 +53,7 @@ def _rule(store: Store, inv: Invariant) -> dict[str, Any]:
         "status": inv.status.value,
         "title": inv.title,
         "rule": inv.assertion,
+        "critical": inv.critical,
         "scope": list(inv.scope.paths),
         "why": {"type": inv.origin.type, "text": inv.origin.text},
         "test": _test(store, inv),
