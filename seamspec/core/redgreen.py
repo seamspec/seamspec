@@ -138,7 +138,7 @@ def check(store: Store, cfg: Config, inv: Invariant) -> RedGreen:
         top_dir = Path(top.stdout.strip()) if top is not None and top.returncode == 0 else root
         shims = tmp / "bin"
         try:
-            redirected = _shim_runner(cfg, inv.verification.runner, wt_root, shims, top_dir, wt)
+            redirected = shim_runner(cfg, inv.verification.runner, wt_root, shims, top_dir, wt)
             before = verifier.run(
                 wt_root, cfg, [staged_head], fingerprints=prints, first_on_path=[str(shims)] if redirected else ()
             )
@@ -244,7 +244,7 @@ del _redirect
 """
 
 
-def _shim_runner(cfg: Config, name: str, wt_root: Path, shims: Path, top: Path, wt: Path) -> bool:
+def shim_runner(cfg: Config, name: str, wt_root: Path, shims: Path, top: Path, wt: Path) -> bool:
     """Write a copy of runner `name`'s start script that redirects imports first. False when the
     runner isn't started from a Python script SeamSpec can copy (a path, a binary, a Windows launcher)."""
     runner = cfg.runners[name]
