@@ -25,7 +25,7 @@ from mcp_types import InputRequiredResult, ListRootsResult
 from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
 from . import brief, chat_review
-from .core import adr, lifecycle, runners, tree, verifier
+from .core import adr, braindump, lifecycle, runners, tree, verifier
 from .core.config import Config, ConfigError, RunnerCfg, load_config
 from .core.context import constraints_for
 from .core.models import Invariant, InvStatus
@@ -193,7 +193,7 @@ def _adr_summaries(svc: Services, rels: list[str], linked: set[str]) -> list[dic
     return out
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def get_constraints(files: list[str], roots: SessionRoots = None) -> dict[str, Any]:
     """Locked rules, proposed rules, failed approaches and decisions that apply to these files. Call before editing."""
 
@@ -209,7 +209,7 @@ def get_constraints(files: list[str], roots: SessionRoots = None) -> dict[str, A
     return _with_services(run, roots, files)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def propose_invariant(
     title: str,
     assertion: str,
@@ -251,12 +251,13 @@ def propose_invariant(
     return _with_services(run, roots)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def log_dead_end(
     scope_paths: list[str],
     approach: str,
     failure_symptom: str,
     related_invariant: str | None = None,
+    origin_ref: str | None = None,
     roots: SessionRoots = None,
 ) -> dict[str, Any]:
     """Record an approach that was tried and failed, with the evidence, so it isn't retried."""
@@ -268,12 +269,63 @@ def log_dead_end(
             approach=approach,
             failure_symptom=failure_symptom,
             related_invariant=related_invariant,
+            origin_ref=origin_ref,
         ),
         roots,
     )
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
+def propose_decision(
+    title: str,
+    context: str,
+    decision: str,
+    consequences: list[str],
+    scope_paths: list[str],
+    origin_text: str,
+    origin_ref: str | None = None,
+    roots: SessionRoots = None,
+) -> dict[str, Any]:
+    """Propose a decision (ADR) with no test of its own; the user decides in `seamspec review`."""
+    return _with_services(
+        lambda svc: lifecycle.propose_decision(
+            svc.store,
+            svc.cfg,
+            title=title,
+            context=context,
+            decision=decision,
+            consequences=consequences,
+            scope_paths=scope_paths,
+            origin_text=origin_text,
+            origin_ref=origin_ref,
+        ),
+        roots,
+    )
+
+
+@mcp.tool(structured_output=False)
+def braindump_pending(
+    dismiss: dict[str, Literal["todo", "exploration"]] | None = None, roots: SessionRoots = None
+) -> dict[str, Any]:
+    """Unsorted BRAINDUMP.md notes. dismiss: {note id: "todo" | "exploration"}. Sort the rest with
+    propose_invariant, propose_decision or log_dead_end, origin_ref = the note id."""
+
+    def run(svc: Services) -> dict[str, Any]:
+        path, marker = svc.cfg.braindump.path, svc.cfg.braindump.marker
+        dismissals = [{"item_id": k, "as": v} for k, v in (dismiss or {}).items()]
+        done = braindump.dismiss(svc.store, path, marker, dismissals)
+        items = braindump.pending(svc.store, path, marker)
+        out: dict[str, Any] = {"file": path, "pending": [{"id": i.id, "text": i.text} for i in items]}
+        if done:
+            out["dismissed"] = done
+        if braindump.read(svc.root, path) is None:
+            out["note"] = f"There is no {path} in this project."
+        return out
+
+    return _with_services(run, roots)
+
+
+@mcp.tool(structured_output=False)
 def request_supersede(
     invariant_id: str, reason: str, replacement_id: str | None = None, roots: SessionRoots = None
 ) -> dict[str, Any]:
@@ -283,7 +335,7 @@ def request_supersede(
     )
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def verify(scope: Literal["changed", "all"] = "all", roots: SessionRoots = None) -> dict[str, Any]:
     """Run the LOCKED rules' tests (all, or those whose scope matches changed files). Never runs proposals."""
 
@@ -314,7 +366,7 @@ def verify(scope: Literal["changed", "all"] = "all", roots: SessionRoots = None)
     return _with_services(run, roots)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def open_review(ctx: Context, ids: list[str] | None = None) -> dict[str, Any] | InputRequiredResult:
     """Show the user SeamSpec's review dialogs (proposed rules, supersede requests, new dead ends) so they
     can decide in chat, if this project turned chat approvals on. Only the user answers; you get the outcomes."""
@@ -337,7 +389,7 @@ def open_review(ctx: Context, ids: list[str] | None = None) -> dict[str, Any] | 
     return _with_services(run)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def review_material(ids: list[str] | None = None, roots: SessionRoots = None) -> dict[str, Any]:
     """Read-only, runs nothing. What waits for human review, with SeamSpec's facts about each test
     and the code changes in its scope. For SeamSpec's reviewer agent."""

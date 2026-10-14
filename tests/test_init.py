@@ -63,7 +63,8 @@ def test_gitignore_merge_keeps_existing(tmp_path: Path) -> None:
     (tmp_path / ".gitignore").write_text("node_modules/")  # no trailing newline
     scaffold.init(tmp_path)
     text = (tmp_path / ".gitignore").read_text()
-    assert text.startswith("node_modules/\n") and text.endswith(".seamspec/.local/\n.seamspec/**/__pycache__/\n")
+    assert text.startswith("node_modules/\n") and ".seamspec/.local/\n.seamspec/**/__pycache__/\n" in text
+    assert text.endswith("\nBRAINDUMP.md\n")  # created git-ignored with the scratchpad (ADR-20261013-d9e4)
 
 
 @pytest.mark.parametrize(
@@ -198,9 +199,11 @@ def test_init_reports_the_lines_it_kept(tmp_path: Path) -> None:
     assert scaffold.init(tmp_path).kept_lines == []
 
 
-def test_v01_directive_leaves_out_v02_rules() -> None:
+def test_v01_directive_covers_braindump_and_still_the_projects_list() -> None:
+    """BRAINDUMP moved into v0.1 (ADR-20261013-f4a8, ADR-20261013-d9e4); a plan's list still works."""
     text = directive.directive_text()
-    assert "braindump" not in text.lower()
+    assert "Never edit it" in text and "/seamspec:drain" in text and '"sort my braindump" → drain' in text
+    assert "don't sort without a yes" in text
     assert "get_constraints" in text and "seamspec review" in text
     assert "list of rules it intends to lock" in text  # a plan section works today, without BRAINDUMP
 

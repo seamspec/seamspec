@@ -12,7 +12,7 @@ from __future__ import annotations
 from importlib.resources import files
 from pathlib import Path
 
-V01_COMMANDS = ("lock", "dead-end", "supersede", "checkpoint", "context", "status", "explain")
+V01_COMMANDS = ("lock", "dead-end", "supersede", "checkpoint", "context", "status", "explain", "drain")
 # Plugin agents (ADR-20261013-b7d2): SeamSpec's reviewer, a separate read-only agent that explains
 # what is waiting for review. Rendered as `seamspec-plugin/agents/<name>.md`, used as `seamspec:<name>`.
 V01_AGENTS = ("reviewer",)

@@ -21,6 +21,7 @@
     "failure_symptom": { "type": "string", "maxLength": 1000, "description": "Why it failed (truncated traceback or reason)" },
     "source": { "enum": ["verifier", "braindump", "manual", "agent"] },
     "related_invariant": { "type": ["string", "null"], "pattern": "^inv_[a-f0-9]{8}$" },
+    "origin_ref": { "type": ["string", "null"], "description": "Where it came from, e.g. braindump item bd_77aa0c12 (ADR-20261013-d9e4)" },
     "status": { "enum": ["ACTIVE", "RETIRED"] },
     "retired_reason": { "type": ["string", "null"], "description": "e.g. 'Fixed upstream in redis-py 6.2'" },
     "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human retired it; null means the terminal (ADR-20261006-c300)" },

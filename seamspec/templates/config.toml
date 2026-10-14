@@ -30,3 +30,8 @@ env_passthrough = []           # extra env vars tests may see, e.g. ["DATABASE_U
 {{execution_extra}}
 [review]
 {{review_extra}}
+[braindump]                    # your scratchpad (§13); git-ignored by default
+path = "BRAINDUMP.md"
+redact_secrets = true          # mask secret-looking text before it reaches a committed record
+nudge = "ask"                  # ask | off: tell the agent about new notes at session start (§13.9)
+

@@ -15,7 +15,7 @@ from datetime import datetime
 
 import typer
 
-from .core import lifecycle, redgreen, requests, testview, verifier
+from .core import adr, lifecycle, redgreen, requests, testview, verifier
 from .core.config import Config
 from .core.hashing import sha256_bytes
 from .core.models import DeadEnd, Invariant, InvStatus, utcnow
@@ -233,6 +233,12 @@ def pending(store: Store) -> tuple[list[DeadEnd], list[requests.SupersedeRequest
     return dead_ends, reqs, proposals
 
 
+def pending_decisions(store: Store) -> list[adr.Adr]:
+    """Proposed decisions with no rule of their own (ADR-20261013-d9e4). A decision linked to rules is
+    decided with them, when its rule is approved."""
+    return sorted((a for a in adr.load_all(store) if a.status == "PROPOSED" and not a.invariants), key=lambda a: a.id)
+
+
 def run(store: Store, cfg: Config) -> Tally:
     tally = Tally()
     started = utcnow()  # dead ends created while reviewing still count as new next time
@@ -240,15 +246,19 @@ def run(store: Store, cfg: Config) -> Tally:
     dead_ends, reqs, proposals = pending(store)
     paired = paired_replacements(store, reqs)  # decided with their supersede request, as one item
     proposals = [p for p in proposals if p.id not in paired]
+    decisions = pending_decisions(store)
     config_changed = bool(verifier.check_fingerprints(store.root, cfg))
-    if not (config_changed or dead_ends or reqs or proposals):
+    if not (config_changed or dead_ends or reqs or proposals or decisions):
         typer.echo("Nothing to review.")
         _save_review(store, started)
         return tally
     with_replacement = f" ({len(paired)} with a replacement rule)" if paired else ""
     typer.echo(
         f"To review: {len(proposals)} proposed rule(s), {len(reqs)} supersede request(s){with_replacement}, "
-        f"{len(dead_ends)} new dead end(s)" + (", runner config changes" if config_changed else "") + "."
+        f"{len(dead_ends)} new dead end(s)"
+        + (f", {len(decisions)} proposed decision(s)" if decisions else "")
+        + (", runner config changes" if config_changed else "")
+        + "."
     )
     seen: list[DeadEnd] = []  # dead ends actually shown and answered
     cursor = started
@@ -257,6 +267,7 @@ def run(store: Store, cfg: Config) -> Tally:
         _review_dead_ends(store, dead_ends, tally, seen)
         _review_requests(store, cfg, reqs, config_ok, tally)
         _review_proposals(store, cfg, proposals, config_ok, tally)
+        _review_decisions(store, decisions, tally)
     except Quit:
         typer.echo("Stopped. Anything not decided stays waiting.")
         if len(seen) < len(dead_ends):  # quit inside the dead-end list: keep the rest "new"
@@ -264,6 +275,27 @@ def run(store: Store, cfg: Config) -> Tally:
     _save_review(store, cursor)
     _summary(tally)
     return tally
+
+
+def _review_decisions(store: Store, decisions: list[adr.Adr], tally: Tally) -> None:
+    """Decisions with no test of their own, e.g. sorted from BRAINDUMP.md (ADR-20261013-d9e4). Accepting
+    one records the decision; it enforces nothing."""
+    if decisions:
+        typer.echo("\n== Proposed decisions (no test of their own: accepting records them, it enforces nothing)")
+    for n, record in enumerate(decisions, 1):
+        divider(f"Proposed decision {n} of {len(decisions)} · {record.id}")
+        typer.echo(f"  Title:  {record.title}")
+        typer.echo(f"  Where:  {', '.join(record.scopes) or '(not given)'}")
+        for line in record.body.splitlines():
+            if not line.startswith("# "):
+                typer.echo(f"  {line}" if line else "")
+        key = _choice("[a]ccept  [r]eject  [s]kip  [q]uit", "arsq", "s")
+        if key == "s":
+            tally.skipped.append(record.id)
+            continue
+        lifecycle.decide_decision(store, record.id, accept=key == "a")
+        (tally.approved if key == "a" else tally.rejected).append(record.id)
+        typer.echo(f"  {'ACCEPTED' if key == 'a' else 'REJECTED'} {record.id}")
 
 
 def _review_config(store: Store, cfg: Config) -> bool:

@@ -13,7 +13,7 @@ import typer
 
 from . import __version__
 from . import review as review_mod
-from .core import failtext, journal, lifecycle, requests, specdoc, tree, trust, verifier
+from .core import braindump, failtext, journal, lifecycle, requests, specdoc, tree, trust, verifier
 from .core.config import ConfigError, load_config
 from .core.context import constraints_for
 from .core.models import DeadEnd, Invariant, InvStatus
@@ -331,8 +331,11 @@ def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
         "invariants": {s.value: inv_counts.get(s.value, 0) for s in InvStatus},
         "critical": sum(1 for i in invs if isinstance(i, Invariant) and i.critical and i.status == InvStatus.LOCKED),
         "dead_ends": {s: de_counts.get(s, 0) for s in ("ACTIVE", "RETIRED")},
-        "awaiting_review": inv_counts.get(InvStatus.PROPOSED.value, 0) + len(requests.pending_supersede_ids(store)),
+        "awaiting_review": inv_counts.get(InvStatus.PROPOSED.value, 0)
+        + len(requests.pending_supersede_ids(store))
+        + len(review_mod.pending_decisions(store)),
         "supersede_requests": sorted(requests.pending_supersede_ids(store)),
+        "braindump": {"new_notes": len(braindump.pending(store, cfg.braindump.path, cfg.braindump.marker))},
         "last_verify": last_verify,
     }
 
@@ -362,6 +365,10 @@ def status(as_json: Annotated[bool, typer.Option("--json", help="Machine-readabl
     typer.echo(f"  last verify {'never' if lv is None else ('passed' if lv.get('passed') else 'FAILED')}")
     if data["awaiting_review"]:
         typer.echo(f"{data['awaiting_review']} awaiting review: run `seamspec review`.")
+    if data["braindump"]["new_notes"]:
+        typer.echo(
+            f"{data['braindump']['new_notes']} new note(s) in {cfg.braindump.path}: ask your agent to sort them."
+        )
 
 
 @app.command()
@@ -520,13 +527,61 @@ def dead_end(
         raise _fail("only `--json -` (stdin) is supported")
     _root_dir, cfg, store = _open()
     data = _read_json_stdin()
-    allowed = {"scope_paths", "approach", "failure_symptom", "related_invariant"}
+    allowed = {"scope_paths", "approach", "failure_symptom", "related_invariant", "origin_ref"}
     if set(data) - allowed or not {"scope_paths", "approach", "failure_symptom"} <= set(data):
-        raise _fail(f"expected fields: {', '.join(sorted(allowed))} (related_invariant optional)")
+        raise _fail(f"expected fields: {', '.join(sorted(allowed))} (related_invariant, origin_ref optional)")
     try:
         _emit(lifecycle.log_dead_end(store, cfg, **data))
     except (lifecycle.LifecycleError, KeyError) as exc:
         _emit({"error": "invalid", "message": str(exc)})
+
+
+@app.command("propose-decision")
+def propose_decision(
+    from_json: Annotated[str, typer.Option("--json", help="Read the decision as JSON from stdin ('-').")] = "-",
+) -> None:
+    """Propose a decision record with no test of its own (agents without MCP); a human decides in review."""
+    if from_json != "-":
+        raise _fail("only `--json -` (stdin) is supported")
+    _root_dir, cfg, store = _open()
+    data = _read_json_stdin()
+    required = {"title", "context", "decision", "consequences", "scope_paths", "origin_text"}
+    if set(data) - (required | {"origin_ref"}) or not required <= set(data):
+        raise _fail(f"expected fields: {', '.join(sorted(required))} (origin_ref optional)")
+    try:
+        _emit(lifecycle.propose_decision(store, cfg, **data))
+    except (lifecycle.LifecycleError, KeyError, TypeError) as exc:
+        _emit({"error": "invalid", "message": str(exc)})
+
+
+@app.command()
+def drain(
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+    tidy: Annotated[
+        bool, typer.Option("--tidy", help="Move sorted notes below the marker (changes your file; human only).")
+    ] = False,
+) -> None:
+    """List BRAINDUMP.md notes not yet sorted. Sorting is the agent's job (`/seamspec:drain`)."""
+    _root_dir, cfg, store = _open()
+    path, marker = cfg.braindump.path, cfg.braindump.marker
+    if tidy:
+        _human_only()
+        moved = braindump.tidy(store, path, marker)
+        typer.echo(f"Moved {moved} sorted note(s) below the marker in {path}." if moved else "Nothing to tidy.")
+        return
+    items = braindump.pending(store, path, marker)
+    if as_json:
+        typer.echo(json.dumps({"file": path, "pending": [{"id": i.id, "text": i.text} for i in items]}, indent=2))
+        return
+    if braindump.read(store.root, path) is None:
+        typer.echo(f"No {path} here. `seamspec init` creates one.")
+        return
+    if not items:
+        typer.echo(f"{path}: nothing new to sort.")
+        return
+    typer.echo(f"{path}: {len(items)} note(s) not sorted yet. Ask your agent to sort them (`/seamspec:drain`).")
+    for item in items:
+        typer.echo(f"  {item.id}  {review_mod.cut(item.text, 100)}")
 
 
 def _human_only() -> None:
