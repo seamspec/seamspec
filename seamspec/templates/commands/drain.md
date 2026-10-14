@@ -26,8 +26,9 @@ Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 6. **exploration** and **task:** dismiss them all in one call:
    `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo"})`, or without the tools
    `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=todo`. They stay in the file.
-7. Propose at most 3 rules in one sort (or `commands.max_proposals_per_run` from
-   `.seamspec/config.toml`); leave the rest pending and say so.
+7. Propose at most 3 rules and decisions together in one sort (or `commands.max_proposals_per_run`
+   from `.seamspec/config.toml`); leave the rest pending and say so. If a tool answers `queue_full`,
+   stop proposing and ask the user to review what's waiting first.
 8. Never edit BRAINDUMP.md: the notes are the user's. `seamspec drain --tidy` is theirs to run.
 9. Tell the user what each note became. Rules and decisions wait for them in `seamspec review`;
    offer an explanation from SeamSpec's reviewer (`/seamspec:explain`) first.

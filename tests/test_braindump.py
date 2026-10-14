@@ -16,6 +16,7 @@ from seamspec.core.config import load_config
 from seamspec.core.store import Store
 from seamspec.installers import scaffold
 
+from .conftest import git
 from .test_lifecycle import propose
 
 runner = CliRunner()
@@ -157,6 +158,46 @@ def test_review_accepts_or_rejects_a_proposed_decision(tmp_path: Path, human: No
         lifecycle.decide_decision(store, first, accept=False)
 
 
+def _decision(store: Store, cfg, title: str) -> dict:
+    return lifecycle.propose_decision(store, cfg, title=title, context="c", decision=f"Do {title}.", consequences=[],
+                                      scope_paths=["src/**"], origin_text="x")  # fmt: skip
+
+
+def test_decisions_count_toward_the_review_cap(tmp_path: Path) -> None:
+    """One long plan once became 20 proposed decisions in a single sort (hands-on test, 2026-10-14)."""
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    cap = cfg.proposals.max_pending
+    made = [_decision(store, cfg, f"d{n}") for n in range(cap)]
+    assert all("adr_id" in m for m in made)
+    full = _decision(store, cfg, "one too many")
+    assert full["error"] == "queue_full" and full["pending"] == cap
+    assert len(adr.load_all(store)) == cap  # nothing written
+    assert propose(tmp_path)["error"] == "queue_full"  # rules wait behind the same queue
+
+
+def test_review_rejects_the_rest_of_a_pile_of_decisions(tmp_path: Path, human: None, monkeypatch) -> None:
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    ids = [_decision(store, cfg, f"d{n}")["adr_id"] for n in range(4)]
+    out = runner.invoke(app, ["review"], input="a\nx\ny\n")
+    assert out.exit_code == 0, out.output
+    assert "[x] reject this and the 3 after it" in out.output and "Reject all 3?" in out.output
+    shown = sorted(ids, key=out.output.index)  # review order: by id
+    assert [adr.get(store, i).status for i in shown] == ["ACCEPTED", "REJECTED", "REJECTED", "REJECTED"]
+    assert "[x]" not in runner.invoke(app, ["review"]).output  # nothing left
+
+
+def test_rejecting_the_rest_asks_first(tmp_path: Path, human: None, monkeypatch) -> None:
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    ids = [_decision(store, cfg, f"d{n}")["adr_id"] for n in range(2)]
+    runner.invoke(app, ["review"], input="x\nn\ns\n")
+    assert {adr.get(store, i).status for i in ids} == {"PROPOSED"}
+
+
 def test_session_start_nudges_once_per_change(tmp_path: Path) -> None:
     store = project(tmp_path)
     cfg = load_config(tmp_path)
@@ -173,6 +214,23 @@ def test_session_start_nudges_once_per_change(tmp_path: Path) -> None:
     config.write_text(config.read_text().replace('nudge = "ask"', 'nudge = "off"'))
     (tmp_path / "BRAINDUMP.md").write_text(NOTES + "- one more\n")
     assert claude._braindump_nudge(store, load_config(tmp_path), "startup") is None
+
+
+def test_offer_comes_back_when_the_code_changes(tmp_path: Path) -> None:
+    """The first offer went unanswered in a chat that started with a task; the notes waited for code
+    that then appeared (hands-on test, 2026-10-14)."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    git(tmp_path, "init", "-q", "-b", "main")
+    scaffold.init(tmp_path, auto_run=True, actor="Maya <maya@example.com>")
+    (tmp_path / "BRAINDUMP.md").write_text(NOTES)
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "init")
+    store, cfg = Store(tmp_path), load_config(tmp_path)
+    assert claude._braindump_nudge(store, cfg, "startup")
+    assert claude._braindump_nudge(store, cfg, "startup") is None  # same notes, same code
+    (tmp_path / "cart.py").write_text("class Cart: ...\n")
+    assert claude._braindump_nudge(store, cfg, "startup")  # the code the notes wait for exists now
+    assert claude._braindump_nudge(store, cfg, "startup") is None
 
 
 def test_drain_command_lists_and_tidy_moves_sorted_notes(tmp_path: Path, human: None, monkeypatch) -> None:

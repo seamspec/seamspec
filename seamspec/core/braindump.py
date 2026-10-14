@@ -24,6 +24,7 @@ from typing import Any, Literal
 from .hashing import normalize_text, sha256_bytes
 from .models import utcnow
 from .store import Store, atomic_write
+from .tree import tree_fingerprint
 
 STATE = "braindump.json"
 NUDGE = "nudge.json"
@@ -166,18 +167,26 @@ def nudge_key(items: list[Item]) -> str:
 
 
 def should_nudge(store: Store, items: list[Item]) -> bool:
-    """Only when what's pending changed since the last nudge (§13.9): a "no" isn't asked again."""
+    """When what's pending changed since the last nudge, or the project's files did (§13.9). A "no"
+    isn't asked again for the same notes and code; but an offer can go unanswered in a chat that
+    starts with a task, and a note can wait for code that now exists (hands-on test, ADR-20261014-8a57)."""
     if not items:
         return False
     try:
-        last = json.loads((store.local / NUDGE).read_text(encoding="utf-8")).get("key")
-    except (OSError, ValueError, AttributeError):
-        last = None
-    return last != nudge_key(items)
+        last = json.loads((store.local / NUDGE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        last = {}
+    if not isinstance(last, dict):
+        last = {}
+    if last.get("key") != nudge_key(items):
+        return True
+    code = tree_fingerprint(store.root)
+    return code is not None and last.get("code") != code
 
 
 def remember_nudge(store: Store, items: list[Item]) -> None:
-    atomic_write(store.local / NUDGE, json.dumps({"key": nudge_key(items), "at": utcnow().isoformat()}) + "\n")
+    state = {"key": nudge_key(items), "code": tree_fingerprint(store.root), "at": utcnow().isoformat()}
+    atomic_write(store.local / NUDGE, json.dumps(state) + "\n")
 
 
 def tidy(store: Store, path: str, marker: str) -> int:

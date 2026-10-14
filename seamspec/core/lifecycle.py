@@ -140,7 +140,18 @@ def _from_braindump(
 
 
 def pending_count(store: Store) -> int:
-    return sum(1 for i in store.load_all("inv") if i.status == InvStatus.PROPOSED)
+    """The review backlog: proposed rules, plus proposed decisions with no rule of their own. Both
+    wait for the same human, so both count toward `proposals.max_pending` (ADR-20261014-8a57)."""
+    rules = sum(1 for i in store.load_all("inv") if i.status == InvStatus.PROPOSED)
+    return rules + sum(1 for a in adr.load_all(store) if a.status == "PROPOSED" and not a.invariants)
+
+
+def _queue_full(store: Store) -> dict[str, Any]:
+    return {
+        "error": "queue_full",
+        "pending": pending_count(store),
+        "message": "Review queue is full. Ask the user to run `seamspec review`.",
+    }
 
 
 def propose_invariant(
@@ -175,11 +186,7 @@ def propose_invariant(
             raise LifecycleError(f"{replace_id} is not a PROPOSED invariant; only proposals can be replaced")
         existing = found
     elif not by_human and pending_count(store) >= cfg.proposals.max_pending:
-        return {
-            "error": "queue_full",
-            "pending": pending_count(store),
-            "message": "Review queue is full. Ask the user to run `seamspec review`.",
-        }
+        return _queue_full(store)
 
     inv_id = existing.id if existing else store.new_id("inv")
     harness_rel = proposed_path(cfg, runner, inv_id)
@@ -282,6 +289,8 @@ def propose_decision(
             raise LifecycleError(f"{name} is empty")
     if not scope_paths:
         raise LifecycleError("scope_paths is empty")
+    if pending_count(store) >= cfg.proposals.max_pending:
+        return _queue_full(store)  # one long plan once made 20 decisions in a single sort
     origin = _origin(cfg, "braindump" if origin_ref else "prompt", origin_text, origin_ref)
     where = f"braindump item `{origin_ref}`" if origin_ref else "the conversation"
     record = adr.create(
