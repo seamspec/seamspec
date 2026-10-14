@@ -1,0 +1,183 @@
+"""Cursor, VS Code (Copilot) and Antigravity (SPEC §16.2–§16.4, ADR-20261013-e8f3): project files that
+are merged, never overwritten, and hooks that speak each host's documented format."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from typer.testing import CliRunner
+
+from seamspec.adapters import hosts as adapter
+from seamspec.cli import app
+from seamspec.core import commands
+from seamspec.installers import directive
+from seamspec.installers import hosts as installer
+
+from .test_claude_adapter import BROKEN_CODE, lock
+
+runner = CliRunner()
+HOSTS = ("cursor", "vscode", "antigravity")
+
+
+@pytest.fixture
+def human(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", "1")
+
+
+# --- commands and rules -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_commands_are_rendered_in_each_hosts_format(host: str) -> None:
+    names = commands.commands_for(host)
+    assert "explain" not in names and "drain" in names and "lock" in names  # the reviewer is Claude Code's
+    for name in names:
+        text = commands.render(name, host)
+        assert "/seamspec:" not in text and "seamspec review" in text or name in ("context", "status", "dead-end")
+        assert "$ARGUMENTS" not in text and "{{args}}" not in text
+        if host == "vscode":
+            front = text.split("\n---\n", 1)[0].splitlines()[1:]
+            meta = {
+                k: json.loads(v) for k, v in (line.split(": ", 1) for line in front if not line.startswith("agent"))
+            }
+            assert meta["description"]
+        if host == "antigravity":
+            assert text.startswith(f"---\nname: seamspec-{name}\ndescription: ")
+    with pytest.raises(ValueError):
+        commands.render("explain", "cursor")
+
+
+def test_agents_md_gets_the_protocol_worded_for_these_hosts(tmp_path: Path) -> None:
+    text = directive.directive_text("agents")
+    assert "/seamspec-drain" in text and "/seamspec:" not in text and "reviewer" not in text
+    assert "Only humans approve invariants" in text and "never answer its prompts" in text
+    (tmp_path / "AGENTS.md").write_text("# Our agents\n\nUse tabs.\n")
+    assert directive.install(tmp_path, directive.AGENTS_FILE) == "updated"
+    assert (tmp_path / "AGENTS.md").read_text().startswith("# Our agents\n\nUse tabs.\n")
+    assert not directive.drift(tmp_path, directive.AGENTS_FILE) and directive.drift(tmp_path)  # CLAUDE.md: absent
+    assert directive.foreign_lines(directive.render_block("agents")) == []  # its own lines are known
+
+
+# --- installing -------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_install_writes_rules_tools_hooks_and_commands_then_changes_nothing(tmp_path: Path, host: str) -> None:
+    changes = installer.install(tmp_path, host)
+    assert {c.status for c in changes} == {"created"}
+    mcp_rel, keys, server = installer.mcp_entry(host)
+    assert json.loads((tmp_path / mcp_rel).read_text())[keys[0]][keys[1]] == server
+    hooks_rel, _ = installer.hook_entries(host)
+    hooks_text = (tmp_path / hooks_rel).read_text()
+    assert f"seamspec hook {host} session-start" in hooks_text and f"seamspec hook {host} stop" in hooks_text
+    assert (tmp_path / commands.HOST_FILES[host].format(name="lock")).is_file()
+    assert {c.status for c in installer.install(tmp_path, host)} == {"unchanged"}  # a rerun
+
+
+def test_install_keeps_what_is_already_there(tmp_path: Path) -> None:
+    (tmp_path / ".cursor").mkdir()
+    (tmp_path / ".cursor/mcp.json").write_text(json.dumps({"mcpServers": {"db": {"command": "dbmcp"}}}))
+    (tmp_path / ".cursor/hooks.json").write_text(json.dumps(
+        {"version": 1, "hooks": {"stop": [{"command": "./lint.sh"}], "afterFileEdit": [{"command": "./fmt.sh"}]}}
+    ))  # fmt: skip
+    installer.install(tmp_path, "cursor")
+    mcp = json.loads((tmp_path / ".cursor/mcp.json").read_text())["mcpServers"]
+    assert mcp["db"] == {"command": "dbmcp"} and "seamspec" in mcp
+    hooks = json.loads((tmp_path / ".cursor/hooks.json").read_text())["hooks"]
+    assert hooks["stop"][0] == {"command": "./lint.sh"} and hooks["stop"][1]["command"] == "seamspec hook cursor stop"
+    assert hooks["afterFileEdit"] == [{"command": "./fmt.sh"}]
+    # Someone tuned SeamSpec's own server entry, or broke a file: both are left alone.
+    mcp["seamspec"] = {"command": "/opt/seamspec/bin/seamspec", "args": ["mcp"]}
+    (tmp_path / ".cursor/mcp.json").write_text(json.dumps({"mcpServers": mcp}))
+    (tmp_path / ".cursor/hooks.json").write_text("{ not json")
+    statuses = {c.path: c.status for c in installer.install(tmp_path, "cursor")}
+    assert statuses[".cursor/mcp.json"] == "kept (yours)"
+    assert (
+        statuses[".cursor/hooks.json"].startswith("skipped")
+        and (tmp_path / ".cursor/hooks.json").read_text() == "{ not json"
+    )
+
+
+def test_detect_finds_the_hosts_folders(tmp_path: Path) -> None:
+    assert installer.detect(tmp_path) == []
+    (tmp_path / ".vscode").mkdir()
+    (tmp_path / ".agent").mkdir()  # Antigravity's older folder name
+    assert installer.detect(tmp_path) == ["vscode", "antigravity"]
+
+
+# --- hooks in each host's format ----------------------------------------------------------------------
+
+
+def payload(host: str, event: str, root: Path, **extra) -> str:
+    if host == "antigravity":
+        base = {"conversationId": "c1", "workspacePaths": [str(root)]}
+        if event == "stop":
+            base |= {"fullyIdle": True, "terminationReason": "model_stop", "executionNum": 1}
+    elif host == "vscode":
+        base = {"cwd": str(root), "session_id": "s1", "hook_event_name": "Stop" if event == "stop" else "SessionStart"}
+        base |= {"stop_hook_active": False} if event == "stop" else {"source": "new"}
+    else:
+        base = {"session_id": "s1", "cwd": str(root)} | (
+            {"status": "completed", "loop_count": 0} if event == "stop" else {}
+        )
+    return json.dumps(base | extra)
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_session_start_gives_the_rules_in_force(git_repo: Path, human: None, host: str) -> None:
+    inv_id = lock(git_repo)
+    out = json.loads(adapter.main(host, "session-start", payload(host, "session-start", git_repo)))
+    text = {
+        "cursor": lambda o: o["additional_context"],
+        "vscode": lambda o: o["hookSpecificOutput"]["additionalContext"],
+        "antigravity": lambda o: o["injectSteps"][0]["systemMessage"]["systemMessage"],
+    }[host](out)
+    assert inv_id in text and "Retry delay" in text
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_stop_sends_the_agent_back_when_a_locked_rule_fails(git_repo: Path, human: None, host: str) -> None:
+    inv_id = lock(git_repo)
+    assert adapter.main(host, "stop", payload(host, "stop", git_repo)) == ""  # green: nothing to say
+    (git_repo / "src/queue.py").write_text(BROKEN_CODE)
+    out = json.loads(adapter.main(host, "stop", payload(host, "stop", git_repo)))
+    reason = {
+        "cursor": lambda o: o["followup_message"],
+        "vscode": lambda o: o["hookSpecificOutput"]["reason"] if o["hookSpecificOutput"]["decision"] == "block" else "",
+        "antigravity": lambda o: o["reason"] if o["decision"] == "continue" else "",
+    }[host](out)
+    assert inv_id in reason and "request_supersede" in reason
+
+
+def test_stop_is_capped_and_waits_for_background_work(git_repo: Path, human: None) -> None:
+    lock(git_repo)
+    (git_repo / "src/queue.py").write_text(BROKEN_CODE)
+    assert adapter.main("antigravity", "stop", payload("antigravity", "stop", git_repo, fullyIdle=False)) == ""
+    blocks = [adapter.main("antigravity", "stop", payload("antigravity", "stop", git_repo)) for _ in range(5)]
+    assert [bool(b) for b in blocks] == [True, True, True, False, False]  # verify.max_stop_retries = 3
+
+
+def test_hook_command_line_and_bad_input(git_repo: Path, human: None) -> None:
+    lock(git_repo)
+    (git_repo / "src/queue.py").write_text(BROKEN_CODE)
+    out = runner.invoke(app, ["hook", "cursor", "stop"], input=payload("cursor", "stop", git_repo))
+    assert out.exit_code == 0 and "followup_message" in out.output
+    broken = runner.invoke(app, ["hook", "cursor", "stop"], input="not json")  # fail open: no decision, only a note
+    assert broken.exit_code == 0 and "followup_message" not in broken.output and "seamspec hook error" in broken.output
+    assert "unknown event" in runner.invoke(app, ["hook", "vscode", "pre-tool-use"], input="{}").output
+
+
+def test_init_hosts_option(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "pyproject.toml").write_text("")
+    out = runner.invoke(app, ["init", "--path", str(tmp_path), "--hosts", "cursor,antigravity"])
+    assert out.exit_code == 0, out.output
+    assert "Cursor:" in out.output and "Antigravity:" in out.output and "VS Code" not in out.output
+    assert (tmp_path / ".cursor/hooks.json").is_file() and (tmp_path / ".agents/hooks.json").is_file()
+    assert "seamspec hook vscode" not in (tmp_path / "AGENTS.md").read_text()
+    bad = runner.invoke(app, ["init", "--path", str(tmp_path), "--hosts", "emacs"])
+    assert bad.exit_code == 1 and "unknown tool" in bad.output
+    (tmp_path / ".vscode").mkdir()
+    quiet = runner.invoke(app, ["init", "--path", str(tmp_path)])  # no terminal: never installs on its own
+    assert "run `seamspec init --hosts" in quiet.output and not (tmp_path / ".vscode/mcp.json").exists()

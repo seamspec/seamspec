@@ -345,23 +345,25 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 
 ## 8. Host Support Matrix
 
-| Capability | Claude Code | VS Code (Copilot agent) | Cursor | Cline / Windsurf / other MCP clients |
-|---|---|---|---|---|
-| MCP tools + resources | ✅ | ✅ | ✅ | ✅ |
-| CLI fallback via shell | ✅ | ✅ | ✅ | ✅ |
-| Edit-time context (§7.2) | ✅ `PreToolUse` `additionalContext` | ✅ `PreToolUse` (deny-once fallback: `permissionDecision: "deny"`) | ✅ `preToolUse` (deny-once fallback: `permission: "deny"`) | ❌ |
-| Ledger protection | ✅ | ✅ | ✅ | ❌ |
-| Completion gate | ✅ `Stop` + `decision: block` | ✅ `Stop` + `decision: block` | ✅ `stop` + `followup_message` (auto-continue, capped by `loop_limit`) | ❌ |
-| Session-start agreements summary *(v0.1, ADR-20261007-ac04)* + braindump nudge (§13.9) *(v0.2)* | ✅ `SessionStart` | ✅ `SessionStart` | ✅ `sessionStart` (local agents) | Directive fallback |
-| git pre-commit | ✅ | ✅ | ✅ | ✅ |
-| CI gate | ✅ | ✅ | ✅ | ✅ |
-| **Ships in** | **v0.1** | v0.2 | v0.2 | v0.1 (MCP + CLI + git/CI) |
-| **Tier** | **Full** | **Full** *(hooks API in Preview)* | **Full** | **Commit-time** |
+| Capability | Claude Code | VS Code (Copilot agent) | Cursor | Antigravity | Cline / Windsurf / other MCP clients |
+|---|---|---|---|---|---|
+| Rules (§18) | `CLAUDE.md` block | `AGENTS.md` block | `AGENTS.md` block | `AGENTS.md` block | Directive by hand |
+| MCP tools + resources | ✅ plugin | ✅ `.vscode/mcp.json` | ✅ `.cursor/mcp.json` | ✅ `.agents/mcp_config.json` | ✅ |
+| CLI fallback via shell | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Workflow commands | `/seamspec:<name>` (plugin skills) | `/seamspec-<name>` (prompt files) | `/seamspec-<name>` (commands) | `/seamspec-<name>` (skills) | MCP prompts |
+| SeamSpec's reviewer (§15.3) | ✅ plugin agent | — | — | — | — |
+| Session-start summary + braindump nudge (§13.9) | ✅ `SessionStart` | ✅ `SessionStart` `additionalContext` | ✅ `sessionStart` `additional_context` | ✅ `SessionStart` `injectSteps` | Directive fallback |
+| Completion gate | ✅ `Stop` + `decision: block` | ✅ `Stop` + `decision: block` | ✅ `stop` + `followup_message` (capped by `loop_limit`) | ✅ `Stop` + `decision: continue` | ❌ |
+| Edit-time context (§7.2) and ledger protection | ✅ `PreToolUse` | Planned: needs the host's tool names | Planned: needs the host's tool names | Planned: needs the host's tool names | ❌ |
+| git pre-commit | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CI gate | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Ships in** | **v0.1** | **v0.1** (ADR-20261013-e8f3) | **v0.1** | **v0.1** | v0.1 (MCP + CLI + git/CI) |
+| **Tier** | **Full** | **Session + gate** *(hooks API in Preview)* | **Session + gate** | **Session + gate** | **Commit-time** |
 
 > [!WARNING]
-> Copilot and Cursor capabilities were re-checked against their official hook docs on 2026-10-05 (VS Code agent hooks reference; cursor.com/docs/hooks), **not yet hands-on**. VS Code labels agent hooks as Preview. Cursor's completion gate works by auto-submitting a "fix this" follow-up message rather than refusing to stop, and Cursor cloud agents don't run every hook (e.g. `sessionStart`). Every adapter is a thin config file over the shared CLI and must be re-verified before each release. `seamspec doctor` reports the detected tier per host.
+> Re-checked against each host's public documentation on 2026-10-13 (VS Code hooks reference, cursor.com/docs/agent/hooks, antigravity.google/docs/hooks, rules and MCP pages), **not yet hands-on**; the owner's first check in each tool is the first real run. VS Code labels agent hooks as Preview. Cursor's completion gate works by auto-submitting a "fix this" follow-up message rather than refusing to stop, and Cursor cloud agents don't run every hook (e.g. `sessionStart`). Every adapter is a thin config file over the shared CLI and must be re-verified before each release. `seamspec doctor` reports the detected tier per host.
 
-**Launch strategy:** **v0.1 ships Claude Code only**, as a Claude Code plugin (§16.1), because it has the most mature hooks and keeps the first release small enough to finish and measure. Copilot and Cursor adapters follow in **v0.2**, soon after, since they are thin config files over the same CLI (§22). Other MCP clients get commit-time enforcement until they add hooks.
+**Launch strategy (changed 2026-10-13, ADR-20261013-f4a8, ADR-20261013-e8f3):** v0.1 ships Claude Code as a plugin (§16.1) and, through `seamspec init --hosts`, Cursor, VS Code (Copilot) and Antigravity as project files: the protocol in `AGENTS.md`, SeamSpec's MCP server, session-start and stop hooks, and `/seamspec-*` commands. Edit-time context and ledger protection on those hosts wait for their tool names, which their docs don't list; the commit gate and CI cover every host already.
 
 ---
 
@@ -1390,7 +1392,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 
 | Command | Purpose |
 |---|---|
-| `seamspec init [--mode advisory\|enforced\|strict] [--hosts auto\|claude,vscode,cursor] [--ci\|--no-ci] [--accept-auto-run] [--plugin\|--no-plugin]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install (asks first; `--plugin`/`--no-plugin` for scripts, §16.1), pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
+| `seamspec init [--mode advisory\|enforced\|strict] [--hosts cursor,vscode,antigravity\|none] [--ci\|--no-ci] [--accept-auto-run] [--plugin\|--no-plugin]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install (asks first; `--plugin`/`--no-plugin` for scripts, §16.1), Cursor / VS Code / Antigravity project files (`--hosts`; asks for each host whose folder exists, §16.2–§16.3a), `BRAINDUMP.md` (§13), pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
 | `seamspec status [--json]` | Counts by status, pending reviews, new braindump notes, last verify result, detected host tiers |
 | `seamspec context <files...>` | Human/agent-readable constraints for files (MCP-free fallback) |
 | `seamspec review` | Interactive pass over everything waiting for a human, in this order (ADR-20261005-b7e2): **runner config changes** (shown in full; until confirmed, approvals are blocked), **dead ends recorded since the last review** (`k`eep / `w`rong, retire it), **supersede requests** (`a`pprove / `d`ecline / `s`kip; a request and its proposed replacement are shown together and decided as one, §11.2), **proposed invariants** oldest first: full test code, then the optional red-green check (§11.4), then `a`pprove / `r`eject / `s`kip. `q` stops at any point; undecided items stay waiting. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"*. Then **proposed decisions** (ADRs with no rule of their own, e.g. from `propose_decision`): `a`ccept / `r`eject / `s`kip; accepting records the decision and enforces nothing (ADR-20261013-d9e4) |
@@ -1777,8 +1779,9 @@ Get an independent explanation of what is waiting for SeamSpec review. Ids, if a
 | Host | Generated file | Invoked as | Argument mapping |
 |---|---|---|---|
 | Claude Code *(v0.1)* | Skill inside the **seamspec plugin**: `skills/lock/SKILL.md` | `/seamspec:lock` | `$ARGUMENTS` |
-| Cursor *(v0.2)* | `.cursor/commands/seamspec-lock.md` | `/seamspec-lock` | Text typed after the command *(to verify)* |
-| VS Code Copilot *(v0.2)* | `.github/prompts/seamspec-lock.prompt.md` | `/seamspec-lock` | `${input:behavior}` *(to verify)* |
+| Cursor *(v0.1)* | `.cursor/commands/seamspec-lock.md` (plain Markdown) | `/seamspec-lock` | "anything the user typed after the command" in the text |
+| Antigravity *(v0.1)* | `.agents/skills/seamspec-lock/SKILL.md` (`name`, `description`) | `/seamspec-lock` | as for Cursor |
+| VS Code Copilot *(v0.1)* | `.github/prompts/seamspec-lock.prompt.md` (`description`, `agent: agent`, `argument-hint`) | `/seamspec-lock` | as for Cursor |
 | Any MCP client | MCP prompt `lock` | Host-dependent (e.g. `/mcp__seamspec__lock`) | Prompt argument |
 
 > [!NOTE]
@@ -2112,7 +2115,7 @@ Only the rules are described as human-approved: dead ends appear under their own
 
 10. **Internal error** (e.g. a corrupt record makes loading fail): default → allow (fail open) with a warning. With `hooks.fail_closed = true` → block, but **through the same retry counter** as step 9: after `max_stop_retries` blocks it allows with a loud warning, so a corrupt record can never trap the agent in an endless Stop loop.
 
-### 16.2 VS Code (Copilot Agent) — v0.2
+### 16.2 VS Code (Copilot Agent) — v0.1 (session start + stop; ADR-20261013-e8f3)
 
 **`.github/hooks/seamspec.json`** *(per the VS Code agent hooks reference, 2026-10-05; hooks API is Preview)*:
 
@@ -2140,7 +2143,7 @@ The `vscode` adapter normalizes the payload and maps decisions to the host's out
 - **Fail open carefully:** an error or non-zero exit from a `PreToolUse` hook may deny the tool call in VS Code, so on internal errors the adapter must exit 0 with an explicit allow (unless `hooks.fail_closed = true`).
 - Tier: **Full** (per docs; confirm hands-on before release).
 
-### 16.3 Cursor — v0.2
+### 16.3 Cursor — v0.1 (session start + stop; ADR-20261013-e8f3)
 
 **`.cursor/hooks.json`** *(per cursor.com/docs/hooks, 2026-10-05)*:
 
@@ -2161,6 +2164,17 @@ The `vscode` adapter normalizes the payload and maps decisions to the host's out
 - `after-file-edit`: records edited files into session state (for scoped verify).
 - `stop`: runs the verifier on `LOCKED` invariants. On failure it returns `{ "followup_message": "SeamSpec: locked invariant failed … Fix it, or call request_supersede and tell the user." }`; Cursor auto-submits that as the next message, so the agent keeps working. `loop_limit` is set to `verify.max_stop_retries` (default 3). If `status` is `aborted` (the user pressed stop), it does nothing.
 - Tier: **Full** (per docs; confirm hands-on before release). The visible difference from Claude Code: the "fix it" message appears in the chat as an automatic follow-up.
+
+**As built in v0.1 (ADR-20261013-e8f3), for VS Code, Cursor and Antigravity:** `seamspec init --hosts cursor,vscode,antigravity` (asked for each host whose folder exists, never done without a yes or the option) writes project files only, merged into what is there and never overwriting a value someone else set: the protocol in `AGENTS.md` (worded with `/seamspec-<name>` and without the reviewer), SeamSpec's MCP server, the **session-start** and **stop** hooks above, and `/seamspec-<name>` commands rendered from the same templates as the Claude Code skills (§15A.4). `adapters/hosts.py` translates each host's hook input into the Claude Code handlers' and their answer back; SeamSpec keeps its own retry budget (`verify.max_stop_retries`). The **`pre-tool-use` and `after-file-edit` hooks designed above are not installed yet**: they need each host's edit-tool names and argument names, which the docs don't list. They come after the owner's hands-on check, which can read them from the host's logs. The hooks call `seamspec` from the PATH.
+
+### 16.3a Antigravity — v0.1 (session start + stop; ADR-20261013-e8f3)
+
+Per antigravity.google/docs (hooks, rules, MCP, skills; read 2026-10-13, not yet hands-on):
+
+- **Rules:** `AGENTS.md` (read at every directory level), as for the other hosts.
+- **MCP:** `.agents/mcp_config.json`, `{"mcpServers": {"seamspec": {"command": "seamspec", "args": ["mcp"]}}}`.
+- **Hooks:** `.agents/hooks.json`, a named group `"seamspec"` with `SessionStart` and `Stop` command handlers (timeout in seconds). `SessionStart` answers `{"injectSteps": [{"systemMessage": {"systemMessage": "<summary>"}}]}`. `Stop` runs only when `fullyIdle` is true and, on a failing locked rule, answers `{"decision": "continue", "reason": "<what failed and what to do>"}`, which puts the agent back in its loop with the reason as a system message. Antigravity doesn't say whether a stop follows our own block, so the retry budget is kept until a green check resets it.
+- **Commands:** skills in `.agents/skills/seamspec-<name>/SKILL.md` (`name`, `description`), invoked as `/seamspec-<name>`.
 
 ### 16.4 git pre-commit
 
@@ -2413,6 +2427,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
   - `install_workflow()` returns `created`, or `kept` (an existing file is never overwritten).
   - `install_codeowners()` returns `created`, `updated` or `unchanged`. It manages only a block between `# seamspec:begin` and `# seamspec:end`, owning `/.seamspec/` and each runner's harness folder, with the placeholder owner `@your-team/leads`.
   - The CLI's `init --ci/--no-ci` follows §7.3: advisory never adds CI; enforced asks, or adds nothing without a terminal or flag; strict always adds it plus CODEOWNERS, and says when `--no-ci` is ignored.
+- [`hosts.py`](../seamspec/installers/hosts.py) (ADR-20261013-e8f3): `install(root, host)` for `cursor`, `vscode`, `antigravity` returns one `Change(path, status)` per file: the `AGENTS.md` block (`directive.install_keeping(root, "AGENTS.md")`, the `agents` variant), the MCP server entry (added if missing; a different existing `seamspec` entry is `kept (yours)`; a file that isn't a JSON object is `skipped`), the session-start and stop hook entries (added unless an entry with the same command exists; other hooks untouched), and the `/seamspec-<name>` command files (`core/commands.render(name, host)`, owned by SeamSpec, rewritten to match). `detect(root)` lists hosts whose folder exists. [`adapters/hosts.py`](../seamspec/adapters/hosts.py): `main(host, event, stdin)` for `session-start` and `stop`, translating each host's input and output around `claude.main`; fail open.
 - [`claude_plugin.py`](../seamspec/installers/claude_plugin.py): the Claude Code plugin install (§16.1). `precheck(root)` returns `skipped` (no `claude`, no checkout marketplace) or `unchanged` (already enabled here or at `user` scope), else `None`; `commands(source)` lists the two `claude plugin` invocations for the prompt; `enable(root)` runs them with `--json` and `--scope local`, reports `installed` / `failed` (with Claude Code's message). Whenever `.claude/settings.local.json` exists (installed, a manual install reported `unchanged`, or a `failed` install whose `marketplace add` already wrote it), it is added to `.gitignore`. `install(root)` = `precheck` then `enable`. Tests use a fake `claude`, plus one real `claude` run in a throwaway `CLAUDE_CONFIG_DIR` (every test gets one, so no test can touch the developer's Claude Code settings).
 - [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`. Lines inside the old block that SeamSpec never shipped are kept: `merge_keeping(text)` and `install_keeping(root)` return them and place them above the block; `foreign_in(root)` lists them for `doctor`. `known_lines()` reads `templates/directive_known_lines.txt` (a SHA-256 prefix per line ever shipped) and adds the current template's lines; `python -m seamspec.installers.directive` appends new ones after `directive.md` changes, and a test fails if the file is behind (ADR-20261011-b1c8).
 
@@ -2662,16 +2677,13 @@ seamspec/
 │   │   └── tree.py                 # tree fingerprint (git-visible files only), changed files
 │   ├── adapters/
 │   │   ├── claude.py
-│   │   ├── vscode.py               # v0.2
-│   │   └── cursor.py               # v0.2
+│   │   └── hosts.py                # Cursor, VS Code, Antigravity: their hook formats ↔ claude.py's handlers (§16.2–§16.3a)
 │   ├── installers/                 # init: merge configs without clobbering
 │   │   ├── scaffold.py             # `seamspec init` scaffolding (week 1)
-│   │   ├── directive.py            # marked CLAUDE.md block (§18)
+│   │   ├── directive.py            # marked block in CLAUDE.md and AGENTS.md (§18)
 │   │   ├── claude_plugin.py        # plugin install via `claude plugin` at local scope (§16.1)
-│   │   ├── vscode.py               # v0.2
-│   │   ├── cursor.py               # v0.2
+│   │   ├── hosts.py                # Cursor, VS Code, Antigravity project files: AGENTS.md, MCP, hooks, commands (§16.2–§16.3a)
 │   │   ├── git_hooks.py
-│   │   ├── commands.py             # write slash-command files per host (v0.2; Claude Code skills ship in the plugin)
 │   │   └── ci.py                   # CI workflow + strict-mode CODEOWNERS block (§16.5)
 │   └── templates/
 │       ├── config.toml             # with {{runners}} filled from templates/runners/*.toml

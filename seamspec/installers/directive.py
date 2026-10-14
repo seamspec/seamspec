@@ -27,12 +27,27 @@ class DirectiveError(RuntimeError):
     pass
 
 
-def directive_text() -> str:
-    return files("seamspec.templates").joinpath("directive.md").read_text("utf-8").strip()
+AGENTS_FILE = "AGENTS.md"  # read by Cursor, VS Code (Copilot) and Antigravity (ADR-20261013-e8f3)
+REVIEWER_OFFER = "offer an explanation from\n   SeamSpec's reviewer (`/seamspec:explain`), and offer to open"
 
 
-def render_block() -> str:
-    return f"{BEGIN}\n{directive_text()}\n{END}"
+def directive_text(variant: str = "claude") -> str:
+    """The protocol. `agents`: the same rules for the hosts that read AGENTS.md, with their command
+    names (`/seamspec-drain`) and without the reviewer, which only the Claude Code plugin ships."""
+    text = files("seamspec.templates").joinpath("directive.md").read_text("utf-8").strip()
+    if variant == "claude":
+        return text
+    if REVIEWER_OFFER not in text:
+        raise ValueError("directive.md changed: update REVIEWER_OFFER for the AGENTS.md variant")
+    return text.replace(REVIEWER_OFFER, "offer to open").replace("/seamspec:", "/seamspec-")
+
+
+def _variant(filename: str) -> str:
+    return "agents" if filename == AGENTS_FILE else "claude"
+
+
+def render_block(variant: str = "claude") -> str:
+    return f"{BEGIN}\n{directive_text(variant)}\n{END}"
 
 
 KNOWN_LINES = "directive_known_lines.txt"
@@ -46,7 +61,8 @@ def known_lines() -> set[str]:
     """Keys of every line SeamSpec has shipped in its block, plus the current template's."""
     recorded = files("seamspec.templates").joinpath(KNOWN_LINES).read_text("utf-8").splitlines()
     keys = {ln.strip() for ln in recorded if ln.strip() and not ln.startswith("#")}
-    return keys | {_key(ln) for ln in directive_text().splitlines() if ln.strip()}
+    current = directive_text().splitlines() + directive_text("agents").splitlines()
+    return keys | {_key(ln) for ln in current if ln.strip()}
 
 
 def foreign_lines(block: str) -> list[str]:
@@ -65,7 +81,7 @@ def _find_block(text: str) -> tuple[int, int] | None:
         return None
     if len(starts) != 1 or len(ends) != 1 or ends[0] < starts[0]:
         raise DirectiveError(
-            "CLAUDE.md has unbalanced or repeated SeamSpec markers. Fix them by hand: keep exactly one "
+            "The file has unbalanced or repeated SeamSpec markers. Fix them by hand: keep exactly one "
             f"'{BEGIN_PREFIX} ...' line and one '{END}' line after it."
         )
     offset = [0]
@@ -74,10 +90,10 @@ def _find_block(text: str) -> tuple[int, int] | None:
     return offset[starts[0]], offset[ends[0] + 1]
 
 
-def merge_keeping(text: str) -> tuple[str, list[str]]:
+def merge_keeping(text: str, variant: str = "claude") -> tuple[str, list[str]]:
     """`text` with the managed block inserted or replaced, and the lines that were kept: anything
     inside the old block that isn't SeamSpec's is moved above the block, in its original order."""
-    block = render_block()
+    block = render_block(variant)
     span = _find_block(text)
     if span is not None:
         start, end = span  # `end` is just past the END line's newline
@@ -98,25 +114,25 @@ def merge(text: str) -> str:
     return merge_keeping(text)[0]
 
 
-def install_keeping(root: Path) -> tuple[str, list[str]]:
-    """Write the block into CLAUDE.md. Returns ('created' | 'updated' | 'unchanged', lines kept)."""
-    path = root / "CLAUDE.md"
+def install_keeping(root: Path, filename: str = "CLAUDE.md") -> tuple[str, list[str]]:
+    """Write the block into CLAUDE.md (or AGENTS.md). Returns ('created' | 'updated' | 'unchanged', lines kept)."""
+    path = root / filename
     old = path.read_text(encoding="utf-8") if path.is_file() else None
-    new, kept = merge_keeping(old or "")
+    new, kept = merge_keeping(old or "", _variant(filename))
     if old == new:
         return "unchanged", []
     atomic_write(path, new)
     return ("created" if old is None else "updated"), kept
 
 
-def install(root: Path) -> str:
-    """Write the block into CLAUDE.md. Returns 'created', 'updated' or 'unchanged'."""
-    return install_keeping(root)[0]
+def install(root: Path, filename: str = "CLAUDE.md") -> str:
+    """Write the block into CLAUDE.md (or AGENTS.md). Returns 'created', 'updated' or 'unchanged'."""
+    return install_keeping(root, filename)[0]
 
 
-def foreign_in(root: Path) -> list[str]:
-    """Lines currently inside CLAUDE.md's block that aren't SeamSpec's (for `doctor`)."""
-    path = root / "CLAUDE.md"
+def foreign_in(root: Path, filename: str = "CLAUDE.md") -> list[str]:
+    """Lines currently inside the file's block that aren't SeamSpec's (for `doctor`)."""
+    path = root / filename
     if not path.is_file():
         return []
     text = path.read_text(encoding="utf-8")
@@ -127,9 +143,9 @@ def foreign_in(root: Path) -> list[str]:
     return foreign_lines(text[span[0] : span[1]]) if span else []
 
 
-def drift(root: Path) -> bool:
-    """True if CLAUDE.md's block is missing or differs from the packaged template (for `doctor`)."""
-    path = root / "CLAUDE.md"
+def drift(root: Path, filename: str = "CLAUDE.md") -> bool:
+    """True if the file's block is missing or differs from the packaged template (for `doctor`)."""
+    path = root / filename
     if not path.is_file():
         return True
     text = path.read_text(encoding="utf-8")
@@ -137,7 +153,7 @@ def drift(root: Path) -> bool:
         span = _find_block(text)
     except DirectiveError:
         return True
-    return span is None or text[span[0] : span[1]].rstrip("\n") != render_block()
+    return span is None or text[span[0] : span[1]].rstrip("\n") != render_block(_variant(filename))
 
 
 def record_known_lines() -> int:
@@ -145,7 +161,8 @@ def record_known_lines() -> int:
     path = Path(__file__).resolve().parents[1] / "templates" / KNOWN_LINES
     text = path.read_text(encoding="utf-8")
     have = {ln.strip() for ln in text.splitlines() if ln.strip() and not ln.startswith("#")}
-    new = sorted({_key(ln) for ln in directive_text().splitlines() if ln.strip()} - have)
+    current = directive_text().splitlines() + directive_text("agents").splitlines()
+    new = sorted({_key(ln) for ln in current if ln.strip()} - have)
     if new:
         atomic_write(path, text + "\n".join(new) + "\n")
     return len(new)
