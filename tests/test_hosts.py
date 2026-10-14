@@ -4,6 +4,7 @@ are merged, never overwritten, and hooks that speak each host's documented forma
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -67,13 +68,59 @@ def test_agents_md_gets_the_protocol_worded_for_these_hosts(tmp_path: Path) -> N
 def test_install_writes_rules_tools_hooks_and_commands_then_changes_nothing(tmp_path: Path, host: str) -> None:
     changes = installer.install(tmp_path, host)
     assert {c.status for c in changes} == {"created"}
-    mcp_rel, keys, server = installer.mcp_entry(host)
+    mcp_rel, keys, server = installer.mcp_entry(host, tmp_path)
     assert json.loads((tmp_path / mcp_rel).read_text())[keys[0]][keys[1]] == server
     hooks_rel, _ = installer.hook_entries(host)
     hooks_text = (tmp_path / hooks_rel).read_text()
     assert f"seamspec hook {host} session-start" in hooks_text and f"seamspec hook {host} stop" in hooks_text
     assert (tmp_path / commands.HOST_FILES[host].format(name="lock")).is_file()
     assert {c.status for c in installer.install(tmp_path, host)} == {"unchanged"}  # a rerun
+
+
+def test_antigravity_server_is_told_the_project_folder(tmp_path: Path) -> None:
+    """Antigravity starts the server in `/` and can't answer its roots/list question (hands-on test)."""
+    installer.install(tmp_path, "antigravity")
+    server = json.loads((tmp_path / ".agents/mcp_config.json").read_text())["mcpServers"]["seamspec"]
+    assert server["env"] == {"SEAMSPEC_ROOT": str(tmp_path.resolve())}
+
+
+def test_an_older_antigravity_entry_gets_the_folder_and_keeps_the_rest(tmp_path: Path) -> None:
+    (tmp_path / ".agents").mkdir()
+    old = {"mcpServers": {"seamspec": {"command": "seamspec", "args": ["mcp"], "env": {"SEAMSPEC_DEBUG": "1"}},
+                          "db": {"command": "dbmcp"}}}  # fmt: skip
+    (tmp_path / ".agents/mcp_config.json").write_text(json.dumps(old))
+    assert installer.install_mcp(tmp_path, "antigravity").status == "updated"
+    servers = json.loads((tmp_path / ".agents/mcp_config.json").read_text())["mcpServers"]
+    assert servers["seamspec"]["env"] == {"SEAMSPEC_DEBUG": "1", "SEAMSPEC_ROOT": str(tmp_path.resolve())}
+    assert servers["db"] == {"command": "dbmcp"}
+    moved = tmp_path / "elsewhere"
+    shutil.copytree(tmp_path / ".agents", moved / ".agents")  # a clone in another folder
+    assert installer.install_mcp(moved, "antigravity").status == "updated"
+    env = json.loads((moved / ".agents/mcp_config.json").read_text())["mcpServers"]["seamspec"]["env"]
+    assert env["SEAMSPEC_ROOT"] == str(moved.resolve())
+
+
+def test_doctor_warns_when_antigravity_points_at_another_folder(tmp_path: Path) -> None:
+    from seamspec.core import doctor
+    from seamspec.installers import scaffold
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    scaffold.init(tmp_path, auto_run=True, actor="Maya <maya@example.com>")
+    installer.install(tmp_path, "antigravity")
+    assert not [f for f in doctor.run(tmp_path).findings if f.check == "antigravity"]
+    config = tmp_path / ".agents/mcp_config.json"
+    data = json.loads(config.read_text())
+    data["mcpServers"]["seamspec"]["env"]["SEAMSPEC_ROOT"] = "/Users/someone-else/project"  # a teammate's clone
+    config.write_text(json.dumps(data))
+    found = [f for f in doctor.run(tmp_path).findings if f.check == "antigravity"]
+    assert found and "/Users/someone-else/project" in found[0].message and found[0].level == "warning"
+
+
+def test_someone_elses_seamspec_entry_is_kept(tmp_path: Path) -> None:
+    (tmp_path / ".agents").mkdir()
+    mine = {"mcpServers": {"seamspec": {"command": "/opt/seamspec/bin/seamspec", "args": ["mcp"]}}}
+    (tmp_path / ".agents/mcp_config.json").write_text(json.dumps(mine))
+    assert installer.install_mcp(tmp_path, "antigravity").status == "kept (yours)"
 
 
 def test_install_keeps_what_is_already_there(tmp_path: Path) -> None:

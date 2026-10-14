@@ -100,7 +100,7 @@ def test_each_record_made_from_a_note_marks_it_sorted(tmp_path: Path, human: Non
     tenant, stripe, rfc, tried, todo = notes["Tenant"], notes["Look"], notes["Error"], notes["Tried"], notes["TODO"]
 
     rule = propose(tmp_path, origin_type="braindump", origin_ref=tenant.id, origin_text=tenant.text)["id"]
-    dead = lifecycle.log_dead_end(store, cfg, scope_paths=["src/**"], approach=tried.text,
+    dead = lifecycle.log_dead_end(store, cfg, scope_paths=["src/**"], approach="A global dict cache for JWTs",
                                   failure_symptom="Leaked across tenants.", origin_ref=tried.id)["id"]  # fmt: skip
     decision = lifecycle.propose_decision(
         store, cfg, title="RFC 7807 errors", context="Clients parse errors.", decision="Use RFC 7807 problem details.",
@@ -114,6 +114,7 @@ def test_each_record_made_from_a_note_marks_it_sorted(tmp_path: Path, human: Non
     done = braindump.state(store)
     assert done[tenant.id]["as"] == "invariant" and done[tenant.id]["ref"] == rule
     assert done[tried.id] == {**done[tried.id], "as": "dead_end", "ref": dead}
+    assert done[tried.id]["preview"] == " ".join(tried.text.split())[:80]  # the note's words, not the rewording
     assert store.get(dead).origin_ref == tried.id and store.get(dead).source == "braindump"
     assert done[rfc.id]["ref"] == decision and adr.get(store, decision).status == "PROPOSED"
     assert f"braindump item `{rfc.id}`" in adr.get(store, decision).body
@@ -192,6 +193,22 @@ def test_drain_command_lists_and_tidy_moves_sorted_notes(tmp_path: Path, human: 
     assert len(json.loads(runner.invoke(app, ["drain", "--json"]).output)["pending"]) == 5
     monkeypatch.delenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE")
     assert runner.invoke(app, ["drain", "--tidy"]).exit_code == 1  # an agent's shell: it's the person's file
+
+
+def test_drain_dismiss_sets_notes_aside_without_mcp(tmp_path: Path, monkeypatch) -> None:
+    """Without the tools, an agent could list notes but not set any aside (hands-on test, 2026-10-14)."""
+    project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    pending = json.loads(runner.invoke(app, ["drain", "--json"]).output)["pending"]
+    todo = next(p["id"] for p in pending if p["text"].startswith("TODO"))
+    idea = next(p["id"] for p in pending if p["id"] != todo)
+    out = runner.invoke(app, ["drain", "--dismiss", f"{todo}=todo", "--dismiss", f"{idea}=exploration"])
+    assert out.exit_code == 0 and "Set aside 2 note(s)" in out.output
+    left = json.loads(runner.invoke(app, ["drain", "--json"]).output)["pending"]
+    assert len(left) == len(pending) - 2 and todo not in {p["id"] for p in left}
+    assert runner.invoke(app, ["drain", "--dismiss", f"{todo}=todo"]).exit_code == 1  # no longer pending
+    assert runner.invoke(app, ["drain", "--dismiss", f"{left[0]['id']}=rule"]).exit_code == 1
+    assert runner.invoke(app, ["drain", "--dismiss", left[0]["id"]]).exit_code == 1
 
 
 def test_braindump_tools_over_mcp(tmp_path: Path, monkeypatch) -> None:

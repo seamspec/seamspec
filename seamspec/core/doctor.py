@@ -156,6 +156,14 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
         report.add(
             "warning", "directive", "the SeamSpec block in AGENTS.md is outdated: rerun `seamspec init --hosts …`"
         )
+    stale = _antigravity_root(root)
+    if stale:  # a clone in another folder: its tools would look in the wrong place (ADR-20261014-6c2d)
+        report.add(
+            "warning",
+            "antigravity",
+            f"Antigravity's SeamSpec server is set to {stale}, not this folder:"
+            " rerun `seamspec init --hosts antigravity`",
+        )
     hooks = _git(root, "rev-parse", "--git-path", "hooks")
     hook = (root / hooks.strip() / "pre-commit") if hooks else None
     text = hook.read_text(encoding="utf-8", errors="replace") if hook and hook.is_file() else ""
@@ -292,6 +300,19 @@ def retirement_summary(root: Path, base_ref: str, base: dict, now: dict, mode: s
     lines += ["", "**Runner config changes** (`.seamspec/fingerprints.json`)", ""]
     lines += [f"- `{k}`" for k in changed_cfg] or ["None."]
     return "\n".join(lines) + "\n"
+
+
+def _antigravity_root(root: Path) -> str | None:
+    """The folder Antigravity's SeamSpec server is told to use, when it isn't this one."""
+    try:
+        data = json.loads((root / ".agents/mcp_config.json").read_text(encoding="utf-8"))
+        env = data["mcpServers"]["seamspec"]["env"]
+        set_to = env.get("SEAMSPEC_ROOT") if isinstance(env, dict) else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not isinstance(set_to, str) or not set_to:
+        return None
+    return None if Path(set_to).resolve() == root.resolve() else set_to
 
 
 def run(root: Path, ci: bool = False, base_ref: str | None = None) -> DoctorReport:

@@ -72,8 +72,9 @@ Secrets are stripped from the environment, but files on disk are readable.
 
 
 PLUGIN_SCREEN = """\
-Claude Code plugin: shows the agent the locked rules as it edits, runs them before it
-finishes (Stop hook), and adds the SeamSpec MCP tools and /seamspec:lock, /seamspec:dead-end.
+Claude Code plugin (for Claude Code only; Cursor, VS Code and Antigravity don't use it):
+shows the agent the locked rules as it edits, runs them before it finishes (Stop hook), and
+adds the SeamSpec MCP tools and /seamspec:lock, /seamspec:dead-end.
 SeamSpec will run:"""
 
 
@@ -319,6 +320,10 @@ def _init_hosts(root: Path, wanted: str | None) -> None:
             typer.echo(f"  {change.status:<9} {change.path}")
     if chosen:
         typer.echo("  The hooks run `seamspec` from your PATH; start a new chat (or reload the window) to load them.")
+        typer.echo(
+            "  If the tool already had this folder open, restart the `seamspec` server in its MCP settings"
+            " (or reload the window) so it picks up the new settings."
+        )
 
 
 def _init_plugin(root: Path, wanted: bool | None) -> None:
@@ -341,7 +346,11 @@ def _init_plugin(root: Path, wanted: bool | None) -> None:
                 " Claude Code would also record the install in its config directory (normally"
                 " ~/.claude/plugins/); nothing is turned on elsewhere."
             )
-            if not typer.confirm("Install the SeamSpec plugin for Claude Code in this repository?", default=True):
+            if not typer.confirm(
+                "Install the SeamSpec plugin for Claude Code in this repository?"
+                " (Skip it if you don't use Claude Code.)",
+                default=True,
+            ):
                 typer.echo("Claude Code plugin: not installed. Run `seamspec init --plugin` any time.")
                 return
         result = claude_plugin.enable(root)
@@ -599,10 +608,30 @@ def drain(
     tidy: Annotated[
         bool, typer.Option("--tidy", help="Move sorted notes below the marker (changes your file; human only).")
     ] = False,
+    dismiss: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--dismiss",
+            metavar="ID=todo|exploration",
+            help="Set a note aside as a task or an idea; it stays in the file (repeatable; agents without MCP).",
+        ),
+    ] = None,
 ) -> None:
     """List BRAINDUMP.md notes not yet sorted. Sorting is the agent's job (`/seamspec:drain`)."""
     _root_dir, cfg, store = _open()
     path, marker = cfg.braindump.path, cfg.braindump.marker
+    if dismiss:
+        if tidy:
+            raise _fail("use --dismiss or --tidy, not both")
+        pairs = [d.partition("=") for d in dismiss]
+        if any(not sep for _, sep, _ in pairs):
+            raise _fail("write each as ID=todo or ID=exploration")
+        try:
+            done = braindump.dismiss(store, path, marker, [{"item_id": i, "as": k} for i, _, k in pairs])
+        except (ValueError, KeyError) as exc:
+            raise _fail(str(exc).strip("'\"")) from None
+        typer.echo(f"Set aside {len(done)} note(s); they stay in {path}.")
+        return
     if tidy:
         _human_only()
         moved = braindump.tidy(store, path, marker)

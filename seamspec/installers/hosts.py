@@ -50,14 +50,22 @@ def _hook(host: str, event: str) -> str:
     return f"seamspec hook {host} {event}"
 
 
-def mcp_entry(host: str) -> tuple[str, list[str], dict[str, Any]]:
-    """(file, path of keys to the server, the server's config)."""
+def mcp_entry(host: str, root: Path | None = None) -> tuple[str, list[str], dict[str, Any]]:
+    """(file, path of keys to the server, the server's config).
+
+    Antigravity starts MCP servers outside the project (in `/`) and fails on the server's question
+    "which folders are open?" (`roots/list`), so every tool call ended in "unexpected end of JSON
+    input" (hands-on test, 2026-10-14). Its config gets the project's absolute path instead: it has
+    no `${workspaceFolder}`, and a rerun of `init` in another clone rewrites it (ADR-20261014-6c2d)."""
     if host == "vscode":
         server = {"type": "stdio", **MCP_SERVER, "env": {"SEAMSPEC_ROOT": "${workspaceFolder}"}}
         return ".vscode/mcp.json", ["servers", "seamspec"], server
     if host == "cursor":
         return ".cursor/mcp.json", ["mcpServers", "seamspec"], dict(MCP_SERVER)
-    return ".agents/mcp_config.json", ["mcpServers", "seamspec"], dict(MCP_SERVER)
+    server = dict(MCP_SERVER)
+    if root is not None:
+        server["env"] = {"SEAMSPEC_ROOT": str(root.resolve())}
+    return ".agents/mcp_config.json", ["mcpServers", "seamspec"], server
 
 
 def hook_entries(host: str) -> tuple[str, dict[str, Any]]:
@@ -97,7 +105,7 @@ def _write_json(root: Path, rel: str, before: dict[str, Any], after: dict[str, A
 
 
 def install_mcp(root: Path, host: str) -> Change:
-    rel, keys, server = mcp_entry(host)
+    rel, keys, server = mcp_entry(host, root)
     data = _read_json(root / rel)
     if data is None:
         return Change(rel, "skipped (not a JSON object: add SeamSpec's server by hand)")
@@ -105,10 +113,28 @@ def install_mcp(root: Path, host: str) -> Change:
     servers = data.setdefault(keys[0], {})
     if not isinstance(servers, dict):
         return Change(rel, f"skipped ({keys[0]} is not an object)")
-    if keys[1] in servers:
-        return Change(rel, "unchanged" if servers[keys[1]] == server else "kept (yours)")
-    servers[keys[1]] = server
+    present = servers.get(keys[1])
+    if present is None:
+        servers[keys[1]] = server
+    elif present != server:
+        if not _ours(present):
+            return Change(rel, "kept (yours)")
+        # SeamSpec's own entry: bring its project folder up to date, keep anything else in it.
+        if "env" in server:
+            env = present.setdefault("env", {})
+            if not isinstance(env, dict):
+                return Change(rel, "kept (yours)")
+            env.update(server["env"])
     return _write_json(root, rel, before, data, (root / rel).is_file())
+
+
+def _ours(entry: Any) -> bool:
+    """An entry that starts SeamSpec's server the way `init` writes it."""
+    return (
+        isinstance(entry, dict)
+        and entry.get("command") == MCP_SERVER["command"]
+        and entry.get("args") == MCP_SERVER["args"]
+    )
 
 
 def install_hooks(root: Path, host: str) -> Change:
