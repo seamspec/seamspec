@@ -76,7 +76,14 @@ Two follow-up tests, to be planned with their own pass bar before any run:
 - **Capture:** a project that starts with no rules written anywhere; the agreements are only said in conversation in session 1. Compare an agent told to keep its own notes with SeamSpec's capture (propose, approve). Do rules nobody wrote by hand survive to session 3? Asked for by the owner on 2026-10-13.
 - **A long session:** the tempting request arrives after a lot of unrelated work in one session. This is the direct test of "the gate catches what the agent forgets".
 
-A second model (Haiku 5.5, conditions A, C, D, E) is in progress and is reported separately; by the plan it can't change this verdict.
+### 5. The second model (reported, not judged)
+
+Haiku 5.5 on A, C, D and E, 36 runs, $3.11 ([`full-1-haiku.md`](../benchmark/full-1-haiku.md)). Rules broken in 9 runs each: **A 13, C 0, D 9, E 0**; rule tests changed: D 15, others 0.
+
+- The question was whether enforcement matters more with a less careful model. **On these tasks it doesn't:** the notes file again matched SeamSpec, and the gates again never fired.
+- **Plain tests did worse than with Sonnet:** more rewritten tests, and rules broken in a task where Sonnet had kept them.
+
+So the weaker model strengthens the two claims about plain tests and leaves everything in section 3 as it is. "The gate catches what the agent forgets" still has no evidence; the long-session test is where it could get some.
 
 **Alternatives considered:**
 - **Lead with enforcement anyway** ("it would matter with a weaker model"). Not without data. The second model and the long-session test are how that claim gets earned.
@@ -90,5 +97,6 @@ None.
 ## Consequences
 
 - SPEC §23 records the result; §24 and §25 change as in section 3; the README (not yet written) follows this record.
+- Both models agree, so the positioning does not depend on which one a user runs.
 - The capture and long-session tests join the plan before launch (ADR-20261013-f4a8 orders the remaining v0.1 work).
 - B ≈ C and E ≈ C, first seen in the rough run (ADR-20261006-b270) and the quick E run (ADR-20261007-e1a7), are now confirmed at five runs per cell on three tasks.

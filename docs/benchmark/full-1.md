@@ -258,6 +258,7 @@ Fixed in the plan before the run (ADR-20261013-9d41, section 5):
 |---|---|---|
 | T3 calibration, baseline only (`calib-t3`) | 2 | $2.38 |
 | **Counted run (`full-1`)** | 120 | **$111.94** |
-| Second model, Haiku 5.5 (`full-1-haiku`): in progress, reported separately when complete | 36 planned | about $3 expected |
+| Second model, Haiku 5.5 (`full-1-haiku`, [results](full-1-haiku.md)) | 36 | $3.11 |
+| Total | | **$117.43** |
 
 Raw results and session logs are in `bench/results/full-1/` (local, git-ignored); the scripts that produced them are in `bench/`.
