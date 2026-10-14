@@ -142,6 +142,14 @@ def init(
             help="Add the CI workflow (enforced mode asks when omitted; strict always adds it; advisory never).",
         ),
     ] = None,
+    hosts: Annotated[
+        str | None,
+        typer.Option(
+            "--hosts",
+            help="Also set SeamSpec up for these tools: cursor,vscode,antigravity (or none). When omitted, "
+            "asks about the ones whose folder exists here.",
+        ),
+    ] = None,
     accept_auto_run: Annotated[
         bool,
         typer.Option(
@@ -242,6 +250,7 @@ def init(
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
     _init_ci(root, report.mode, ci)
     _init_plugin(root, plugin)
+    _init_hosts(root, hosts)
 
 
 def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
@@ -280,6 +289,36 @@ def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
     if mode == "strict":
         typer.echo(f"  {ci_installer.install_codeowners(root, cfg):<9} {ci_installer.CODEOWNERS_REL}"
                    " (replace @your-team/leads with your reviewers)")  # fmt: skip
+
+
+def _init_hosts(root: Path, wanted: str | None) -> None:
+    """Cursor, VS Code and Antigravity (ADR-20261013-e8f3): project files only, merged, asked first."""
+    from .installers import hosts as host_installer
+
+    if wanted is not None and wanted.strip().lower() == "none":
+        return
+    if wanted is not None:
+        chosen = [h.strip().lower() for h in wanted.split(",") if h.strip()]
+        unknown = [h for h in chosen if h not in host_installer.HOSTS]
+        if unknown:
+            raise _fail(f"unknown tool(s): {', '.join(unknown)}; choose from {', '.join(host_installer.HOSTS)}")
+    else:
+        found = host_installer.detect(root)
+        if not found:
+            return
+        if not _interactive():
+            names = ", ".join(host_installer.NAMES[h] for h in found)
+            typer.echo(f"Also found {names}: run `seamspec init --hosts {','.join(found)}` to set SeamSpec up there.")
+            return
+        chosen = [h for h in found if typer.confirm(
+            f"Set SeamSpec up for {host_installer.NAMES[h]} too (rules in AGENTS.md, its MCP config, hooks and"
+            " /seamspec-* commands)?", default=True)]  # fmt: skip
+    for host in chosen:
+        typer.echo(f"{host_installer.NAMES[host]}:")
+        for change in host_installer.install(root, host):
+            typer.echo(f"  {change.status:<9} {change.path}")
+    if chosen:
+        typer.echo("  The hooks run `seamspec` from your PATH; start a new chat (or reload the window) to load them.")
 
 
 def _init_plugin(root: Path, wanted: bool | None) -> None:
@@ -884,12 +923,21 @@ def mcp_cmd() -> None:
 
 @app.command(hidden=True)
 def hook(
-    host: Annotated[str, typer.Argument(help="Host adapter: claude")],
+    host: Annotated[str, typer.Argument(help="Host adapter: claude | cursor | vscode | antigravity")],
     event: Annotated[str, typer.Argument(help="Hook event: pre-tool-use | stop | session-start | config-change")],
 ) -> None:
     """Internal: host hook entry point. Reads the hook payload on stdin; always exits 0."""
+    if host in ("cursor", "vscode", "antigravity"):  # ADR-20261013-e8f3
+        from .adapters import hosts as other_hosts
+
+        if event not in other_hosts.EVENTS:
+            typer.echo(f"seamspec hook: unknown event {event!r} for {host}", err=True)
+            return
+        if out := other_hosts.main(host, event):
+            typer.echo(out)
+        return
     if host != "claude":
-        typer.echo(f"seamspec hook: unknown host {host!r} (v0.1 supports claude)", err=True)
+        typer.echo(f"seamspec hook: unknown host {host!r} (claude, cursor, vscode, antigravity)", err=True)
         return
     from .adapters import claude
 

@@ -74,3 +74,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261013-b7d2](ADR-20261013-b7d2-seamspec-reviewer-agent.md) | SeamSpec's reviewer, a separate read-only agent that explains what waits for review | ACCEPTED |
 | [ADR-20261013-c1a9](ADR-20261013-c1a9-critical-rules.md) | Critical rules: a few rules the agent always sees in full | ACCEPTED |
 | [ADR-20261013-d9e4](ADR-20261013-d9e4-braindump-in-v01.md) | BRAINDUMP in v0.1, as designed in §13, with five changes | ACCEPTED |
+| [ADR-20261013-e8f3](ADR-20261013-e8f3-cursor-vscode-antigravity.md) | Cursor, VS Code and Antigravity in v0.1: rules, tools, session-start and stop hooks | ACCEPTED |

@@ -147,6 +147,15 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
         else:
             message = "the SeamSpec block in CLAUDE.md is missing or outdated: rerun `seamspec init`"
         report.add("warning", "directive", message)
+    agents = root / directive.AGENTS_FILE  # Cursor, VS Code, Antigravity (ADR-20261013-e8f3)
+    if (
+        agents.is_file()
+        and directive.BEGIN_PREFIX in agents.read_text(encoding="utf-8")
+        and directive.drift(root, directive.AGENTS_FILE)
+    ):
+        report.add(
+            "warning", "directive", "the SeamSpec block in AGENTS.md is outdated: rerun `seamspec init --hosts …`"
+        )
     hooks = _git(root, "rev-parse", "--git-path", "hooks")
     hook = (root / hooks.strip() / "pre-commit") if hooks else None
     text = hook.read_text(encoding="utf-8", errors="replace") if hook and hook.is_file() else ""
