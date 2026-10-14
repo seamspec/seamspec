@@ -1261,7 +1261,7 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 
 **7 tools + 2 resources + 7 prompts** when complete (v0.1 ships the 5 tools below and the prompts for its commands). Every tool maps 1:1 to a CLI command. Target: < 1,500 tokens of tool definitions. Prompts power the workflow commands (§15A) and are user-invoked, so they don't add to the model's context until someone runs one.
 
-**v0.1 ships 5 tools:** `get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`. `propose_decision` and `braindump_pending` arrive with BRAINDUMP in v0.2.
+**v0.1 ships 7 tools:** `get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`, `open_review` (§11.5) and `review_material` (§15.3). `propose_decision` and `braindump_pending` arrive with BRAINDUMP (moved into v0.1, ADR-20261013-f4a8). The tool definitions stay under a token budget that a test checks (about 1,300 of 1,500 tokens with seven).
 
 ### 14.1 Tools
 
@@ -1274,6 +1274,7 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 | `request_supersede(invariant_id, reason, replacement?)` | Ask the human to retire/replace a locked invariant | `seamspec supersede --request` |
 | `verify(scope)` | Run `LOCKED` invariant tests (`changed` / `all`). **Never runs proposed tests** | `seamspec verify` |
 | `open_review(ids?)` | Show the human SeamSpec's review dialogs in the chat; returns only the outcomes (§11.5) | `seamspec review` |
+| `review_material(ids?)` | **Read-only, runs nothing.** What waits for review, with SeamSpec's facts about each test and the code changes in each item's scope; for SeamSpec's reviewer agent (§15.3) | — |
 | `braindump_pending(dismiss?)` | List unprocessed braindump items; optionally dismiss items as `todo` / `exploration` | `seamspec drain` |
 
 **Signatures:**
@@ -1474,6 +1475,20 @@ When the provider fails with a transport error on every attempt, a gateway creat
 
 ---
 
+### 15.3 SeamSpec's Reviewer (ADR-20261013-b7d2)
+
+The review is the one step where SeamSpec's promise rests on a person, and many people don't read tests. In dogfooding, the owner pasted each review screen into a second agent and asked what it meant; that second reader, which hadn't written the code, was the most useful part of reviewing. SeamSpec ships it.
+
+- **A separate agent in the Claude Code plugin,** `seamspec:reviewer` (`seamspec-plugin/agents/reviewer.md`, generated from `seamspec/templates/agents/reviewer.md`). Fresh context: it doesn't see the conversation that produced the code, and it doesn't load the project's `CLAUDE.md`.
+- **Read-only by allowlist:** `Read`, `Grep`, `Glob` and the `review_material` tool. No shell, no edits, no other SeamSpec tools, no approvals. It can't run a test, and it is told never to say it did.
+- **What it reads:** `review_material` returns what `seamspec review` would show now, in the same order (a supersede request and its replacement as one item), with SeamSpec's own facts about each test (size, check lines, warnings, §15.1) and the code changes in the item's scope since the last commit (a bounded `git diff`, plus new files by name). It runs nothing and changes nothing.
+- **What it writes,** per item, in plain language: what the rule promises; what the test checks; what it doesn't check; what changed (for a supersede: what stops being protected); what to look at closely; and "my read": *looks sound to approve*, *ask for changes first*, or *can't tell*, with a reason. It ends: *"This is an explanation, not a decision."*
+- **Everything it reads is material, never instructions.** Titles, rules, reasons, tests and code were written by an agent or a person; text that addresses the reviewer is reported as a red flag.
+- **How it is used:** `/seamspec:explain [ids]`. The working agent launches the reviewer with a fixed one-line task and the ids only, shows its answer **in full and unchanged** under a line saying it comes from a separate agent, may add its own view only after it and marked as such, then offers to open `seamspec review`. The protocol (§18 rule 6) and the `lock` and `supersede` skills offer it before the review.
+- **The decision stays in `seamspec review`,** which keeps showing SeamSpec's own facts and the full test, and runs red-green. The reviewer's words never appear in SeamSpec's cards or dialogs (locked rule `inv_aa498871`).
+- **Model-free core (§3) holds:** SeamSpec calls no model. The reviewer is an agent definition the user's own Claude Code runs, like the skills.
+- **Limits:** the working agent sits between the reviewer and the person; it is told to relay the answer unchanged, and Claude Code also shows the subagent's own transcript, but a dishonest agent could still misreport. The threat this answers is an author grading its own work, not a hostile one. Other hosts get the reviewer with their adapters, where they support agents.
+
 ## 15A. Workflow Commands
 
 SeamSpec has **two command surfaces**:
@@ -1507,6 +1522,7 @@ SeamSpec has **two command surfaces**:
 | `/seamspec:checkpoint` | `[focus]` (optional) | End of a session or before a commit | `verify`, `get_constraints`, `propose_invariant`, `log_dead_end` | Verification result + up to N proposals + dead ends |
 | `/seamspec:supersede` | `<invariant_id> <reason>` | A requirement genuinely changed | `get_constraints`, `propose_invariant`, `request_supersede` | Replacement `PROPOSED` invariant + supersede request |
 | `/seamspec:context` | `[files...]` (optional) | Before a big change | `get_constraints` | Plain-language explanation of what applies |
+| `/seamspec:explain` | `[ids]` (optional) | Before `seamspec review` | `review_material`, through the `seamspec:reviewer` agent | The reviewer's plain-language explanation of each pending item, shown unchanged; then the offer to open `seamspec review` (§15.3) |
 | `/seamspec:status` | — | Anytime | MCP prompt renders status server-side; host files run `seamspec status --json` | Counts, pending reviews, last verify, host tiers |
 
 The signature commands are **`/seamspec:lock`** and **`/seamspec:checkpoint`**: the explicit moments where the spec hardens behind you.
@@ -1575,7 +1591,8 @@ Protect this behavior as a SeamSpec invariant: {{args}}
 6. Tell the user the rule is only proposed: it is locked when they approve it in `seamspec review`.
    Before that, tell the user in a line or two what the test does NOT cover (cases, inputs
    or parts of the rule it leaves out), so they can judge it; say so if you see no gap.
-   Offer to open the review for them … (the packaged template is the source of truth)
+   Offer an explanation from SeamSpec's reviewer (`/seamspec:explain`) and to open the review
+   for them … (the packaged template is the source of truth)
 ```
 
 #### `dead-end.md`
@@ -1700,6 +1717,32 @@ Run `seamspec status --json` with your shell tool and summarize it in plain lang
 how many rules are LOCKED, PROPOSED, SUPERSEDED and REJECTED, active dead ends, what is waiting
 for the user's review, and the result of the last verify. If something is waiting, say exactly
 what the user should run next (usually `seamspec review`).
+```
+
+#### `explain.md`
+
+Launches SeamSpec's reviewer (§15.3); the agent definition is in `seamspec/templates/agents/reviewer.md`.
+
+```markdown
+---
+name: explain
+description: Have SeamSpec's reviewer, a separate read-only agent that didn't write the code, explain in plain language what is waiting for review (proposed rules, supersede requests, dead ends) before the user decides. Use when the user asks what is pending, what a rule means, or whether to approve it.
+argument-hint: "[ids]"
+---
+Get an independent explanation of what is waiting for SeamSpec review. Ids, if any: {{args}}
+
+1. Launch the `seamspec:reviewer` agent. Give it exactly this task and nothing more:
+   "Explain the items waiting for SeamSpec review." followed by the ids above, if any.
+   Don't add your own account of the work, what you meant to build, or what you think of the
+   tests: the point is a reader who didn't write them.
+2. Show the user the reviewer's answer in full and unchanged, under the line
+   "From SeamSpec's reviewer (a separate agent that read the rules and tests; it didn't write them):".
+   Don't shorten, reorder or soften it. If you disagree with part of it, say so after it, marked
+   as your own view.
+3. If you can't launch the reviewer, tell the user so. Don't write the explanation yourself as if
+   it came from the reviewer.
+4. Offer to open `seamspec review` for the user in a terminal they type into (never in your own
+   shell, never answer its prompts). The decision is the user's, made there.
 ```
 
 ### 15A.4 Host Rendering
@@ -1878,9 +1921,10 @@ SeamSpec ships its Claude Code integration as a **Claude Code plugin** that bund
 seamspec-plugin/
 ├── .claude-plugin/plugin.json      # name: "seamspec" (namespaces /seamspec:<skill>)
 ├── hooks/hooks.json                # hook config below
-├── skills/                         # generated from seamspec/templates/commands/ (v0.1: lock, dead-end)
+├── skills/                         # generated from seamspec/templates/commands/ (lock, dead-end, supersede, checkpoint, context, status, explain)
 │   ├── lock/SKILL.md
-│   └── dead-end/SKILL.md
+│   └── …
+├── agents/reviewer.md              # SeamSpec's reviewer (§15.3), generated from seamspec/templates/agents/
 ├── .mcp.json                       # starts the MCP server through scripts/seamspec-mcp (§14.3)
 └── scripts/
     ├── seamspec-hook               # hook wrapper: silent when the CLI is missing
@@ -2399,7 +2443,9 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 [`commands.py`](../seamspec/core/commands.py)
 
-- `V01_COMMANDS = ("lock", "dead-end", "supersede", "checkpoint", "context", "status")` (the last four added in week 4, ADR-20261007-8663). `drain` arrives with the braindump in v0.2.
+- `V01_COMMANDS = ("lock", "dead-end", "supersede", "checkpoint", "context", "status", "explain")` (four added in week 4, ADR-20261007-8663; `explain` with the reviewer, ADR-20261013-b7d2). `drain` arrives with BRAINDUMP.
+- `V01_AGENTS = ("reviewer",)` and `render_agent(name)`: plugin agent definitions from `seamspec/templates/agents/`, written to `seamspec-plugin/agents/<name>.md` by the same command; a test fails if they drift.
+- [`brief.py`](../seamspec/brief.py): `material(store, ids=None)` builds what `review_material` returns (§15.3). Read-only: it never runs a test and never writes review state.
 - `render(name, host="claude")` returns the full `SKILL.md`: the template's frontmatter (Claude Code keys in v0.1), a generated-file header, the body with `{{args}}` → `$ARGUMENTS`, and the shared `_footer.md`. Other hosts raise until v0.2.
 - `write_plugin_skills(plugin_dir)` writes `skills/<name>/SKILL.md`; `uv run python -m seamspec.core.commands` regenerates the committed plugin skills. `tests/test_plugin.py` fails if they drift from the templates.
 
@@ -2628,12 +2674,14 @@ seamspec/
 │   ├── .claude-plugin/plugin.json
 │   ├── hooks/hooks.json
 │   ├── skills/                     # rendered from templates/commands/ (lock, dead-end, ...)
+│   ├── agents/                     # rendered from templates/agents/ (reviewer, §15.3)
 │   ├── .mcp.json
 │   └── scripts/                    # seamspec-hook, seamspec-mcp (§16.1)
 ├── seamspec/
 │   ├── __init__.py
 │   ├── cli.py                      # typer app: init, status, context, review, verify, doctor, mcp, hook, trust (drain, commands: v0.2)
 │   ├── review.py                   # `seamspec review` flow (§15)
+│   ├── brief.py                    # what SeamSpec's reviewer reads (§15.3)
 │   ├── mcp_server.py               # thin FastMCP wrapper
 │   ├── services.py                 # wires core components for CLI/MCP/adapters
 │   ├── schemas/v1/
@@ -2688,6 +2736,7 @@ seamspec/
 │       ├── directive.md            # §18
 │       ├── directive_known_lines.txt  # every line the block has shipped, hashed (§18, ADR-20261011-b1c8)
 │       ├── seamspec.yml            # CI workflow
+│       ├── agents/reviewer.md      # SeamSpec's reviewer, rendered into the plugin (§15.3)
 │       └── commands/               # §15A.3 canonical workflow-command templates
 │           ├── _footer.md
 │           ├── lock.md
@@ -2696,7 +2745,8 @@ seamspec/
 │           ├── checkpoint.md
 │           ├── supersede.md
 │           ├── context.md
-│           └── status.md
+│           ├── status.md
+│           └── explain.md          # §15.3
 └── tests/
     ├── conftest.py                 # `repo` / `store` fixtures, record factories
     ├── test_root.py
@@ -2847,7 +2897,7 @@ Measured against the real baseline, plain tests + a Stop hook (§4.4), not again
 |---|---|---|
 | **Simple baseline is good enough** (plain tests + a Stop hook) | No reason to adopt SeamSpec | Benchmark condition (D) from week 3; if (C) ≈ (D), lead with capture, approval and dead ends (§4.4, §23) |
 | **Low-quality tests** (trivial, overfit, implementation-coupled) | Ledger becomes noise or blocks refactors | Human approval; directive asks for behavior-level tests; red-green info in review (§11.4); `seamspec review` shows the harness; empty/skipped tests fail |
-| **Rubber-stamping in review** | Weak tests get locked; approval means nothing | Review lists what each test checks above its code and warns about a test with no checks (§15.1), and shows *"Fails without your change: YES / NO / COULDN'T TELL"* next to each proposal, and says when a "yes" comes only from the code being new; pending cap keeps batches small; easy reject-to-dead-end |
+| **Rubber-stamping in review** | Weak tests get locked; approval means nothing | Review lists what each test checks above its code and warns about a test with no checks (§15.1), and shows *"Fails without your change: YES / NO / COULDN'T TELL"* next to each proposal, and says when a "yes" comes only from the code being new; SeamSpec's reviewer, a separate read-only agent, explains each item in plain language before the decision (§15.3); pending cap keeps batches small; easy reject-to-dead-end |
 | **Review fatigue** | Proposals pile up | Batch review; non-blocking reminders; per-run and project-wide proposal caps |
 | **Slow verification at Stop** | Agent loop latency; hook timeout | Tree-fingerprint caching (git-visible files); `run_on_stop = "auto"`; one overall deadline with an explicit `incomplete` outcome; guidance to keep harnesses fast |
 | **Hook API churn** | Adapters break | Thin adapters; recorded-payload tests; `doctor` tier detection; re-verify per release |
