@@ -24,7 +24,7 @@ from mcp.server.request_state import RequestStateSecurity
 from mcp_types import InputRequiredResult, ListRootsResult
 from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
-from . import chat_review
+from . import brief, chat_review
 from .core import adr, lifecycle, runners, tree, verifier
 from .core.config import Config, ConfigError, RunnerCfg, load_config
 from .core.context import constraints_for
@@ -332,6 +332,17 @@ def open_review(ctx: Context, ids: list[str] | None = None) -> dict[str, Any] | 
                                 [svc.root, Path.cwd()])  # fmt: skip
 
     return _with_services(run)
+
+
+@mcp.tool()
+def review_material(ids: list[str] | None = None, roots: SessionRoots = None) -> dict[str, Any]:
+    """Read-only, runs nothing. What waits for human review, with SeamSpec's facts about each test
+    and the code changes in its scope. For SeamSpec's reviewer agent."""
+
+    def run(svc: Services) -> dict[str, Any]:
+        return brief.material(svc.store, ids)
+
+    return _with_services(run, roots)
 
 
 @mcp.resource("seamspec://adrs", description="One line per decision record: id, title, status, scopes.")
