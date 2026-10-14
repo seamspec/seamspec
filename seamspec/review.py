@@ -289,10 +289,28 @@ def _review_decisions(store: Store, decisions: list[adr.Adr], tally: Tally) -> N
         for line in record.body.splitlines():
             if not line.startswith("# "):
                 typer.echo(f"  {line}" if line else "")
-        key = _choice("[a]ccept  [r]eject  [s]kip  [q]uit", "arsq", "s")
+        left = len(decisions) - n + 1
+        if left > 1:  # a long plan can leave a pile of them (hands-on test, ADR-20261014-8a57)
+            key = _choice(f"[a]ccept  [r]eject  [x] reject this and the {left - 1} after it  [s]kip  [q]uit",
+                          "arxsq", "s")  # fmt: skip
+        else:
+            key = _choice("[a]ccept  [r]eject  [s]kip  [q]uit", "arsq", "s")
         if key == "s":
             tally.skipped.append(record.id)
             continue
+        if key == "x":
+            rest = decisions[n - 1 :]
+            typer.echo("  This rejects:")
+            for other in rest:
+                typer.echo(f"    {other.id}  {cut(other.title, 70)}")
+            if not typer.confirm(f"  Reject all {len(rest)}?", default=False):
+                tally.skipped.append(record.id)
+                continue
+            for other in rest:
+                lifecycle.decide_decision(store, other.id, accept=False)
+                tally.rejected.append(other.id)
+            typer.echo(f"  REJECTED {len(rest)} decisions")
+            return
         lifecycle.decide_decision(store, record.id, accept=key == "a")
         (tally.approved if key == "a" else tally.rejected).append(record.id)
         typer.echo(f"  {'ACCEPTED' if key == 'a' else 'REJECTED'} {record.id}")

@@ -498,7 +498,7 @@ hosts = ["auto"]               # auto | claude | cursor | vscode (v0.1: claude)
 max_proposals_per_run = 3      # cap for /seamspec:checkpoint and /seamspec:drain
 
 [proposals]
-max_pending = 10               # project-wide cap on PROPOSED invariants awaiting review
+max_pending = 10               # project-wide cap on what awaits review: proposed rules + proposed decisions
 
 [execution]                    # §12.4 Execution Consent
 run_proposed = "auto"          # auto | host | ask | never — how proposed (unapproved) tests may run (v0.1: host | never; ask = v0.2)
@@ -753,13 +753,13 @@ stateDiagram-v2
 
 | Transition | Actor | Preconditions | Effects |
 |---|---|---|---|
-| → `PROPOSED` | Agent or human | Valid schema; runner exists; harness written by SeamSpec; fewer than `proposals.max_pending` invariants already `PROPOSED` (agent only; humans and `replace_id` updates are exempt). **Nothing is executed**; verification is `pending` until run through a consented path (§12.4) | Record + harness + draft ADR created |
+| → `PROPOSED` | Agent or human | Valid schema; runner exists; harness written by SeamSpec; fewer than `proposals.max_pending` items already awaiting review: `PROPOSED` invariants plus proposed decisions with no rule of their own (agent only; humans and `replace_id` updates are exempt; ADR-20261014-8a57). **Nothing is executed**; verification is `pending` until run through a consented path (§12.4) | Record + harness + draft ADR created |
 | `PROPOSED` → `PROPOSED` | Agent | `replace_id` points to a `PROPOSED` record | Harness/assertion updated; verification reset to `pending` |
 | `PROPOSED` → `LOCKED` | **Human only** | Interactive TTY, or the human's answer in a SeamSpec chat dialog (§11.5); human has been shown the full harness **and its red-green result** (§11.4); harness passes when run at approval | Harness moved from `.seamspec/proposed/` into the runner's `harness_dir`; hashes computed; runner config fingerprints confirmed (§12.2); `approved_at/by` set; ADR → `ACCEPTED` |
 | `PROPOSED` → `REJECTED` | Human | Reason given | `review` then asks *"Also record as dead end? [y/N]"* (default **No**); `reject --dead-end` does the same non-interactively. Never automatic |
 | `LOCKED` → `SUPERSEDED` | **Human only** | Pending supersede request or explicit command; replacement invariant, which must already be `LOCKED` (may be `null` for pure retirement, with reason) | Old record keeps history; excluded from verification; ADR → `SUPERSEDED` |
 
-**Pending-proposal cap.** When `proposals.max_pending` is reached, `propose_invariant` returns `{ "error": "queue_full", "pending": 10, "message": "Review queue is full. Ask the user to run `seamspec review`." }` and writes nothing. The cap applies to the review backlog, not to a single session, because the backlog is what overwhelms the human. Dead ends are not capped (they need no approval).
+**Pending-proposal cap.** The backlog counts `PROPOSED` invariants and proposed decisions with no rule of their own (one long plan once became 20 decisions in a single sort; ADR-20261014-8a57). When `proposals.max_pending` is reached, `propose_invariant` and `propose_decision` return `{ "error": "queue_full", "pending": 10, "message": "Review queue is full. Ask the user to run `seamspec review`." }` and writes nothing. The cap applies to the review backlog, not to a single session, because the backlog is what overwhelms the human. Dead ends are not capped (they need no approval).
 
 **Why rejection doesn't auto-create a dead end.** People reject proposals for different reasons: bad wording, wrong scope, or a genuinely wrong approach. Only the last one is a dead end, so the human decides with one key. When they say yes, the dead end gets the proposal's scope, `approach` = the assertion, and `failure_symptom` = the rejection reason.
 
@@ -1262,7 +1262,7 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 **Rules**
 
 - **Ask, never auto-drain.** Draining spends the user's tokens and records dead ends immediately, so it needs a yes. A yes runs the normal drain (§13.6); every rule it proposes still waits for `seamspec review`.
-- **Nudge only on change.** `.seamspec/.local/nudge.json` stores a hash of the pending item ids at the last nudge. If the user declined and wrote nothing new, later sessions stay quiet. New items → nudge again.
+- **Nudge only on change.** `.seamspec/.local/nudge.json` stores a hash of the pending item ids and the project's files (`tree.tree_fingerprint`: `HEAD` plus changed and untracked, non-ignored files) at the last nudge. If the user declined and neither the notes nor the code changed, later sessions stay quiet. New items, or changed code, → nudge again: an offer can go unanswered in a chat that starts with a task, and a note can wait for code that now exists (hands-on test, ADR-20261014-8a57).
 - **Once per session.** After a no, the agent doesn't offer again in that session (§18 rule 10).
 - **Startup and clear only.** Not on resume or compaction, so it never interrupts a task in progress.
 - **Fail silent.** Any error → no output. The nudge is convenience, never enforcement.
@@ -1395,7 +1395,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec init [--mode advisory\|enforced\|strict] [--hosts cursor,vscode,antigravity\|none] [--ci\|--no-ci] [--accept-auto-run] [--plugin\|--no-plugin]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install (asks first; `--plugin`/`--no-plugin` for scripts, §16.1), Cursor / VS Code / Antigravity project files (`--hosts`; asks for each host whose folder exists, §16.2–§16.3a), `BRAINDUMP.md` (§13), pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
 | `seamspec status [--json]` | Counts by status, pending reviews, new braindump notes, last verify result, detected host tiers |
 | `seamspec context <files...>` | Human/agent-readable constraints for files (MCP-free fallback) |
-| `seamspec review` | Interactive pass over everything waiting for a human, in this order (ADR-20261005-b7e2): **runner config changes** (shown in full; until confirmed, approvals are blocked), **dead ends recorded since the last review** (`k`eep / `w`rong, retire it), **supersede requests** (`a`pprove / `d`ecline / `s`kip; a request and its proposed replacement are shown together and decided as one, §11.2), **proposed invariants** oldest first: full test code, then the optional red-green check (§11.4), then `a`pprove / `r`eject / `s`kip. `q` stops at any point; undecided items stay waiting. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"*. Then **proposed decisions** (ADRs with no rule of their own, e.g. from `propose_decision`): `a`ccept / `r`eject / `s`kip; accepting records the decision and enforces nothing (ADR-20261013-d9e4) |
+| `seamspec review` | Interactive pass over everything waiting for a human, in this order (ADR-20261005-b7e2): **runner config changes** (shown in full; until confirmed, approvals are blocked), **dead ends recorded since the last review** (`k`eep / `w`rong, retire it), **supersede requests** (`a`pprove / `d`ecline / `s`kip; a request and its proposed replacement are shown together and decided as one, §11.2), **proposed invariants** oldest first: full test code, then the optional red-green check (§11.4), then `a`pprove / `r`eject / `s`kip. `q` stops at any point; undecided items stay waiting. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"*. Then **proposed decisions** (ADRs with no rule of their own, e.g. from `propose_decision`): `a`ccept / `r`eject / `s`kip, and while more than one is left, `x` rejects this one and every one after it, after listing them and asking *"Reject all N?"*; accepting records the decision and enforces nothing (ADR-20261013-d9e4, ADR-20261014-8a57) |
 | `seamspec approve <id>` / `reject <id> --reason [--dead-end]` | Non-batch equivalents (human only). `approve` shows the full test; if runner config changed, it shows the changed files and asks to confirm them too, otherwise it refuses (ADR-20261005-b7e2) |
 | `seamspec supersede <id> --reason [--replacement <id>]` | Human-initiated supersede, or approve a pending request |
 | `seamspec critical <id> [--off]` | Mark a proposed or locked rule **critical**, or clear the mark (human only). A critical rule is always shown to the agent in full, however many rules there are; it is enforced exactly like any other. Journaled as a note (`critical_marked` / `critical_cleared`), not a status change (ADR-20261013-c1a9) |
@@ -1664,8 +1664,9 @@ Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 6. **exploration** and **task:** dismiss them all in one call:
    `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo"})`, or without the tools
    `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=todo`. They stay in the file.
-7. Propose at most 3 rules in one sort (or `commands.max_proposals_per_run` from
-   `.seamspec/config.toml`); leave the rest pending and say so.
+7. Propose at most 3 rules and decisions together in one sort (or `commands.max_proposals_per_run`
+   from `.seamspec/config.toml`); leave the rest pending and say so. If a tool answers `queue_full`,
+   stop proposing and ask the user to review what's waiting first.
 8. Never edit BRAINDUMP.md: the notes are the user's. `seamspec drain --tidy` is theirs to run.
 9. Tell the user what each note became. Rules and decisions wait for them in `seamspec review`;
    offer an explanation from SeamSpec's reviewer (`/seamspec:explain`) first.
@@ -2459,7 +2460,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 [`lifecycle.py`](../seamspec/core/lifecycle.py), [`journal.py`](../seamspec/core/journal.py), [`requests.py`](../seamspec/core/requests.py), [`adr.py`](../seamspec/core/adr.py), [`redact.py`](../seamspec/core/redact.py). Behavior is §11; the contract:
 
 - **Agent-side** (no terminal needed):
-  - `propose_invariant(...)` writes the harness to `.seamspec/proposed/<id>/<runner filename>` and the record as `PROPOSED`, and **runs nothing**. It returns `queue_full` at `proposals.max_pending` (`replace_id` updates and `by_human=True` are exempt). An optional `adr_draft` creates a `PROPOSED` ADR and links it.
+  - `propose_invariant(...)` writes the harness to `.seamspec/proposed/<id>/<runner filename>` and the record as `PROPOSED`, and **runs nothing**. It returns `queue_full` at `proposals.max_pending` (`replace_id` updates and `by_human=True` are exempt). `pending_count(store)` is the backlog: proposed rules plus proposed decisions with no rule of their own; `propose_decision` returns `queue_full` at the same cap and writes nothing. An optional `adr_draft` creates a `PROPOSED` ADR and links it.
   - `log_dead_end(...)` creates an `ACTIVE` dead end; `failure_symptom` is cut to 1,000 characters.
   - `request_supersede(...)` saves a request in `.seamspec/.local/requests/<inv_id>.json`. Only for `LOCKED` invariants; it changes no record.
 - **Human-only:** `approve`, `reject`, `supersede`, `retire_dead_end` call `require_interactive(via)` (stdin and stdout must be a TTY; `SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE=1` overrides it for scripts and tests, a speed bump, not a boundary). `retire_dead_end` is journaled too (`ACTIVE → RETIRED`). They take `via="terminal" | "chat"`: only the chat review (§11.5) passes `"chat"`, which skips the TTY check because the human answered SeamSpec's dialog. `via` is written to the record's `decided_via` and, with the chat `client`, to the journal. `journal.note(store, event, **fields)` records events that aren't status changes. `set_critical(store, inv_id, critical, …)` (human-only, proposed or locked rules) sets or clears `critical` and writes a `critical_marked` / `critical_cleared` note (ADR-20261013-c1a9).

@@ -77,3 +77,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261013-e8f3](ADR-20261013-e8f3-cursor-vscode-antigravity.md) | Cursor, VS Code and Antigravity in v0.1: rules, tools, session-start and stop hooks | ACCEPTED |
 | [ADR-20261014-3b1e](ADR-20261014-3b1e-commit-check-tests-staged-files.md) | The commit check tests what the commit records, not the files on disk | ACCEPTED |
 | [ADR-20261014-6c2d](ADR-20261014-6c2d-antigravity-hands-on-fixes.md) | Fixes from the Antigravity hands-on test: project folder for the server, tool fallbacks, drain --dismiss | ACCEPTED |
+| [ADR-20261014-8a57](ADR-20261014-8a57-braindump-sorting-limits.md) | BRAINDUMP sorting: decisions count toward the review cap, reject the rest at once, offer again when the code changes | ACCEPTED |
