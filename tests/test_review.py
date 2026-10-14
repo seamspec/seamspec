@@ -171,7 +171,7 @@ def test_no_guess_when_the_runner_cant_be_redirected(editable_repo: Path, monkey
     """A runner that isn't started from a Python script (a binary, a Windows launcher) can't be
     pointed at HEAD's code. With an editable install present, the honest answer is "n/a"."""
     fake_editable_install(editable_repo, str(editable_repo / "lib"))
-    monkeypatch.setattr(redgreen, "_shim_runner", lambda *args: False)
+    monkeypatch.setattr(redgreen, "shim_runner", lambda *args: False)
     inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
     result = check(editable_repo, inv_id)
     assert result.verdict == "n/a" and "editable mode" in result.detail
@@ -271,7 +271,7 @@ def test_the_runner_is_found_the_way_the_verifier_finds_it(git_repo: Path, tmp_p
     cfg = load_config(git_repo)
     assert cfg.runners["pytest"].env == {"PATH": str(own)}
     shims = tmp_path_factory.mktemp("shims")
-    assert redgreen._shim_runner(cfg, "pytest", git_repo, shims, git_repo, git_repo)
+    assert redgreen.shim_runner(cfg, "pytest", git_repo, shims, git_repo, git_repo)
     assert "THE RUNNER'S OWN PYTEST" in (shims / "pytest").read_text()
 
 
@@ -279,7 +279,7 @@ def test_a_copied_runner_that_never_started_is_not_trusted(
     editable_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """If the copy was made but its first lines never ran, a failing HEAD run says nothing about the test."""
-    monkeypatch.setattr(redgreen, "_shim_runner", lambda *args: True)  # claims a copy; none exists, none runs
+    monkeypatch.setattr(redgreen, "shim_runner", lambda *args: True)  # claims a copy; none exists, none runs
     inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
     result = check(editable_repo, inv_id)
     assert result.verdict == "n/a" and "couldn't be started" in result.detail
