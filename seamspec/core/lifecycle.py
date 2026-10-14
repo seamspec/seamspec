@@ -133,8 +133,7 @@ def _from_braindump(
     """A record made from a braindump item marks the item as processed (§13.2). The note's own words
     are remembered when it is still in the file, not the agent's rewording of it."""
     if ref and ref.startswith(BRAINDUMP_REF):
-        items = braindump.pending(store, cfg.braindump.path, cfg.braindump.marker)
-        text = next((i.text for i in items if i.id == ref), text)
+        text = braindump.note_text(store, cfg.braindump.path, cfg.braindump.marker, ref) or text
         text = redact(text) if cfg.braindump.redact_secrets else text
         braindump.record(store, ref, became, record_id, text)
 

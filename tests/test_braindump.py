@@ -291,3 +291,74 @@ def test_braindump_tools_over_mcp(tmp_path: Path, monkeypatch) -> None:
             "scope_paths": ["src/**"], "origin_text": "x"}  # fmt: skip
     made = anyio.run(call, "propose_decision", args)
     assert made["status"] == "PROPOSED" and made["adr_id"].startswith("ADR-")
+
+
+# --- planned rules: notes whose code doesn't exist yet (ADR-20261014-5e3a) ------------------------------
+
+
+def _plan(store: Store, text_start: str) -> str:
+    note = next(i for i in braindump.pending(store, "BRAINDUMP.md", MARKER) if i.text.startswith(text_start))
+    braindump.dismiss(store, "BRAINDUMP.md", MARKER, [{"item_id": note.id, "as": "planned"}])
+    return note.id
+
+
+def test_a_planned_note_is_shown_to_the_agent_until_it_becomes_a_rule(tmp_path: Path, human: None) -> None:
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    planned = _plan(store, "Tenant isolation")
+    assert planned not in {i.id for i in braindump.pending(store, "BRAINDUMP.md", MARKER)}
+    assert [i.id for i in braindump.planned(store, "BRAINDUMP.md", MARKER)] == [planned]
+
+    summary = claude.session_start({"source": "startup"}, store, cfg)["hookSpecificOutput"]["additionalContext"]
+    assert braindump.PLANNED_HEADING in summary and f"- {planned}: Tenant isolation must not leak" in summary
+
+    rule = propose(tmp_path, origin_type="braindump", origin_ref=planned, origin_text="Tenants never leak.")["id"]
+    assert braindump.planned(store, "BRAINDUMP.md", MARKER) == []  # it became that rule
+    entry = braindump.state(store)[planned]
+    assert entry["as"] == "invariant" and entry["ref"] == rule
+    assert entry["preview"].startswith("Tenant isolation must not leak")  # the note's words
+
+
+def test_deleting_the_note_drops_the_plan_and_tidy_keeps_it(tmp_path: Path, human: None, monkeypatch) -> None:
+    store = project(tmp_path)
+    planned = _plan(store, "Tenant isolation")
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["drain", "--tidy"]).exit_code == 0
+    assert "Tenant isolation must not leak" in (tmp_path / "BRAINDUMP.md").read_text().split(MARKER)[0]
+    assert [i.id for i in braindump.planned(store, "BRAINDUMP.md", MARKER)] == [planned]
+
+    text = (tmp_path / "BRAINDUMP.md").read_text()
+    start = text.index("- Tenant isolation")
+    end = text.index("* [x] Look at")
+    (tmp_path / "BRAINDUMP.md").write_text(text[:start] + text[end:])
+    assert braindump.planned(store, "BRAINDUMP.md", MARKER) == []
+
+
+def test_planned_rules_in_status_drain_context_and_get_constraints(tmp_path: Path, monkeypatch) -> None:
+    import anyio
+    from mcp.client import Client
+
+    from seamspec.mcp_server import mcp
+
+    project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    pending = json.loads(runner.invoke(app, ["drain", "--json"]).output)["pending"]
+    tenant = next(p["id"] for p in pending if p["text"].startswith("Tenant"))
+    assert runner.invoke(app, ["drain", "--dismiss", f"{tenant}=planned"]).exit_code == 0
+
+    assert json.loads(runner.invoke(app, ["status", "--json"]).output)["braindump"]["planned"] == 1
+    assert "1 planned rule(s)" in runner.invoke(app, ["status"]).output
+    listed = runner.invoke(app, ["drain"]).output
+    assert "1 planned rule(s), waiting for their code" in listed and tenant in listed
+    assert json.loads(runner.invoke(app, ["drain", "--json"]).output)["planned"][0]["id"] == tenant
+    assert braindump.PLANNED_HEADING in runner.invoke(app, ["context", "src/app.py"]).output
+
+    monkeypatch.setenv("SEAMSPEC_ROOT", str(tmp_path))
+
+    async def call(name: str, args: dict):
+        async with Client(mcp) as client:
+            return json.loads((await client.call_tool(name, args)).content[0].text)
+
+    got = anyio.run(call, "get_constraints", {"files": ["src/app.py"]})
+    assert got["planned"]["rules"][0]["id"] == tenant and got["planned"]["note"] == braindump.PLANNED_HEADING
+    assert anyio.run(call, "braindump_pending", {})["planned"][0]["id"] == tenant

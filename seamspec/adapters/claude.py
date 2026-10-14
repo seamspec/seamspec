@@ -349,7 +349,8 @@ def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[st
     source = payload.get("source", "startup")
     if source not in SESSION_SOURCES:
         return None
-    parts = [t for t in (session_summary(store), _braindump_nudge(store, cfg, source)) if t]
+    plans = "\n".join(braindump.planned_lines(store, cfg.braindump.path, cfg.braindump.marker))
+    parts = [t for t in (session_summary(store), plans, _braindump_nudge(store, cfg, source)) if t]
     if not parts:
         return None
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}

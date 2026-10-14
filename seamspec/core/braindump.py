@@ -33,8 +33,12 @@ FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 HEADING_RE = re.compile(r"^\s{0,3}#{1,6}(\s|$)")
 RULE_RE = re.compile(r"^\s{0,3}([-*_])(\s*\1){2,}\s*$")
 MANAGED_HEADING = "## Processed (managed by SeamSpec)"
-Became = Literal["invariant", "dead_end", "decision", "todo", "exploration"]
-DISMISSALS = ("todo", "exploration")
+Became = Literal["invariant", "dead_end", "decision", "todo", "exploration", "planned"]
+# Set aside without a record. `planned`: a rule whose code doesn't exist yet. It stays in the file,
+# is shown to the agent as a rule the user wants, and becomes a proposed rule once the code exists
+# (ADR-20261014-5e3a).
+DISMISSALS = ("todo", "exploration", "planned")
+PLANNED_TEXT_MAX = 200
 
 
 @dataclass(frozen=True)
@@ -148,7 +152,7 @@ def pending(store: Store, path: str, marker: str) -> list[Item]:
 
 
 def dismiss(store: Store, path: str, marker: str, dismissals: list[dict[str, str]]) -> list[str]:
-    """Record items as `todo` or `exploration`: they stay in the file, and stop being pending."""
+    """Record items as `todo`, `exploration` or `planned`: they stay in the file, and stop being pending."""
     by_id = {i.id: i for i in pending(store, path, marker)}
     done = []
     for d in dismissals:
@@ -160,6 +164,49 @@ def dismiss(store: Store, path: str, marker: str, dismissals: list[dict[str, str
         record(store, iid, kind, None, by_id[iid].text)  # type: ignore[arg-type]
         done.append(iid)
     return done
+
+
+def planned(store: Store, path: str, marker: str) -> list[Item]:
+    """Notes set aside as planned rules that are still in the file. Deleting the note drops the plan;
+    proposing a rule from it (origin_ref = its id) turns it into that rule."""
+    text = read(store.root, path)
+    if text is None:
+        return []
+    done = state(store)
+    return [i for i in parse_items(text, marker) if done.get(i.id, {}).get("as") == "planned"]
+
+
+PLANNED_HEADING = (
+    "SeamSpec: rules the user planned in their notes (not enforced, no test yet). Build to them. When the "
+    'code for one exists and works, propose it as a rule (origin_type="braindump", origin_ref=<its id>):'
+)
+PLANNED_LISTED = 15
+
+
+def planned_lines(store: Store, path: str, marker: str) -> list[str]:
+    """The planned rules for the agent: a heading, one clipped line each, and a count past the limit.
+    Empty when there are none; never raises (it's context, never enforcement)."""
+    try:
+        items = planned(store, path, marker)
+    except Exception:  # noqa: BLE001 - a broken notes file must not break a session start
+        return []
+    if not items:
+        return []
+    lines = [PLANNED_HEADING]
+    for item in items[:PLANNED_LISTED]:
+        flat = " ".join(item.text.split())
+        lines.append(f"- {item.id}: {flat if len(flat) <= PLANNED_TEXT_MAX else flat[: PLANNED_TEXT_MAX - 1] + '…'}")
+    if len(items) > PLANNED_LISTED:
+        lines.append(f"- … and {len(items) - PLANNED_LISTED} more (`seamspec drain --json` lists them all)")
+    return lines
+
+
+def note_text(store: Store, path: str, marker: str, iid: str) -> str | None:
+    """A note's own text, when it is still in the file."""
+    text = read(store.root, path)
+    if text is None:
+        return None
+    return next((i.text for i in parse_items(text, marker) if i.id == iid), None)
 
 
 def nudge_key(items: list[Item]) -> str:
@@ -198,7 +245,7 @@ def tidy(store: Store, path: str, marker: str) -> int:
         return 0
     done = state(store)
     human, _, managed = text.partition(marker)
-    moved = [i for i in parse_items(human, marker) if i.id in done]
+    moved = [i for i in parse_items(human, marker) if i.id in done and done[i.id].get("as") != "planned"]
     if not moved:
         return 0
     for item in moved:

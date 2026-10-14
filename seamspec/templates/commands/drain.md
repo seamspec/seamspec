@@ -5,7 +5,8 @@ argument-hint: "[note ids]"
 ---
 Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 
-1. Call `braindump_pending()` (or run `seamspec drain --json`). If nothing is pending, say so and stop.
+1. Call `braindump_pending()` (or run `seamspec drain --json`). If nothing is pending or planned, say so
+   and stop.
    If SeamSpec's tools are missing or fail, use its commands instead: `seamspec propose`,
    `seamspec propose-decision`, `seamspec dead-end`, each reading the tool's fields as JSON on stdin.
    Never search outside this project for SeamSpec's settings.
@@ -19,13 +20,16 @@ Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 3. **constraint:** if the code it governs exists and works, write a focused behavior-level test and
    call `propose_invariant` with `origin_type="braindump"`, `origin_ref=<note id>` and
    `origin_text=<the note>`; then run `seamspec verify --proposed <id>`. If the code doesn't exist
-   yet, leave the note pending and say so.
+   yet, set the note aside as **planned** (step 6): you'll be shown it as a rule the user wants, and
+   you propose it once its code works. Also look at the notes already planned (`planned` in the
+   result of step 1): propose any whose code now exists and works.
 4. **decision:** `propose_decision` with `origin_ref=<note id>`. If part of it is testable now, also
    propose that part as a rule.
 5. **failed_approach:** `log_dead_end` with `origin_ref=<note id>`.
-6. **exploration** and **task:** dismiss them all in one call:
-   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo"})`, or without the tools
-   `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=todo`. They stay in the file.
+6. **exploration**, **task** and **planned:** set them aside in one call:
+   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo", "<note id>": "planned"})`,
+   or without the tools `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=planned`.
+   They stay in the file.
 7. Propose at most 3 rules and decisions together in one sort (or `commands.max_proposals_per_run`
    from `.seamspec/config.toml`); leave the rest pending and say so. If a tool answers `queue_full`,
    stop proposing and ask the user to review what's waiting first.
