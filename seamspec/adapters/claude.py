@@ -236,8 +236,13 @@ SESSION_SOURCES = ("startup", "clear", "compact")  # resume/fork already carry t
 # Claude Code replaces hook output over 10,000 characters with a file path and a 2,000-character
 # preview, so the summary must stay well under that (ADR-20261011-6b2d).
 SESSION_MAX_CHARS = 8000
+CRITICAL_ASSERTION_MAX = 400  # a critical rule is always listed in full, up to this length each
 
 
+CRITICAL_HEADING = (
+    "SeamSpec: critical rules, always shown in full. A human approved each one and marked it "
+    "critical; each has a test that must keep passing:"
+)
 RULES_HEADING = ("SeamSpec: rules in force in this repository. A human approved each rule, and each has a test "
                  "that must keep passing:")  # fmt: skip
 DEAD_HEADING = ("SeamSpec: approaches tried before that failed (recorded, not approved); don't retry unless the "
@@ -293,6 +298,13 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
             return ", ".join(paths[:most]) + f", +{len(paths) - most} more"
         return ", ".join(paths)
 
+    # Critical rules (ADR-20261013-c1a9) come first and in full at every level; only the others shrink.
+    critical = [r for r in locked if r.critical]
+    locked = [r for r in locked if not r.critical]
+    critical_block = ([CRITICAL_HEADING] if critical else []) + [
+        f"- {r.id} · {_flat(r.title)}: {_clip(r.assertion, CRITICAL_ASSERTION_MAX)} (scope: {scope(r, most=4)})"
+        for r in critical
+    ]
     rules_full = ([RULES_HEADING] if locked else []) + [
         f"- {r.id} · {_flat(r.title)}: {_flat(r.assertion)} (scope: {scope(r)})" for r in locked
     ]  # fmt: skip
@@ -311,18 +323,19 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
         by_area.setdefault(_area(list(r.scope.paths), store.root), [0, 0])[0] += 1
     for d in dead:
         by_area.setdefault(_area(list(d.scope.paths), store.root), [0, 0])[1] += 1
-    counts = [f"SeamSpec: {len(locked)} rules in force (each approved by a human and backed by a test) and "
+    others = "other " if critical else ""
+    counts = [f"SeamSpec: {len(locked)} {others}rules in force (each approved by a human and backed by a test) and "
               f"{len(dead)} recorded dead ends, too many to list here. Call `get_constraints` for the files you "
               "work on; it returns every rule and dead end that applies. By area:"]  # fmt: skip
     counts += [f"- {area}: {n_r} rule(s), {n_d} dead end(s)" for area, (n_r, n_d) in sorted(by_area.items())]
 
     levels = (rules_full + dead_full, rules_full + dead_short, rules_short + dead_short, rules_titles + dead_short)
     for tier in (*levels, counts):
-        text = "\n".join(tier + tail)
+        text = "\n".join(critical_block + tier + tail)
         if len(text) <= max_chars:
             return text
-    # Even the per-area list is too long: totals only (never silently empty).
-    return "\n".join([counts[0].replace(" By area:", "")] + tail)
+    # Even the per-area list is too long: totals only (never silently empty). Critical rules stay.
+    return "\n".join(critical_block + [counts[0].replace(" By area:", "")] + tail)
 
 
 def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:

@@ -32,7 +32,8 @@ class ConstraintSet:
         lines: list[str] = []
         for inv in self.locked:
             adr = f" ({inv.adr_id})" if inv.adr_id else ""
-            lines.append(f"- [LOCKED] {inv.id}: {inv.assertion}{adr}")
+            label = "LOCKED, CRITICAL" if inv.critical else "LOCKED"
+            lines.append(f"- [{label}] {inv.id}: {inv.assertion}{adr}")
         for inv in self.proposed:
             lines.append(f"- [PROPOSED, awaiting human review] {inv.id}: {inv.assertion}")
         if self.dead_ends:

@@ -144,8 +144,10 @@ def propose_invariant(
     replace_id: str | None = None,
     adr_draft: AdrDraft | None = None,
     by_human: bool = False,
+    critical: bool = False,
 ) -> dict[str, Any]:
-    """Create (or, with `replace_id`, update) a PROPOSED invariant. Never runs anything (§12.4.3)."""
+    """Create (or, with `replace_id`, update) a PROPOSED invariant. Never runs anything (§12.4.3).
+    `critical` is a suggestion: the human sees it in review, and approving keeps it."""
     if runner not in cfg.runners:
         raise LifecycleError(f"unknown runner {runner!r}; configured: {', '.join(sorted(cfg.runners)) or 'none'}")
     if not harness_code.strip():
@@ -177,6 +179,7 @@ def propose_invariant(
             verification=Verification(runner=runner, harness_path=harness_rel),
             adr_id=existing.adr_id if existing else None,
             created_at=existing.created_at if existing else utcnow(),
+            critical=critical,
         )
     except ValidationError as exc:
         raise LifecycleError(f"invalid proposal: {exc}") from exc
@@ -456,6 +459,23 @@ def supersede(
         with contextlib.suppress(KeyError):
             adr.set_status(store, inv.adr_id, "SUPERSEDED")
     return {"id": inv_id, "status": "SUPERSEDED", "superseded_by": replacement_id}
+
+
+def set_critical(
+    store: Store, inv_id: str, critical: bool, actor: str | None = None, via: Via = "terminal",
+    client: str | None = None,
+) -> dict[str, Any]:  # fmt: skip
+    """Mark a rule critical, or clear the mark (human only, ADR-20261013-c1a9). PROPOSED or LOCKED.
+    Not a status change, so it is a journal note, not a transition."""
+    require_interactive(via)
+    inv = _get_inv(store, inv_id)
+    if inv.status not in (InvStatus.PROPOSED, InvStatus.LOCKED):
+        raise LifecycleError(f"{inv_id} is {inv.status.value}: only a proposed or locked rule can be marked")
+    if inv.critical != critical:
+        store.save(Invariant.model_validate({**inv.model_dump(), "critical": critical}))
+        journal.note(store, "critical_marked" if critical else "critical_cleared", item=inv_id,
+                     actor=actor or approver_identity(store), via=via, client=client)  # fmt: skip
+    return {"id": inv_id, "critical": critical}
 
 
 def retire_dead_end(

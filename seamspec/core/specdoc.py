@@ -91,6 +91,8 @@ def _rule(store: Store, inv: Invariant, replaced: list[Invariant]) -> list[str]:
     when = inv.approved_at.date().isoformat()
     lines.append(f"- **Approved by:** {_name(inv.approved_by)}, {when}, {VIA.get(inv.decided_via, 'in the terminal')}")
     lines.append(f"- **Test:** `{inv.verification.harness_path}` ({inv.verification.runner})")
+    if inv.critical:
+        lines.append("- **Critical:** always shown to the agent in full")
     problem = verifier.check_integrity(store.root, inv)
     if problem:  # "inv_x: harness modified since approval": the spec must not claim a test that isn't there
         lines.append(f"- **Problem:** {problem.partition(': ')[2] or problem}")

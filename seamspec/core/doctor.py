@@ -28,6 +28,7 @@ from .verifier import FINGERPRINTS_REL, check_fingerprints, check_integrity
 LEDGER = {"invariants": "invariant", "dead_ends": "dead_end"}
 # Fields of a LOCKED record that only a supersede may change (forward-only, §16.5).
 FROZEN = ("title", "assertion", "scope", "verification", "approved_at", "approved_by")
+CRITICAL_MANY = 10  # more critical rules than this gets a warning
 
 
 @dataclass
@@ -202,6 +203,13 @@ def _ledger_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], rep
                 report.add("warning", "scope", f"{inv_id}: scope {scope} matches no tracked file (renamed or moved?)")
     for problem in check_fingerprints(root, cfg):
         report.add("error", "runner config", problem)
+    critical = sum(
+        1 for k, d in records.items() if k.startswith("inv_") and d.get("status") == "LOCKED" and d.get("critical")
+    )
+    if critical > CRITICAL_MANY:  # ADR-20261013-c1a9: a mark that covers everything means nothing
+        report.add("warning", "critical",
+                   f"{critical} locked rules are marked critical: the mark is meant for a few rules that must never be"
+                   " missed (`seamspec critical <id> --off` clears one)")  # fmt: skip
 
 
 def _forward_only(root: Path, base_ref: str, now: dict[str, dict[str, Any]], report: DoctorReport) -> dict | None:
@@ -223,6 +231,8 @@ def _forward_only(root: Path, base_ref: str, now: dict[str, dict[str, Any]], rep
         if status != "LOCKED":
             report.add("error", "forward-only", f"{inv_id} moved back from LOCKED to {status}")
             continue
+        if before.get("critical") and not after.get("critical"):  # allowed, but a reviewer should see it
+            report.add("warning", "critical", f"{inv_id} is no longer marked critical")
         changed = [f for f in FROZEN if before.get(f) != after.get(f)]
         if changed:
             report.add("error", "forward-only",

@@ -82,6 +82,10 @@ def show_invariant(store: Store, inv: Invariant, position: str | None = None) ->
     the human saw it (§12.4.3 rule 4)."""
     divider(f"{position or f'Rule [{inv.status.value}]'} · {inv.id}")
     typer.echo(f"  Title:  {inv.title}")
+    if inv.critical:  # ADR-20261013-c1a9
+        said = "as proposed by the agent; " if inv.status.value == "PROPOSED" else ""
+        typer.echo(f"  Critical: yes, always shown to the agent in full ({said}clear it with"
+                   f" `seamspec critical {inv.id} --off`)")  # fmt: skip
     typer.echo(f"  Rule:   {inv.assertion}")
     typer.echo(f"  Where:  {', '.join(inv.scope.paths)}")
     typer.echo(f"  Why:    {inv.origin.type}: {cut(inv.origin.text)}")

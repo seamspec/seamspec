@@ -72,3 +72,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261013-e2b6](ADR-20261013-e2b6-full-benchmark-result.md) | Full benchmark result: pass; what we claim, and what we don't | ACCEPTED |
 | [ADR-20261013-f4a8](ADR-20261013-f4a8-v01-scope-after-the-benchmark.md) | v0.1 after the benchmark: BRAINDUMP, critical rules, three more hosts, and an explainer for reviews | ACCEPTED |
 | [ADR-20261013-b7d2](ADR-20261013-b7d2-seamspec-reviewer-agent.md) | SeamSpec's reviewer, a separate read-only agent that explains what waits for review | ACCEPTED |
+| [ADR-20261013-c1a9](ADR-20261013-c1a9-critical-rules.md) | Critical rules: a few rules the agent always sees in full | ACCEPTED |

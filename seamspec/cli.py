@@ -329,6 +329,7 @@ def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
         "mode": cfg.mode,
         "runners": sorted(cfg.runners),
         "invariants": {s.value: inv_counts.get(s.value, 0) for s in InvStatus},
+        "critical": sum(1 for i in invs if isinstance(i, Invariant) and i.critical and i.status == InvStatus.LOCKED),
         "dead_ends": {s: de_counts.get(s, 0) for s in ("ACTIVE", "RETIRED")},
         "awaiting_review": inv_counts.get(InvStatus.PROPOSED.value, 0) + len(requests.pending_supersede_ids(store)),
         "supersede_requests": sorted(requests.pending_supersede_ids(store)),
@@ -351,7 +352,11 @@ def status(as_json: Annotated[bool, typer.Option("--json", help="Machine-readabl
     typer.echo(f"SeamSpec · {root}")
     typer.echo(f"  mode        {data['mode']}")
     typer.echo(f"  runners     {', '.join(data['runners']) or 'none configured'}")
-    typer.echo("  invariants  " + "  ".join(f"{k.lower()} {v}" for k, v in inv.items()))
+    typer.echo(
+        "  invariants  "
+        + "  ".join(f"{k.lower()} {v}" for k, v in inv.items())
+        + (f"  (critical {data['critical']})" if data["critical"] else "")
+    )
     typer.echo(f"  dead ends   active {de['ACTIVE']}  retired {de['RETIRED']}")
     lv = data["last_verify"]
     typer.echo(f"  last verify {'never' if lv is None else ('passed' if lv.get('passed') else 'FAILED')}")
@@ -464,7 +469,7 @@ def _emit(result: dict[str, Any]) -> None:
 
 PROPOSE_KEYS = {
     "title", "assertion", "scope_paths", "runner", "harness_code", "origin_text",
-    "origin_type", "origin_ref", "scope_tags", "replace_id", "adr",
+    "origin_type", "origin_ref", "scope_tags", "replace_id", "adr", "critical",
 }  # fmt: skip
 
 
@@ -489,6 +494,21 @@ def propose(
         _emit(lifecycle.propose_invariant(store, cfg, adr_draft=adr_draft, **data))
     except (lifecycle.LifecycleError, KeyError, TypeError) as exc:
         _emit({"error": "invalid", "message": str(exc)})
+
+
+@app.command()
+def critical(
+    inv_id: Annotated[str, typer.Argument(help="Proposed or locked rule.")],
+    off: Annotated[bool, typer.Option("--off", help="Clear the mark instead.")] = False,
+) -> None:
+    """Mark a rule critical, so the agent always sees it in full (human only). --off clears it."""
+    _human_only()
+    _root_dir, _cfg, store = _open()
+    try:
+        lifecycle.set_critical(store, inv_id, not off)
+    except (lifecycle.LifecycleError, KeyError) as exc:
+        raise _fail(str(exc)) from None
+    typer.echo(f"{inv_id}: {'no longer critical' if off else 'critical (always shown to the agent in full)'}")
 
 
 @app.command("dead-end")

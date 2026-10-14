@@ -57,7 +57,8 @@
     "approved_by": { "type": ["string", "null"] },
     "superseded_by": { "type": ["string", "null"], "pattern": "^inv_[a-f0-9]{8}$" },
     "status_reason": { "type": ["string", "null"], "description": "Why rejected or superseded" },
-    "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human made the decision that set the status; null means the terminal (ADR-20261006-c300)" }
+    "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human made the decision that set the status; null means the terminal (ADR-20261006-c300)" },
+    "critical": { "type": "boolean", "default": false, "description": "Always shown to the agent in full, however many rules there are; set by a human (ADR-20261013-c1a9)" }
   },
   "allOf": [
     {
