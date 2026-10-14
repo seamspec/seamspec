@@ -127,9 +127,15 @@ def _origin(cfg: Config, origin_type: str, text: str, ref: str | None) -> Origin
 BRAINDUMP_REF = "bd_"
 
 
-def _from_braindump(store: Store, ref: str | None, became: braindump.Became, record_id: str, text: str) -> None:
-    """A record made from a braindump item marks the item as processed (§13.2)."""
+def _from_braindump(
+    store: Store, cfg: Config, ref: str | None, became: braindump.Became, record_id: str, text: str
+) -> None:
+    """A record made from a braindump item marks the item as processed (§13.2). The note's own words
+    are remembered when it is still in the file, not the agent's rewording of it."""
     if ref and ref.startswith(BRAINDUMP_REF):
+        items = braindump.pending(store, cfg.braindump.path, cfg.braindump.marker)
+        text = next((i.text for i in items if i.id == ref), text)
+        text = redact(text) if cfg.braindump.redact_secrets else text
         braindump.record(store, ref, became, record_id, text)
 
 
@@ -211,7 +217,7 @@ def propose_invariant(
 
     (store.save if existing else store.create)(inv)
     if origin_type == "braindump":
-        _from_braindump(store, origin_ref, "invariant", inv_id, origin_text)
+        _from_braindump(store, cfg, origin_ref, "invariant", inv_id, origin_text)
     return {
         "id": inv_id,
         "status": "PROPOSED",
@@ -253,7 +259,7 @@ def log_dead_end(
     except ValidationError as exc:
         raise LifecycleError(f"invalid dead end: {exc}") from exc
     store.create(de)
-    _from_braindump(store, origin_ref, "dead_end", de.id, approach)
+    _from_braindump(store, cfg, origin_ref, "dead_end", de.id, approach)
     return {"id": de.id, "status": "ACTIVE"}
 
 
@@ -286,7 +292,7 @@ def propose_decision(
         consequences=consequences,
         scopes=scope_paths,
     )
-    _from_braindump(store, origin_ref, "decision", record.id, origin_text)
+    _from_braindump(store, cfg, origin_ref, "decision", record.id, origin_text)
     return {"adr_id": record.id, "status": "PROPOSED"}
 
 

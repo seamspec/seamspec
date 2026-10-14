@@ -8,6 +8,9 @@ argument-hint: "[note ids]"
 Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: $ARGUMENTS
 
 1. Call `braindump_pending()` (or run `seamspec drain --json`). If nothing is pending, say so and stop.
+   If SeamSpec's tools are missing or fail, use its commands instead: `seamspec propose`,
+   `seamspec propose-decision`, `seamspec dead-end`, each reading the tool's fields as JSON on stdin.
+   Never search outside this project for SeamSpec's settings.
 2. Classify each note as exactly one of:
    - **constraint**: a behavior the code must keep ("X must never…", "always…");
    - **decision**: a choice of approach or convention, not a single testable behavior;
@@ -23,7 +26,8 @@ Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: $ARGUMENT
    propose that part as a rule.
 5. **failed_approach:** `log_dead_end` with `origin_ref=<note id>`.
 6. **exploration** and **task:** dismiss them all in one call:
-   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo"})`. They stay in the file.
+   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo"})`, or without the tools
+   `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=todo`. They stay in the file.
 7. Propose at most 3 rules in one sort (or `commands.max_proposals_per_run` from
    `.seamspec/config.toml`); leave the rest pending and say so.
 8. Never edit BRAINDUMP.md: the notes are the user's. `seamspec drain --tidy` is theirs to run.

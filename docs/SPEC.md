@@ -1289,7 +1289,7 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 | `verify(scope)` | Run `LOCKED` invariant tests (`changed` / `all`). **Never runs proposed tests** | `seamspec verify` |
 | `open_review(ids?)` | Show the human SeamSpec's review dialogs in the chat; returns only the outcomes (§11.5) | `seamspec review` |
 | `review_material(ids?)` | **Read-only, runs nothing.** What waits for review, with SeamSpec's facts about each test and the code changes in each item's scope; for SeamSpec's reviewer agent (§15.3) | — |
-| `braindump_pending(dismiss?)` | List unprocessed braindump items; optionally dismiss items as `todo` / `exploration` | `seamspec drain` |
+| `braindump_pending(dismiss?)` | List unprocessed braindump items; optionally dismiss items as `todo` / `exploration` | `seamspec drain [--dismiss ID=todo\|exploration]` |
 
 **Signatures:**
 
@@ -1402,7 +1402,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec retire-dead-end <id> --reason` | Retire a dead end |
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
 | `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder; on failure it prints *"SeamSpec: commit blocked."* and the short block per failing rule (§12A.4) in place of the runner's output. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
-| `seamspec drain [--json] [--tidy]` | List the BRAINDUMP.md notes not yet sorted (sorting is the agent's, `/seamspec:drain`); `--tidy` (human only) moves sorted notes below the marker as one log line each |
+| `seamspec drain [--json] [--tidy] [--dismiss ID=todo\|exploration]…` | List the BRAINDUMP.md notes not yet sorted (sorting is the agent's, `/seamspec:drain`); `--tidy` (human only) moves sorted notes below the marker as one log line each; `--dismiss` sets notes aside as a task or an idea, for agents without SeamSpec's tools (ADR-20261014-6c2d) |
 | `seamspec propose-decision --json -` | Propose a decision record with no test of its own (agents without MCP); a human decides in `seamspec review` |
 | `seamspec doctor [--ci] [--base <ref>] [--json]` | Validate config, record schemas, hashes, runner config fingerprints, approval provenance and scopes. Locally it also checks the approval journal, `CLAUDE.md` directive drift (§18; it says so when lines inside the block aren't SeamSpec's, and that `init` keeps them), the git pre-commit hook, and hosts allowlisting SeamSpec commands (§12.4.3). `--ci` replaces the local-state checks with ledger forward-only checks against the base branch and the retirement summary (§16.5). Exits 1 on any error; warnings never fail. v0.1 scope: ADR-20261006-9623 |
 | `seamspec spec [--out FILE] [--check FILE]` | Print the spec the code has earned: every approved rule as one readable Markdown document, generated from the ledger (§15.2). `--out` writes a copy marked as generated; `--check` exits 1 when that copy is out of date. Read-only: anyone can run it, the agent included |
@@ -1644,6 +1644,9 @@ argument-hint: "[note ids]"
 Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 
 1. Call `braindump_pending()` (or run `seamspec drain --json`). If nothing is pending, say so and stop.
+   If SeamSpec's tools are missing or fail, use its commands instead: `seamspec propose`,
+   `seamspec propose-decision`, `seamspec dead-end`, each reading the tool's fields as JSON on stdin.
+   Never search outside this project for SeamSpec's settings.
 2. Classify each note as exactly one of:
    - **constraint**: a behavior the code must keep ("X must never…", "always…");
    - **decision**: a choice of approach or convention, not a single testable behavior;
@@ -1659,7 +1662,8 @@ Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
    propose that part as a rule.
 5. **failed_approach:** `log_dead_end` with `origin_ref=<note id>`.
 6. **exploration** and **task:** dismiss them all in one call:
-   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo"})`. They stay in the file.
+   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo"})`, or without the tools
+   `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=todo`. They stay in the file.
 7. Propose at most 3 rules in one sort (or `commands.max_proposals_per_run` from
    `.seamspec/config.toml`); leave the rest pending and say so.
 8. Never edit BRAINDUMP.md: the notes are the user's. `seamspec drain --tidy` is theirs to run.
@@ -1970,7 +1974,7 @@ claude plugin install seamspec@seamspec --scope local
 ```
 
   - **`local` scope** enables the plugin in `<repo>/.claude/settings.local.json`: just this user, just this repository. Claude Code also records the marketplace and the install in its config directory (normally `~/.claude/plugins/`, or under `CLAUDE_CONFIG_DIR` when set); that turns nothing on in other projects. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it holds this machine's checkout path. The plugin loads in place from the checkout, so plugin edits apply at the next session or `/reload-plugins`.
-  - **Asks first.** In a terminal, `init` shows both commands and asks *"Install the SeamSpec plugin for Claude Code in this repository? [Y/n]"*. `--plugin` installs without asking; `--no-plugin` skips. Without a terminal and without a flag it calls nothing and prints `seamspec init --plugin`.
+  - **Asks first.** In a terminal, `init` shows both commands and asks *"Install the SeamSpec plugin for Claude Code in this repository? (Skip it if you don't use Claude Code.) [Y/n]"*; the screen above it says the plugin is for Claude Code only (ADR-20261014-6c2d). `--plugin` installs without asking; `--no-plugin` skips. Without a terminal and without a flag it calls nothing and prints `seamspec init --plugin`.
   - **Skipped** with a note when `claude` isn't on `PATH`, or when the CLI isn't running from a checkout (a wheel install has no marketplace until the release). **Unchanged** when `claude plugin list` already shows it enabled for this repository (or at `user` scope).
   - Until the release (week 6, after the owner's go-ahead) the marketplace is the local checkout. A published GitHub marketplace, and with it `project` scope (committed `.claude/settings.json`, so teammates are prompted), comes with the release.
   - `claude --plugin-dir <repo>/seamspec-plugin` still works for a one-off session.
@@ -2169,10 +2173,11 @@ The `vscode` adapter normalizes the payload and maps decisions to the host's out
 
 ### 16.3a Antigravity — v0.1 (session start + stop; ADR-20261013-e8f3)
 
-Per antigravity.google/docs (hooks, rules, MCP, skills; read 2026-10-13, not yet hands-on):
+Per antigravity.google/docs (hooks, rules, MCP, skills; read 2026-10-13) and the owner's hands-on test (2026-10-14, ADR-20261014-6c2d):
 
 - **Rules:** `AGENTS.md` (read at every directory level), as for the other hosts.
-- **MCP:** `.agents/mcp_config.json`, `{"mcpServers": {"seamspec": {"command": "seamspec", "args": ["mcp"]}}}`.
+- **MCP:** `.agents/mcp_config.json`, `{"mcpServers": {"seamspec": {"command": "seamspec", "args": ["mcp"], "env": {"SEAMSPEC_ROOT": "<this project's absolute path>"}}}}`. Antigravity starts MCP servers in `/` and fails on the server's `roots/list` question ("unexpected end of JSON input" on every tool call), and its config has no `${workspaceFolder}`, so `init` writes the absolute path. A rerun of `init` updates the path in SeamSpec's own entry (same command and args) and keeps anything else in it; `doctor` warns when the path isn't this folder (a clone elsewhere). After a change, the server has to be restarted in Antigravity's MCP settings (or the window reloaded); `init` says so.
+- **Hands-on (2026-10-14):** session-start summary, tools (with the path set), sorting BRAINDUMP notes, `/seamspec-status`, the agent declining a change that breaks a locked rule, and the Stop check blocking one all work.
 - **Hooks:** `.agents/hooks.json`, a named group `"seamspec"` with `SessionStart` and `Stop` command handlers (timeout in seconds). `SessionStart` answers `{"injectSteps": [{"systemMessage": {"systemMessage": "<summary>"}}]}`. `Stop` runs only when `fullyIdle` is true and, on a failing locked rule, answers `{"decision": "continue", "reason": "<what failed and what to do>"}`, which puts the agent back in its loop with the reason as a system message. Antigravity doesn't say whether a stop follows our own block, so the retry budget is kept until a green check resets it.
 - **Commands:** skills in `.agents/skills/seamspec-<name>/SKILL.md` (`name`, `description`), invoked as `/seamspec-<name>`.
 
@@ -2337,7 +2342,9 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 3. When an approach fails, call `log_dead_end` with what you tried and why it failed.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
-5. Never edit files under `.seamspec/` directly; use SeamSpec tools.
+5. Never edit files under `.seamspec/` directly; use SeamSpec tools. If they are missing or fail,
+   use the matching `seamspec` command in your shell (`seamspec --help`). Never search outside
+   this project for SeamSpec's settings; if neither works, stop and tell the user.
 6. BRAINDUMP.md holds the user's own notes. Never edit it. When asked to sort it, follow
    `/seamspec:drain`. When SeamSpec reports new notes at the start of a session, ask the user once
    whether to sort them; don't sort without a yes, and don't ask again this session after a no.
@@ -2498,8 +2505,8 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 - `parse_items(markdown, marker) -> list[Item(id, text)]`: §13.5. List items continue over indented lines; a paragraph runs to the next blank line, list entry or heading; fenced code stays whole with its item (or is one); headings, rules and HTML comments are skipped; text below the marker is never read; duplicate ids are listed once.
 - `item_id(text)`: `bd_` + 8 hex of SHA-256 of the whitespace-normalized, lowercased text.
-- `state(store)` / `record(store, id, as, ref, text)`: `.seamspec/.local/braindump.json`, what each item became (`invariant`, `dead_end`, `decision`, `todo`, `exploration`) with the record id. `lifecycle.propose_invariant` (origin type `braindump`), `log_dead_end(origin_ref=…)` and `propose_decision(origin_ref=…)` call it.
-- `pending(store, path, marker)`; `dismiss(store, path, marker, [{item_id, as}])` (only `todo` / `exploration`, only pending items).
+- `state(store)` / `record(store, id, as, ref, text)`: `.seamspec/.local/braindump.json`, what each item became (`invariant`, `dead_end`, `decision`, `todo`, `exploration`) with the record id. `lifecycle.propose_invariant` (origin type `braindump`), `log_dead_end(origin_ref=…)` and `propose_decision(origin_ref=…)` call it. The preview is the note's own text from the file (redacted when `redact_secrets` is on), not the agent's rewording.
+- `pending(store, path, marker)`; `dismiss(store, path, marker, [{item_id, as}])` (only `todo` / `exploration`, only pending items), also reached by `seamspec drain --dismiss ID=todo|exploration`.
 - `should_nudge` / `remember_nudge`: `.seamspec/.local/nudge.json` holds a hash of the pending ids at the last nudge (§13.9); `adapters/claude._braindump_nudge` uses them on `startup` and `clear`, and is silent on any error.
 - `tidy(store, path, marker) -> int`: moves sorted items from the person's part into the managed part as `- \`bd_…\` → <what> — "<preview>"`, leaving every other line as it was. Only `seamspec drain --tidy` (human only) calls it.
 - Redaction (§13.8) is `core/redact.py`, applied by `lifecycle` to origin text, dead-end approaches and failure reasons.
@@ -2564,6 +2571,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - **Local only:**
   - `journal.unjournaled_changes` (skipped with a warning if a record is broken);
   - `directive.drift` (warning);
+  - Antigravity's server set to another folder (`.agents/mcp_config.json` `env.SEAMSPEC_ROOT`, warning, ADR-20261014-6c2d);
   - a pre-commit hook running the gate in enforced and strict mode, and no leftover SeamSpec hook in advisory mode (warnings);
   - `.claude/settings*.json` allowing `Bash(seamspec…)` (warning).
 - **`--ci` only:**

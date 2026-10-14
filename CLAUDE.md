@@ -59,7 +59,9 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 3. When an approach fails, call `log_dead_end` with what you tried and why it failed.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
-5. Never edit files under `.seamspec/` directly; use SeamSpec tools.
+5. Never edit files under `.seamspec/` directly; use SeamSpec tools. If they are missing or fail,
+   use the matching `seamspec` command in your shell (`seamspec --help`). Never search outside
+   this project for SeamSpec's settings; if neither works, stop and tell the user.
 6. BRAINDUMP.md holds the user's own notes. Never edit it. When asked to sort it, follow
    `/seamspec:drain`. When SeamSpec reports new notes at the start of a session, ask the user once
    whether to sort them; don't sort without a yes, and don't ask again this session after a no.
