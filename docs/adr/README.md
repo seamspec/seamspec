@@ -69,3 +69,5 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261013-2f6b](ADR-20261013-2f6b-generated-spec-as-built.md) | `seamspec spec` as built: only approved rules, same bytes from the same ledger | ACCEPTED |
 | [ADR-20261013-c3f7](ADR-20261013-c3f7-approved-rule-tests-are-not-linted.md) | Approved rule tests are not linted or reformatted | ACCEPTED |
 | [ADR-20261013-9d41](ADR-20261013-9d41-full-benchmark-plan-and-pass-bar.md) | Full benchmark: plan and pass bar, fixed before the run | ACCEPTED |
+| [ADR-20261013-e2b6](ADR-20261013-e2b6-full-benchmark-result.md) | Full benchmark result: pass; what we claim, and what we don't | ACCEPTED |
+| [ADR-20261013-f4a8](ADR-20261013-f4a8-v01-scope-after-the-benchmark.md) | v0.1 after the benchmark: BRAINDUMP, critical rules, three more hosts, and an explainer for reviews | ACCEPTED |

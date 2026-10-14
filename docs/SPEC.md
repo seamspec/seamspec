@@ -2752,6 +2752,8 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 2. Finish dogfooding: get a rule to catch a real mistake, and try the supersede flow.
 3. Week 5: the benchmark, `seamspec spec` (§15.2) and the README, pitched as a regression guard that works alongside spec-first tools.
 
+**Changed after the full benchmark (2026-10-13, ADR-20261013-f4a8).** The benchmark passed (ADR-20261013-e2b6) and showed where SeamSpec's case lies: not in remembering rules, which a well-kept notes file does as well, but in rules nobody has to write, proven by tests and approved by a person. The owner moved these into v0.1: **BRAINDUMP** (§13), the **"critical" rule marking**, and three more hosts, **Cursor, VS Code (Copilot) and Google Antigravity**; and added an **explainer for reviews** (a separate read-only agent that explains each rule and its test in chat, beside `seamspec review`, never inside it) and **two more benchmark tests** (capture from conversation; a long session). Proposed order: the benchmark write-up, the explainer, the critical marking, BRAINDUMP, the three hosts, the two tests, then the README and release. The week table above no longer describes v0.1; rough estimate from here, 4 to 5 weeks.
+
 ### v0.2 — soon after v0.1
 
 Competing tools already support several hosts, so v0.2 follows quickly. The adapter layer stays thin so new hosts are cheap to add.
@@ -2759,8 +2761,8 @@ Competing tools already support several hosts, so v0.2 follows quickly. The adap
 In this order (ADR-20261011-0995):
 
 - **OpenSpec importer** (`origin.type = "import"`), moved up from "Later": SeamSpec works alongside spec-first tools, so reading their requirements as proposed rules comes first.
-- **Cursor and VS Code Copilot** adapters (§16.2, §16.3) and per-host command rendering (§15A.4).
-- A **"critical" rule marking**: such rules always show in full in the session-start summary (ADR-20261007-ac04).
+- ~~Cursor and VS Code Copilot adapters~~, ~~the "critical" rule marking~~ and ~~BRAINDUMP~~: **moved into v0.1** (ADR-20261013-f4a8). In v0.2 what remains of the hosts: in-session blocking wherever v0.1 shipped only the rules, the tools and the commit gate.
+- **Rules from an existing notes file** (new, from the benchmark): read a project's `CLAUDE.md` or similar and propose one tested rule per agreement.
 - **BRAINDUMP**: parse/drain/tidy + redaction, `/seamspec:drain`, session-start nudge (§13); `propose_decision` and `braindump_pending` tools. Until then, the agent proposes rules from a project's own list of intended rules, such as a section of a plan (v0.1, ADR-20261011-0995).
 - **More presets**: jest, Go, Rust (cargo), `custom` (§12A.2).
 - MCP **elicitation** for `run_proposed = "ask"`. (`trust_level = "harness"` moved into v0.1, ADR-20261005-8e80.)
@@ -2791,6 +2793,7 @@ In this order (ADR-20261011-0995):
 | Runs | Rough run in **week 3**: 2 tasks × 4 conditions × 3 runs on Claude Sonnet 5.5, after a Haiku dry run that only checks the harness. Full run in week 5: ≥ 5 runs per condition per task, same model and settings |
 | Scoring | A **hidden oracle** test suite, which the agent never sees, checks every rule against the final code. The pass, change-the-pitch and kill thresholds are fixed in ADR-20261006-c8b9 **before** any run |
 | Full run (week 5) | **Plan and pass bar: ADR-20261013-9d41** (accepted by the owner on 2026-10-13, with the many-rules variant added). 3 tasks × 8 conditions × 5 runs = 120 runs on Sonnet 5.5. **G and H repeat E and C with 36 more agreed rules** about two helper packages, because a notes file is plainly enough for three rules; only the task's own rules are scored, and G is read against H.  Then a smaller batch on a less careful model that is reported, not judged. The bar scales the rough run's thresholds to the number of runs and asks C to beat D by a margin, not by one. E and F are read against C (clearly worse / matches / unclear) and decide **which claims the write-up may make**, a table fixed in that ADR. Built without any model call: task T3 (an export tool, with requests that have both a rule-keeping and a rule-breaking way to do them), condition F, `decide_full`, `--bar`, `--resume` |
+| **Full run result** | **PASS** (ADR-20261013-e2b6, [`docs/benchmark/full-1.md`](benchmark/full-1.md)): 120 runs on Sonnet 5.5, $111.94. Rules broken in 15 runs each: A 22, B 0, C 0, D 10, E 0, F 7, G 0, H 0. With plain tests the agent rewrote the rule tests (12 changes; 0 with SeamSpec) and repeated the dead end (5 runs; 0). **A notes file matched SeamSpec, with 3 rules and with 39; advisory matched enforced; in 30 enforced runs the gates never had to fire.** Allowed claims: halves broken agreements against nothing; plain tests get rewritten and SeamSpec's don't; fewer broken agreements than plain tests. Not allowed: better than notes, than ADRs, or enforced better than advisory. **Second model** (Haiku 5.5, 36 runs, reported not judged, [`full-1-haiku.md`](benchmark/full-1-haiku.md)): A 13, C 0, D 9, E 0 in 9 runs each; the same picture, with plain tests rewritten more often. Next: capture from conversation and a long session, each with its own pre-set bar |
 | Rough run result (week 3) | **PASS**: V(A)=9, V(B)=1, V(C)=2, V(D)=6. C beat plain tests on violations, tampering and dead ends, at 1.29× the cost. SeamSpec agents surfaced all 12 conflicts with `request_supersede`; with plain tests, the agent rewrote the tests. See ADR-20261006-b270 and `docs/benchmark/rough-1.md` |
 | Metrics | Locked-invariant violations at end; regressions introduced and not fixed; tests edited, skipped or deleted by the agent; dead-end retries; turns to completion; tokens/cost; human interventions |
 | Output | Published scripts, raw logs, and a single chart: *violations per session by condition* |
@@ -2833,7 +2836,7 @@ Measured against the real baseline, plain tests + a Stop hook (§4.4), not again
 ### 24.4 Launch Assets
 
 - Demo: prompt → `/seamspec:lock` → `seamspec review` approves (showing red-green) → later prompt edits the governed file → agent is shown the rule before editing → regression blocked at Stop → `/seamspec:supersede` → human approves → commit passes.
-- Write-up: *"Beyond Prompt Compliance: Enforcing AI Coding Invariants with Hooks, Not Hope."*
+- Write-up: built on the full run's allowed claims (ADR-20261013-e2b6): rules you don't have to write, each proven by a test the agent can't quietly rewrite and approved by a person; with the notes-file result stated openly. The earlier title, *"…with Hooks, Not Hope"*, is dropped: enforcement is what the run did not show.
 - Benchmark chart from §23.
 
 ---
@@ -2854,6 +2857,8 @@ Measured against the real baseline, plain tests + a Stop hook (§4.4), not again
 | **Slash-command format churn** | Commands break or lose arguments on some hosts | Claude Code skills ship inside the plugin; single template source; snapshot tests; MCP prompts as fallback; other hosts in v0.2 |
 | **Competitors move first on more hosts** | Users pick a multi-host tool | Ship the core loop early; Cursor + Copilot in v0.2, soon after v0.1; thin adapter layer |
 | **Narrow runner support at launch** | Limits Go/Rust/jest audience | Runner abstraction from day one; pytest + vitest in v0.1; more presets in v0.2 |
+| **A notes file is enough** (measured: ADR-20261013-e2b6) | With a careful model and a complete, current `CLAUDE.md`, an agent keeps agreed rules as well as with SeamSpec, for less cost | Don't sell memory. Lead with what the notes file in the benchmark was given for free: someone has to write it and keep it true. SeamSpec proposes each rule from working code, proves it with a test, records a human's approval and stops the test being rewritten. BRAINDUMP and the capture test (v0.1) make and measure that case; a notes-file importer (v0.2) meets users where they are |
+| **Empty on day one** | A new user on an existing project gets no value until rules accumulate | The plan's or notes' list of intended rules (§18 rule 2), BRAINDUMP, and in v0.2 the importers |
 | **Ledger ossification** | Rules outlive their purpose | Supersede flow; dead-end retirement; `status` shows stale rules (no scope matches in repo) |
 
 ---
