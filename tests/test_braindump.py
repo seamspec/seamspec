@@ -1,0 +1,218 @@
+"""BRAINDUMP.md (SPEC §13, ADR-20261013-d9e4): the person's scratchpad, sorted by the agent into
+proposals that still wait for review. SeamSpec parses, remembers, and tidies only when asked."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from typer.testing import CliRunner
+
+from seamspec.adapters import claude
+from seamspec.cli import app
+from seamspec.core import adr, braindump, lifecycle
+from seamspec.core.config import load_config
+from seamspec.core.store import Store
+from seamspec.installers import scaffold
+
+from .test_lifecycle import propose
+
+runner = CliRunner()
+MARKER = "<!-- seamspec:processed -->"
+
+NOTES = """# BRAINDUMP.md
+<!-- a comment, ignored -->
+
+- Tenant isolation must not leak if `org_id` is missing — reject with 400.
+  Seen once in staging.
+* [x] Look at how Stripe handles idempotent webhooks
+1. Error format should be RFC 7807 problem details everywhere.
+
+Tried caching JWT validation in a global dict — leaked across tenants.
+Don't.
+
+```python
+# a comment inside code, not a heading
+- not a list item either
+```
+
+## Later
+- TODO benchmark Redis pipelining under load.
+
+<!-- seamspec:processed -->
+## Processed (managed by SeamSpec)
+- `bd_00000000` → below the marker: never read
+"""
+
+
+@pytest.fixture
+def human(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE", "1")
+
+
+def test_parse_items_follows_the_rules_of_13_5() -> None:
+    items = braindump.parse_items(NOTES, MARKER)
+    texts = [i.text for i in items]
+    assert texts == [
+        "Tenant isolation must not leak if `org_id` is missing — reject with 400.\nSeen once in staging.",
+        "Look at how Stripe handles idempotent webhooks",
+        "Error format should be RFC 7807 problem details everywhere.",
+        "Tried caching JWT validation in a global dict — leaked across tenants.\nDon't.",
+        "```python\n# a comment inside code, not a heading\n- not a list item either\n```",
+        "TODO benchmark Redis pipelining under load.",
+    ]
+    assert all(i.id.startswith("bd_") and len(i.id) == 11 for i in items)
+    # Reflowing a note keeps its id; changing its words makes a new item.
+    assert braindump.item_id("Error  format should be\nRFC 7807") == braindump.item_id(
+        "error format should be rfc 7807"
+    )
+    assert braindump.item_id("Error format should be RFC 9457") != braindump.item_id("Error format should be RFC 7807")
+
+
+def project(tmp_path: Path) -> Store:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    (tmp_path / ".git").mkdir()
+    scaffold.init(tmp_path, auto_run=True, actor="Maya <maya@example.com>")
+    (tmp_path / "BRAINDUMP.md").write_text(NOTES)
+    return Store(tmp_path)
+
+
+def test_init_creates_the_scratchpad_once_and_git_ignored(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    report = scaffold.init(tmp_path)
+    text = (tmp_path / "BRAINDUMP.md").read_text()
+    assert MARKER in text and braindump.parse_items(text, MARKER) == []  # the example is inside a comment
+    assert dict(report.actions)["BRAINDUMP.md"] == "created (git-ignored)"
+    assert "\nBRAINDUMP.md\n" in (tmp_path / ".gitignore").read_text()
+    # A team that shares it removes the ignore line: rerunning init never adds it back.
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text(gitignore.read_text().replace("BRAINDUMP.md\n", ""))
+    (tmp_path / "BRAINDUMP.md").write_text("- my own note\n")
+    assert dict(scaffold.init(tmp_path).actions)["BRAINDUMP.md"] == "kept"
+    assert "BRAINDUMP.md" not in gitignore.read_text() and (tmp_path / "BRAINDUMP.md").read_text() == "- my own note\n"
+
+
+def test_each_record_made_from_a_note_marks_it_sorted(tmp_path: Path, human: None) -> None:
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    notes = {i.text.split()[0]: i for i in braindump.pending(store, "BRAINDUMP.md", MARKER)}
+    tenant, stripe, rfc, tried, todo = notes["Tenant"], notes["Look"], notes["Error"], notes["Tried"], notes["TODO"]
+
+    rule = propose(tmp_path, origin_type="braindump", origin_ref=tenant.id, origin_text=tenant.text)["id"]
+    dead = lifecycle.log_dead_end(store, cfg, scope_paths=["src/**"], approach=tried.text,
+                                  failure_symptom="Leaked across tenants.", origin_ref=tried.id)["id"]  # fmt: skip
+    decision = lifecycle.propose_decision(
+        store, cfg, title="RFC 7807 errors", context="Clients parse errors.", decision="Use RFC 7807 problem details.",
+        consequences=[], scope_paths=["src/**"], origin_text=rfc.text, origin_ref=rfc.id,
+    )["adr_id"]  # fmt: skip
+    dismissals = [{"item_id": stripe.id, "as": "exploration"}, {"item_id": todo.id, "as": "todo"}]
+    assert braindump.dismiss(store, "BRAINDUMP.md", MARKER, dismissals) == [stripe.id, todo.id]
+
+    left = braindump.pending(store, "BRAINDUMP.md", MARKER)
+    assert [i.text.split()[0] for i in left] == ["```python"]
+    done = braindump.state(store)
+    assert done[tenant.id]["as"] == "invariant" and done[tenant.id]["ref"] == rule
+    assert done[tried.id] == {**done[tried.id], "as": "dead_end", "ref": dead}
+    assert store.get(dead).origin_ref == tried.id and store.get(dead).source == "braindump"
+    assert done[rfc.id]["ref"] == decision and adr.get(store, decision).status == "PROPOSED"
+    assert f"braindump item `{rfc.id}`" in adr.get(store, decision).body
+    assert done[stripe.id]["as"] == "exploration" and done[todo.id]["as"] == "todo"
+    assert (tmp_path / "BRAINDUMP.md").read_text() == NOTES  # nothing above the marker was touched
+    with pytest.raises(ValueError, match="todo, exploration"):
+        braindump.dismiss(store, "BRAINDUMP.md", MARKER, [{"item_id": left[0].id, "as": "invariant"}])
+    with pytest.raises(KeyError):
+        braindump.dismiss(store, "BRAINDUMP.md", MARKER, [{"item_id": stripe.id, "as": "todo"}])  # not pending
+
+
+def test_secrets_in_a_note_never_reach_a_committed_record(tmp_path: Path, human: None) -> None:
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    key = "sk-" + "a" * 30
+    out = lifecycle.log_dead_end(store, cfg, scope_paths=["src/**"], approach=f"Called the API with {key} inline",
+                                 failure_symptom=f"Rate limited; token={key}", origin_ref="bd_12345678")  # fmt: skip
+    text = (tmp_path / ".seamspec/dead_ends" / f"{out['id']}.json").read_text()
+    assert key not in text and "[REDACTED]" in text
+
+
+def test_review_accepts_or_rejects_a_proposed_decision(tmp_path: Path, human: None, monkeypatch) -> None:
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    one = lifecycle.propose_decision(store, cfg, title="One", context="c", decision="Do one.", consequences=[],
+                                     scope_paths=["src/**"], origin_text="x")["adr_id"]  # fmt: skip
+    two = lifecycle.propose_decision(store, cfg, title="Two", context="c", decision="Do two.", consequences=[],
+                                     scope_paths=["src/**"], origin_text="x")["adr_id"]  # fmt: skip
+    status = json.loads(runner.invoke(app, ["status", "--json"]).output)
+    assert status["awaiting_review"] == 2
+    out = runner.invoke(app, ["review"], input="a\nr\n")
+    assert "2 proposed decision(s)" in out.output and "Do one." in out.output
+    first, second = sorted((one, two), key=lambda i: out.output.index(f"· {i}"))  # shown in id order
+    assert adr.get(store, first).status == "ACCEPTED" and adr.get(store, second).status == "REJECTED"
+    events = [json.loads(line)["event"] for line in (store.local / "journal.jsonl").read_text().splitlines()
+              if "decision_" in line]  # fmt: skip
+    assert events == ["decision_accepted", "decision_rejected"]
+    with pytest.raises(lifecycle.LifecycleError, match="not PROPOSED"):
+        lifecycle.decide_decision(store, first, accept=False)
+
+
+def test_session_start_nudges_once_per_change(tmp_path: Path) -> None:
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    first = claude._braindump_nudge(store, cfg, "startup")
+    assert first and "BRAINDUMP.md has 6 new note(s)" in first and "Don't sort them without a yes" in first
+    assert claude._braindump_nudge(store, cfg, "startup") is None  # nothing new since the last nudge
+    assert claude._braindump_nudge(store, cfg, "compact") is None  # never mid-task
+    (tmp_path / "BRAINDUMP.md").write_text(NOTES.replace("## Later", "- A brand new note.\n\n## Later"))
+    assert "7 new note(s)" in claude._braindump_nudge(store, cfg, "clear")
+    out = claude.session_start({"source": "startup"}, store, cfg)
+    assert out is None  # no rules, nothing new: silence is the default
+    config = tmp_path / ".seamspec/config.toml"
+    assert 'nudge = "ask"' in config.read_text()
+    config.write_text(config.read_text().replace('nudge = "ask"', 'nudge = "off"'))
+    (tmp_path / "BRAINDUMP.md").write_text(NOTES + "- one more\n")
+    assert claude._braindump_nudge(store, load_config(tmp_path), "startup") is None
+
+
+def test_drain_command_lists_and_tidy_moves_sorted_notes(tmp_path: Path, human: None, monkeypatch) -> None:
+    store = project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    listed = runner.invoke(app, ["drain"])
+    assert "6 note(s) not sorted yet" in listed.output
+    pending = json.loads(runner.invoke(app, ["drain", "--json"]).output)["pending"]
+    todo = next(p for p in pending if p["text"].startswith("TODO"))
+    braindump.dismiss(store, "BRAINDUMP.md", MARKER, [{"item_id": todo["id"], "as": "todo"}])
+
+    tidied = runner.invoke(app, ["drain", "--tidy"])
+    assert tidied.exit_code == 0 and "Moved 1 sorted note(s)" in tidied.output
+    text = (tmp_path / "BRAINDUMP.md").read_text()
+    human_part, managed = text.split(MARKER)
+    assert "TODO benchmark" not in human_part and f"`{todo['id']}` → dismissed (todo)" in managed
+    assert "Tenant isolation must not leak" in human_part and "## Later" in human_part  # the rest untouched
+    assert len(json.loads(runner.invoke(app, ["drain", "--json"]).output)["pending"]) == 5
+    monkeypatch.delenv("SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE")
+    assert runner.invoke(app, ["drain", "--tidy"]).exit_code == 1  # an agent's shell: it's the person's file
+
+
+def test_braindump_tools_over_mcp(tmp_path: Path, monkeypatch) -> None:
+    import anyio
+    from mcp.client import Client
+
+    from seamspec.mcp_server import mcp
+
+    project(tmp_path)
+    monkeypatch.setenv("SEAMSPEC_ROOT", str(tmp_path))
+
+    async def call(name: str, args: dict):
+        async with Client(mcp) as client:
+            result = await client.call_tool(name, args)
+            return json.loads(result.content[0].text)
+
+    pending = anyio.run(call, "braindump_pending", {})["pending"]
+    todo = next(p for p in pending if p["text"].startswith("TODO"))["id"]
+    after = anyio.run(call, "braindump_pending", {"dismiss": {todo: "todo"}})
+    assert after["dismissed"] == [todo] and len(after["pending"]) == 5
+    args = {"title": "RFC 7807", "context": "c", "decision": "Use it.", "consequences": [],
+            "scope_paths": ["src/**"], "origin_text": "x"}  # fmt: skip
+    made = anyio.run(call, "propose_decision", args)
+    assert made["status"] == "PROPOSED" and made["adr_id"].startswith("ADR-")

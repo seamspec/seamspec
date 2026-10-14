@@ -101,6 +101,8 @@ class DeadEnd(_Record):
     failure_symptom: str = Field(max_length=1000)
     source: Literal["verifier", "braindump", "manual", "agent"]
     related_invariant: str | None = Field(default=None, pattern=INV_ID)
+    # Where it came from, when that is a record of its own: a braindump item id (ADR-20261013-d9e4).
+    origin_ref: str | None = None
     status: Literal["ACTIVE", "RETIRED"] = "ACTIVE"
     retired_reason: str | None = None
     decided_via: Via | None = None

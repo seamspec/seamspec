@@ -160,6 +160,23 @@ def default_mode(current: Mode | None) -> Mode:
     return current if current in ("enforced", "strict") else "enforced"
 
 
+def _braindump(root: Path, report: InitReport) -> None:
+    """Create BRAINDUMP.md once, git-ignored (§13.3). An existing file and its ignore line are the
+    person's: a team that shares it removes the line, and init never adds it back."""
+    from ..core.config import ConfigError, load_config
+
+    try:
+        path = load_config(root).braindump.path
+    except ConfigError:
+        path = "BRAINDUMP.md"
+    if (root / path).exists():
+        report.add(path, "kept")
+        return
+    atomic_write(root / path, _template("BRAINDUMP.md"))
+    merge_gitignore(root, (path,), header="SeamSpec: your personal scratchpad (remove this line to share it)")
+    report.add(path, "created (git-ignored)")
+
+
 def init(
     root: Path,
     mode: Mode | None = None,
@@ -220,6 +237,7 @@ def init(
 
     _record_initial_fingerprints(root, report)
     report.add(".gitignore", merge_gitignore(root))
+    _braindump(root, report)
     if claude_md:
         status, report.kept_lines = directive.install_keeping(root)
         report.add("CLAUDE.md", status)

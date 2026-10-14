@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core import failtext, hookguard, journal, verifier
+from ..core import braindump, failtext, hookguard, journal, verifier
 from ..core.area import area as _area
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
@@ -346,12 +346,34 @@ def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[st
             _save_hook_baseline(store, hookguard.scan(_project_dirs(payload, store)))
         except OSError as exc:  # never at the cost of the summary
             print(f"seamspec: couldn't record dialog hooks: {exc}", file=sys.stderr)
-    if payload.get("source", "startup") not in SESSION_SOURCES:
+    source = payload.get("source", "startup")
+    if source not in SESSION_SOURCES:
         return None
-    text = session_summary(store)
-    if text is None:
+    parts = [t for t in (session_summary(store), _braindump_nudge(store, cfg, source)) if t]
+    if not parts:
         return None
-    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
+
+
+NUDGE_SOURCES = ("startup", "clear")  # never after compaction: it would interrupt a task in progress
+
+
+def _braindump_nudge(store: Store, cfg: Config, source: str) -> str | None:
+    """Tell the agent once that BRAINDUMP.md has new notes, so it can offer to sort them (§13.9).
+    Only when what's pending changed since the last nudge; silent on any error (convenience, never
+    enforcement)."""
+    if cfg.braindump.nudge == "off" or source not in NUDGE_SOURCES:
+        return None
+    try:
+        items = braindump.pending(store, cfg.braindump.path, cfg.braindump.marker)
+        if not braindump.should_nudge(store, items):
+            return None
+        braindump.remember_nudge(store, items)
+    except Exception:  # noqa: BLE001 - the nudge must never break a session start
+        return None
+    return (f"SeamSpec: {cfg.braindump.path} has {len(items)} new note(s). Ask the user once whether to sort them "
+            "now (same as /seamspec:drain). Don't sort them without a yes, and don't ask again this session "
+            "after a no.")  # fmt: skip
 
 
 # --- ConfigChange: no new hook may answer SeamSpec's dialogs mid-session (ADR-20261006-c300, guard 1) ----------

@@ -126,6 +126,16 @@ def material(store: Store, ids: list[str] | None = None) -> dict[str, Any]:
             }
         )
 
+    for record in review.pending_decisions(store):
+        items.append({
+            "kind": "proposed_decision",
+            "id": record.id,
+            "title": record.title,
+            "scope": record.scopes,
+            "text": record.body,
+            "note": "No test of its own: accepting records the decision, it enforces nothing.",
+        })  # fmt: skip
+
     if ids:
         wanted = set(ids)
         items = [i for i in items if i["id"] in wanted or i.get("replacement", {}).get("id") in wanted]

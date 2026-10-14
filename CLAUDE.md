@@ -60,14 +60,17 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
 5. Never edit files under `.seamspec/` directly; use SeamSpec tools.
-6. Only humans approve invariants. When proposals are pending, offer an explanation from
+6. BRAINDUMP.md holds the user's own notes. Never edit it. When asked to sort it, follow
+   `/seamspec:drain`. When SeamSpec reports new notes at the start of a session, ask the user once
+   whether to sort them; don't sort without a yes, and don't ask again this session after a no.
+7. Only humans approve invariants. When proposals are pending, offer an explanation from
    SeamSpec's reviewer (`/seamspec:explain`), and offer to open `seamspec review` for the user in a
    terminal they type into (never in your own shell; never answer its prompts), or remind them to
    run it.
-7. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
+8. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
    the SeamSpec summary block.
-8. Users don't have to type commands. Treat plain requests as the matching workflow command:
-   "protect this" / "lock that" → lock; "that didn't work" → dead-end;
+9. Users don't have to type commands. Treat plain requests as the matching workflow command:
+   "sort my braindump" → drain; "protect this" / "lock that" → lock; "that didn't work" → dead-end;
    a changed requirement for a LOCKED rule → supersede; "what applies here?" → context;
    "wrap up" → checkpoint.
 <!-- seamspec:end -->

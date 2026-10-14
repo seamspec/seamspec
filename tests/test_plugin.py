@@ -170,5 +170,5 @@ def test_explain_skill_relays_the_reviewer_unchanged_and_leaves_the_decision_to_
 def test_protocol_offers_the_reviewer_before_the_review() -> None:
     from seamspec.installers.directive import directive_text
 
-    rule = directive_text().split("6. Only humans approve invariants.")[1].split("\n7.")[0]
+    rule = directive_text().split("7. Only humans approve invariants.")[1].split("\n8.")[0]
     assert "/seamspec:explain" in rule and rule.index("explain") < rule.index("seamspec review")

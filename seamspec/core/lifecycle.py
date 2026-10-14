@@ -21,7 +21,7 @@ from typing import Any, Literal
 from pydantic import ValidationError
 from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
-from . import adr, journal, requests, verifier
+from . import adr, braindump, journal, requests, verifier
 from .config import Config
 from .hashing import sha256_file, sha256_text
 from .models import DeadEnd, Invariant, InvStatus, Origin, Scope, Verification, Via, utcnow
@@ -124,6 +124,15 @@ def _origin(cfg: Config, origin_type: str, text: str, ref: str | None) -> Origin
     return Origin(type=origin_type, text=text[:ORIGIN_MAX], ref=ref)  # type: ignore[arg-type]
 
 
+BRAINDUMP_REF = "bd_"
+
+
+def _from_braindump(store: Store, ref: str | None, became: braindump.Became, record_id: str, text: str) -> None:
+    """A record made from a braindump item marks the item as processed (§13.2)."""
+    if ref and ref.startswith(BRAINDUMP_REF):
+        braindump.record(store, ref, became, record_id, text)
+
+
 def pending_count(store: Store) -> int:
     return sum(1 for i in store.load_all("inv") if i.status == InvStatus.PROPOSED)
 
@@ -201,6 +210,8 @@ def propose_invariant(
         inv.adr_id = record.id
 
     (store.save if existing else store.create)(inv)
+    if origin_type == "braindump":
+        _from_braindump(store, origin_ref, "invariant", inv_id, origin_text)
     return {
         "id": inv_id,
         "status": "PROPOSED",
@@ -219,11 +230,16 @@ def log_dead_end(
     failure_symptom: str,
     related_invariant: str | None = None,
     source: Literal["verifier", "braindump", "manual", "agent"] = "agent",
+    origin_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Record a failed approach. No approval needed: dead ends never gate anything (§11.3)."""
+    """Record a failed approach. No approval needed: dead ends never gate anything (§11.3).
+    `origin_ref`: the braindump item it came from, if any; that item is then processed."""
     if related_invariant is not None:
         store.get(related_invariant)  # must exist
+    if origin_ref and origin_ref.startswith(BRAINDUMP_REF):
+        source = "braindump"
     symptom = redact(failure_symptom) if cfg.braindump.redact_secrets else failure_symptom
+    approach = redact(approach) if cfg.braindump.redact_secrets else approach
     try:
         de = DeadEnd(
             id=store.new_id("de"),
@@ -232,11 +248,63 @@ def log_dead_end(
             failure_symptom=symptom[:SYMPTOM_MAX],
             source=source,
             related_invariant=related_invariant,
+            origin_ref=origin_ref,
         )
     except ValidationError as exc:
         raise LifecycleError(f"invalid dead end: {exc}") from exc
     store.create(de)
+    _from_braindump(store, origin_ref, "dead_end", de.id, approach)
     return {"id": de.id, "status": "ACTIVE"}
+
+
+def propose_decision(
+    store: Store,
+    cfg: Config,
+    *,
+    title: str,
+    context: str,
+    decision: str,
+    consequences: list[str],
+    scope_paths: list[str],
+    origin_text: str,
+    origin_ref: str | None = None,
+) -> dict[str, Any]:
+    """A decision with no test of its own: a PROPOSED decision record (ADR) that a human accepts or
+    rejects in `seamspec review` (§13.6, ADR-20261013-d9e4). Never locks anything."""
+    for name, value in (("title", title), ("context", context), ("decision", decision)):
+        if not value.strip():
+            raise LifecycleError(f"{name} is empty")
+    if not scope_paths:
+        raise LifecycleError("scope_paths is empty")
+    origin = _origin(cfg, "braindump" if origin_ref else "prompt", origin_text, origin_ref)
+    where = f"braindump item `{origin_ref}`" if origin_ref else "the conversation"
+    record = adr.create(
+        store,
+        title=title.strip(),
+        context=f"{context.strip()}\n\nFrom {where}: {origin.text}",
+        decision=decision,
+        consequences=consequences,
+        scopes=scope_paths,
+    )
+    _from_braindump(store, origin_ref, "decision", record.id, origin_text)
+    return {"adr_id": record.id, "status": "PROPOSED"}
+
+
+def decide_decision(store: Store, adr_id: str, accept: bool, actor: str | None = None, via: Via = "terminal",
+                    client: str | None = None) -> dict[str, Any]:  # fmt: skip
+    """Accept or reject a proposed decision that has no rule of its own (human only). A decision
+    linked to rules follows them: it is accepted when its rule is approved (§11.1)."""
+    require_interactive(via)
+    record = adr.get(store, adr_id)
+    if record.status != "PROPOSED":
+        raise LifecycleError(f"{adr_id} is {record.status}, not PROPOSED")
+    if record.invariants:
+        raise LifecycleError(f"{adr_id} belongs to {', '.join(record.invariants)}: it follows their review")
+    status = "ACCEPTED" if accept else "REJECTED"
+    adr.set_status(store, adr_id, status)
+    journal.note(store, "decision_accepted" if accept else "decision_rejected", item=adr_id,
+                 actor=actor or approver_identity(store), via=via, client=client)  # fmt: skip
+    return {"id": adr_id, "status": status}
 
 
 def request_supersede(
