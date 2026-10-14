@@ -13,7 +13,7 @@ import typer
 
 from . import __version__
 from . import review as review_mod
-from .core import braindump, failtext, journal, lifecycle, requests, specdoc, tree, trust, verifier
+from .core import braindump, failtext, journal, lifecycle, requests, snapshot, specdoc, tree, trust, verifier
 from .core.config import ConfigError, load_config
 from .core.context import constraints_for
 from .core.models import DeadEnd, Invariant, InvStatus
@@ -802,7 +802,15 @@ def trust_cmd(
     typer.echo("Trusted.")
 
 
-def _verify_text(store: Store, report: verifier.VerifyReport, problems: list[str], gate: bool) -> str:
+STAGED_NOTE = (
+    "Checked what this commit records (your staged files), which differs from the files on disk. "
+    "If you fixed something after `git add`, stage it again."
+)
+
+
+def _verify_text(
+    store: Store, report: verifier.VerifyReport, problems: list[str], gate: bool, staged: bool = False
+) -> str:
     """What failed, for a human (dogfooding #11, ADR-20261013-4e9b). The short block per rule comes
     last, where the eye lands in a terminal. At a refused commit the runner's own output is left out
     for every failure the block explains; a plain `seamspec verify` and CI keep all of it, above."""
@@ -810,7 +818,8 @@ def _verify_text(store: Store, report: verifier.VerifyReport, problems: list[str
     shown = unexplained if gate else [r for r in report.results if not r.passed]
     count = failtext.count(report)
     head = "SeamSpec: commit blocked." if gate else "SeamSpec: verification failed."
-    lines = [head, *problems, *report.config_failures, *(failtext.raw(r) for r in shown)]
+    note = [STAGED_NOTE] if staged else []
+    lines = [head, *note, *problems, *report.config_failures, *(failtext.raw(r) for r in shown)]
     if summary:
         lines += ["", f"{count}:" if count else "Failed:", *summary]
     return "\n".join(lines)
@@ -892,6 +901,7 @@ def verify(
             raise _fail("automatic test runs aren't allowed on this machine. Re-run `seamspec init`.")
 
     problems = journal.unjournaled_changes(store) if gate else []
+    staged = False
     try:
         if proposed:
             invs = []
@@ -913,8 +923,13 @@ def verify(
                 files = tree.changed_files(root)
                 if files is not None:
                     locked = [i for i in locked if any(matches(i.scope.paths, f) for f in files)]
-            report = verifier.run(root, cfg, locked)
-            verifier.save_last(root, report)
+            # A commit records the staged files: when they differ from disk, check those (ADR-20261014-3b1e).
+            staged = gate and not ci and snapshot.differs(root)
+            if staged:
+                report = _verify_staged(root, cfg, locked)
+            else:
+                report = verifier.run(root, cfg, locked)
+                verifier.save_last(root, report)
     except (RecordError, KeyError, lifecycle.LifecycleError) as exc:
         raise _fail(str(exc)) from None
 
@@ -925,21 +940,34 @@ def verify(
     else:
         ran = sum(len(r.invariant_ids) for r in report.results)
         if ok:
-            typer.echo(f"SeamSpec: {ran} invariant(s) passed.")
+            typer.echo(f"SeamSpec: {ran} invariant(s) passed" + (" (on the staged files)." if staged else "."))
         else:
-            typer.echo(_verify_text(store, report, problems, gate), err=gate)
+            typer.echo(_verify_text(store, report, problems, gate, staged), err=gate)
             if not proposed:
                 typer.echo(
                     "\nFix the regression, or if the change is intentional, supersede the rule "
                     "(`seamspec supersede <id> --reason ...`).",
                     err=gate,
                 )
-            if gate and report.results:
+            if gate and report.results and not staged:  # `verify --all` runs the files on disk
                 typer.echo("Full test output: `seamspec verify --all`", err=True)
         if gate and pending:
             typer.echo(f"SeamSpec: {pending} item(s) awaiting review: run `seamspec review`.", err=True)
     if not ok:
         raise typer.Exit(1)
+
+
+def _verify_staged(root: Path, cfg: Any, locked: list[Invariant]) -> verifier.VerifyReport:
+    """Run the locked tests on a copy of what the commit records (SPEC §16.4). Fails closed when the
+    copy can't be made or the run may have imported the working tree's code."""
+    try:
+        with snapshot.staged(root, cfg) as snap:
+            report = verifier.run(snap.root, cfg, locked, first_on_path=snap.first_on_path)
+            if not snap.trustworthy():
+                raise snapshot.SnapshotError(snapshot.EDITABLE)
+    except snapshot.SnapshotError as exc:
+        raise _fail(f"commit blocked. {exc}") from None
+    return report
 
 
 @app.command("mcp")
