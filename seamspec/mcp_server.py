@@ -204,6 +204,8 @@ def get_constraints(files: list[str], roots: SessionRoots = None) -> dict[str, A
         linked = {i.adr_id for i in cs.locked + cs.proposed if i.adr_id}
         out["adrs"] = _adr_summaries(svc, cs.files, linked)
         out["runners"] = _runner_hints(svc, cs.files)
+        if plans := braindump.planned(svc.store, svc.cfg.braindump.path, svc.cfg.braindump.marker):
+            out["planned"] = {"note": braindump.PLANNED_HEADING, "rules": [{"id": i.id, "text": i.text} for i in plans]}
         return out
 
     return _with_services(run, roots, files)
@@ -305,9 +307,9 @@ def propose_decision(
 
 @mcp.tool(structured_output=False)
 def braindump_pending(
-    dismiss: dict[str, Literal["todo", "exploration"]] | None = None, roots: SessionRoots = None
+    dismiss: dict[str, Literal["todo", "exploration", "planned"]] | None = None, roots: SessionRoots = None
 ) -> dict[str, Any]:
-    """Unsorted BRAINDUMP.md notes. dismiss: {note id: "todo" | "exploration"}. Sort the rest with
+    """Unsorted BRAINDUMP.md notes. dismiss: {note id: "todo" | "exploration" | "planned"}. Sort the rest with
     propose_invariant, propose_decision or log_dead_end, origin_ref = the note id."""
 
     def run(svc: Services) -> dict[str, Any]:
@@ -316,6 +318,8 @@ def braindump_pending(
         done = braindump.dismiss(svc.store, path, marker, dismissals)
         items = braindump.pending(svc.store, path, marker)
         out: dict[str, Any] = {"file": path, "pending": [{"id": i.id, "text": i.text} for i in items]}
+        if plans := braindump.planned(svc.store, path, marker):
+            out["planned"] = [{"id": i.id, "text": i.text} for i in plans]
         if done:
             out["dismissed"] = done
         if braindump.read(svc.root, path) is None:

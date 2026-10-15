@@ -383,7 +383,10 @@ def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
         + len(requests.pending_supersede_ids(store))
         + len(review_mod.pending_decisions(store)),
         "supersede_requests": sorted(requests.pending_supersede_ids(store)),
-        "braindump": {"new_notes": len(braindump.pending(store, cfg.braindump.path, cfg.braindump.marker))},
+        "braindump": {
+            "new_notes": len(braindump.pending(store, cfg.braindump.path, cfg.braindump.marker)),
+            "planned": len(braindump.planned(store, cfg.braindump.path, cfg.braindump.marker)),
+        },
         "last_verify": last_verify,
     }
 
@@ -413,6 +416,11 @@ def status(as_json: Annotated[bool, typer.Option("--json", help="Machine-readabl
     typer.echo(f"  last verify {'never' if lv is None else ('passed' if lv.get('passed') else 'FAILED')}")
     if data["awaiting_review"]:
         typer.echo(f"{data['awaiting_review']} awaiting review: run `seamspec review`.")
+    if data["braindump"]["planned"]:
+        typer.echo(
+            f"{data['braindump']['planned']} planned rule(s) from {cfg.braindump.path}, waiting for their code"
+            " (`seamspec drain` lists them)."
+        )
     if data["braindump"]["new_notes"]:
         typer.echo(
             f"{data['braindump']['new_notes']} new note(s) in {cfg.braindump.path}: ask your agent to sort them."
@@ -486,8 +494,8 @@ def context(
     files: Annotated[list[str], typer.Argument(help="Files you are about to change.")],
     as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
 ) -> None:
-    """Show the invariants and dead ends that apply to FILES (MCP-free fallback for agents)."""
-    root, _cfg, store = _open()
+    """Show the invariants and dead ends that apply to FILES, and the rules the user planned (MCP-free fallback)."""
+    root, cfg, store = _open()
     try:
         cs = constraints_for(store, [str((Path.cwd() / f).resolve()) for f in files])
     except RecordError as exc:
@@ -496,11 +504,14 @@ def context(
         typer.echo(json.dumps(cs.to_dict(), indent=2))
         return
     shown = ", ".join(cs.files) or "(no files inside this repository)"
+    plans = braindump.planned_lines(store, cfg.braindump.path, cfg.braindump.marker)
     if not (cs.locked or cs.proposed or cs.dead_ends):
         typer.echo(f"SeamSpec: no invariants or dead ends apply to {shown}.")
-        return
-    typer.echo(f"SeamSpec: {shown} {'is' if len(cs.files) == 1 else 'are'} governed by:")
-    typer.echo(cs.render())
+    else:
+        typer.echo(f"SeamSpec: {shown} {'is' if len(cs.files) == 1 else 'are'} governed by:")
+        typer.echo(cs.render())
+    if plans:
+        typer.echo("\n" + "\n".join(plans))
 
 
 # --- lifecycle (SPEC §11, §15) ------------------------------------------------------------------
@@ -612,8 +623,9 @@ def drain(
         list[str] | None,
         typer.Option(
             "--dismiss",
-            metavar="ID=todo|exploration",
-            help="Set a note aside as a task or an idea; it stays in the file (repeatable; agents without MCP).",
+            metavar="ID=todo|exploration|planned",
+            help="Set a note aside as a task, an idea, or a rule planned before its code exists; it stays in the "
+            "file (repeatable; agents without MCP).",
         ),
     ] = None,
 ) -> None:
@@ -625,7 +637,7 @@ def drain(
             raise _fail("use --dismiss or --tidy, not both")
         pairs = [d.partition("=") for d in dismiss]
         if any(not sep for _, sep, _ in pairs):
-            raise _fail("write each as ID=todo or ID=exploration")
+            raise _fail("write each as ID=todo, ID=exploration or ID=planned")
         try:
             done = braindump.dismiss(store, path, marker, [{"item_id": i, "as": k} for i, _, k in pairs])
         except (ValueError, KeyError) as exc:
@@ -638,12 +650,20 @@ def drain(
         typer.echo(f"Moved {moved} sorted note(s) below the marker in {path}." if moved else "Nothing to tidy.")
         return
     items = braindump.pending(store, path, marker)
+    plans = braindump.planned(store, path, marker)
     if as_json:
-        typer.echo(json.dumps({"file": path, "pending": [{"id": i.id, "text": i.text} for i in items]}, indent=2))
+        out: dict[str, Any] = {"file": path, "pending": [{"id": i.id, "text": i.text} for i in items]}
+        if plans:
+            out["planned"] = [{"id": i.id, "text": i.text} for i in plans]
+        typer.echo(json.dumps(out, indent=2))
         return
     if braindump.read(store.root, path) is None:
         typer.echo(f"No {path} here. `seamspec init` creates one.")
         return
+    if plans:
+        typer.echo(f"{path}: {len(plans)} planned rule(s), waiting for their code (delete the note to drop one):")
+        for item in plans:
+            typer.echo(f"  {item.id}  {review_mod.cut(item.text, 100)}")
     if not items:
         typer.echo(f"{path}: nothing new to sort.")
         return

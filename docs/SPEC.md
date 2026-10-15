@@ -1219,13 +1219,22 @@ The **in-session agent** classifies each pending item; SeamSpec stores the resul
 
 | Classification | Example | Result |
 |---|---|---|
-| **Constraint** | "Tenant isolation must not leak if `org_id` is missing" | `propose_invariant` (with harness) → `PROPOSED` |
+| **Constraint** | "Tenant isolation must not leak if `org_id` is missing" | `propose_invariant` (with harness) → `PROPOSED`, when its code exists and works; otherwise set aside as `planned` (§13.6a) |
 | **Decision** | "RFC 7807 errors everywhere" | `propose_decision` (ADR) and/or `propose_invariant` |
 | **Failed approach** | "Global dict JWT cache leaked across tenants" | `log_dead_end` → `ACTIVE` |
 | **Exploration / question** | "Look at how Stripe handles idempotency" | Dismissed as `exploration` (stays in braindump) |
 | **Task** | "Benchmark Redis pipelining" | Dismissed as `todo` (stays in braindump) |
 
 Every write uses `origin.type = "braindump"` and `origin.ref = <item id>`. Dismissals are recorded via `braindump_pending(dismiss=[...])`. **Nothing from a drain is ever `LOCKED` without human approval.**
+
+### 13.6a Planned Rules (ADR-20261014-5e3a)
+
+A rule can't be proposed before its code exists: its test has to pass, and review shows it failing without the change. Notes like that used to sit in BRAINDUMP.md doing nothing until the code arrived, and nothing told the agent about them while it built that code (owner's Antigravity test, 2026-10-14). Now:
+
+- **Set aside as `planned`.** The drain sets such a note aside as `planned` (`braindump_pending(dismiss={id: "planned"})`, or `seamspec drain --dismiss ID=planned`). It stays in the file and stops being pending, so it doesn't trigger the nudge (§13.9).
+- **Shown to the agent, labelled as not enforced.** Planned notes still in the file are listed after the rules in the session-start text, under *"SeamSpec: rules the user planned in their notes (not enforced, no test yet). Build to them. When the code for one exists and works, propose it as a rule…"* (at most 15, then a count). They also appear in `get_constraints` (`planned: {note, rules}`, project-wide, since a note has no scope), in `braindump_pending` (`planned`), in `seamspec context`, `seamspec drain` (list and `--json`) and `seamspec status` (`braindump.planned`).
+- **Become rules the usual way.** When the code works, the agent proposes the rule with `origin_ref` = the note's id; the note's state becomes `invariant` and it leaves the planned list. The drain looks at planned notes on every sort. Approval in `seamspec review` is unchanged: nothing is enforced before a human approves a passing test.
+- **Personal, like the file.** The plan lives in `.seamspec/.local/braindump.json`, never in the ledger. Deleting the note drops the plan; `seamspec drain --tidy` leaves planned notes where they are.
 
 ### 13.7 Managed Section Format
 
@@ -1289,7 +1298,7 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 | `verify(scope)` | Run `LOCKED` invariant tests (`changed` / `all`). **Never runs proposed tests** | `seamspec verify` |
 | `open_review(ids?)` | Show the human SeamSpec's review dialogs in the chat; returns only the outcomes (§11.5) | `seamspec review` |
 | `review_material(ids?)` | **Read-only, runs nothing.** What waits for review, with SeamSpec's facts about each test and the code changes in each item's scope; for SeamSpec's reviewer agent (§15.3) | — |
-| `braindump_pending(dismiss?)` | List unprocessed braindump items; optionally dismiss items as `todo` / `exploration` | `seamspec drain [--dismiss ID=todo\|exploration]` |
+| `braindump_pending(dismiss?)` | List unprocessed braindump items and planned rules; optionally set items aside as `todo` / `exploration` / `planned` (§13.6a) | `seamspec drain [--dismiss ID=todo\|exploration\|planned]` |
 
 **Signatures:**
 
@@ -1402,7 +1411,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 | `seamspec retire-dead-end <id> --reason` | Retire a dead end |
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
 | `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder; on failure it prints *"SeamSpec: commit blocked."* and the short block per failing rule (§12A.4) in place of the runner's output. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
-| `seamspec drain [--json] [--tidy] [--dismiss ID=todo\|exploration]…` | List the BRAINDUMP.md notes not yet sorted (sorting is the agent's, `/seamspec:drain`); `--tidy` (human only) moves sorted notes below the marker as one log line each; `--dismiss` sets notes aside as a task or an idea, for agents without SeamSpec's tools (ADR-20261014-6c2d) |
+| `seamspec drain [--json] [--tidy] [--dismiss ID=todo\|exploration\|planned]…` | List the BRAINDUMP.md notes not yet sorted (sorting is the agent's, `/seamspec:drain`); `--tidy` (human only) moves sorted notes below the marker as one log line each; `--dismiss` sets notes aside as a task, an idea or a planned rule (§13.6a), for agents without SeamSpec's tools (ADR-20261014-6c2d); planned rules are listed first |
 | `seamspec propose-decision --json -` | Propose a decision record with no test of its own (agents without MCP); a human decides in `seamspec review` |
 | `seamspec doctor [--ci] [--base <ref>] [--json]` | Validate config, record schemas, hashes, runner config fingerprints, approval provenance and scopes. Locally it also checks the approval journal, `CLAUDE.md` directive drift (§18; it says so when lines inside the block aren't SeamSpec's, and that `init` keeps them), the git pre-commit hook, and hosts allowlisting SeamSpec commands (§12.4.3). `--ci` replaces the local-state checks with ledger forward-only checks against the base branch and the retirement summary (§16.5). Exits 1 on any error; warnings never fail. v0.1 scope: ADR-20261006-9623 |
 | `seamspec spec [--out FILE] [--check FILE]` | Print the spec the code has earned: every approved rule as one readable Markdown document, generated from the ledger (§15.2). `--out` writes a copy marked as generated; `--check` exits 1 when that copy is out of date. Read-only: anyone can run it, the agent included |
@@ -1643,7 +1652,8 @@ argument-hint: "[note ids]"
 ---
 Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 
-1. Call `braindump_pending()` (or run `seamspec drain --json`). If nothing is pending, say so and stop.
+1. Call `braindump_pending()` (or run `seamspec drain --json`). If nothing is pending or planned, say so
+   and stop.
    If SeamSpec's tools are missing or fail, use its commands instead: `seamspec propose`,
    `seamspec propose-decision`, `seamspec dead-end`, each reading the tool's fields as JSON on stdin.
    Never search outside this project for SeamSpec's settings.
@@ -1657,13 +1667,16 @@ Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 3. **constraint:** if the code it governs exists and works, write a focused behavior-level test and
    call `propose_invariant` with `origin_type="braindump"`, `origin_ref=<note id>` and
    `origin_text=<the note>`; then run `seamspec verify --proposed <id>`. If the code doesn't exist
-   yet, leave the note pending and say so.
+   yet, set the note aside as **planned** (step 6): you'll be shown it as a rule the user wants, and
+   you propose it once its code works. Also look at the notes already planned (`planned` in the
+   result of step 1): propose any whose code now exists and works.
 4. **decision:** `propose_decision` with `origin_ref=<note id>`. If part of it is testable now, also
    propose that part as a rule.
 5. **failed_approach:** `log_dead_end` with `origin_ref=<note id>`.
-6. **exploration** and **task:** dismiss them all in one call:
-   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo"})`, or without the tools
-   `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=todo`. They stay in the file.
+6. **exploration**, **task** and **planned:** set them aside in one call:
+   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo", "<note id>": "planned"})`,
+   or without the tools `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=planned`.
+   They stay in the file.
 7. Propose at most 3 rules and decisions together in one sort (or `commands.max_proposals_per_run`
    from `.seamspec/config.toml`); leave the rest pending and say so. If a tool answers `queue_full`,
    stop proposing and ask the user to review what's waiting first.
@@ -2511,7 +2524,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - `parse_items(markdown, marker) -> list[Item(id, text)]`: §13.5. List items continue over indented lines; a paragraph runs to the next blank line, list entry or heading; fenced code stays whole with its item (or is one); headings, rules and HTML comments are skipped; text below the marker is never read; duplicate ids are listed once.
 - `item_id(text)`: `bd_` + 8 hex of SHA-256 of the whitespace-normalized, lowercased text.
 - `state(store)` / `record(store, id, as, ref, text)`: `.seamspec/.local/braindump.json`, what each item became (`invariant`, `dead_end`, `decision`, `todo`, `exploration`) with the record id. `lifecycle.propose_invariant` (origin type `braindump`), `log_dead_end(origin_ref=…)` and `propose_decision(origin_ref=…)` call it. The preview is the note's own text from the file (redacted when `redact_secrets` is on), not the agent's rewording.
-- `pending(store, path, marker)`; `dismiss(store, path, marker, [{item_id, as}])` (only `todo` / `exploration`, only pending items), also reached by `seamspec drain --dismiss ID=todo|exploration`.
+- `pending(store, path, marker)`; `dismiss(store, path, marker, [{item_id, as}])` (only `todo` / `exploration` / `planned`, only pending items), also reached by `seamspec drain --dismiss ID=todo|exploration|planned`. `planned(store, path, marker)` lists notes set aside as planned that are still in the file; `planned_lines(...)` is their session-start text (never raises); `note_text(...)` finds a note's own text by id. `tidy` leaves planned notes in place (§13.6a).
 - `should_nudge` / `remember_nudge`: `.seamspec/.local/nudge.json` holds a hash of the pending ids at the last nudge (§13.9); `adapters/claude._braindump_nudge` uses them on `startup` and `clear`, and is silent on any error.
 - `tidy(store, path, marker) -> int`: moves sorted items from the person's part into the managed part as `- \`bd_…\` → <what> — "<preview>"`, leaving every other line as it was. Only `seamspec drain --tidy` (human only) calls it.
 - Redaction (§13.8) is `core/redact.py`, applied by `lifecycle` to origin text, dead-end approaches and failure reasons.
