@@ -180,6 +180,24 @@ def install_commands(root: Path, host: str) -> list[Change]:
     return out
 
 
+def install_agents(root: Path, host: str) -> list[Change]:
+    """SeamSpec's reviewer as the host's own read-only agent, where one can be made (ADR-20261015-4f7b)."""
+    if host not in commands.AGENT_FILES:
+        return []
+    out = []
+    for name in commands.V01_AGENTS:
+        rel = commands.AGENT_FILES[host].format(name=name)
+        text = commands.render_agent(name, host)
+        path = root / rel
+        old = path.read_text(encoding="utf-8") if path.is_file() else None
+        if old == text:
+            out.append(Change(rel, "unchanged"))
+            continue
+        atomic_write(path, text)
+        out.append(Change(rel, "created" if old is None else "updated"))
+    return out
+
+
 def install(root: Path, host: str) -> list[Change]:
     """Set SeamSpec up for one host. Safe to rerun."""
     if host not in HOSTS:
@@ -190,4 +208,5 @@ def install(root: Path, host: str) -> list[Change]:
     ]
     changes += [install_mcp(root, host), install_hooks(root, host)]
     changes += install_commands(root, host)
+    changes += install_agents(root, host)
     return changes

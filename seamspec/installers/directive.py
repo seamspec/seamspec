@@ -33,13 +33,15 @@ REVIEWER_OFFER = "offer an explanation from\n   SeamSpec's reviewer (`/seamspec:
 
 def directive_text(variant: str = "claude") -> str:
     """The protocol. `agents`: the same rules for the hosts that read AGENTS.md, with their command
-    names (`/seamspec-drain`) and without the reviewer, which only the Claude Code plugin ships."""
+    names (`/seamspec-drain`); the reviewer is offered where the tool has it (not Cursor yet)."""
     text = files("seamspec.templates").joinpath("directive.md").read_text("utf-8").strip()
     if variant == "claude":
         return text
     if REVIEWER_OFFER not in text:
         raise ValueError("directive.md changed: update REVIEWER_OFFER for the AGENTS.md variant")
-    return text.replace(REVIEWER_OFFER, "offer to open").replace("/seamspec:", "/seamspec-")
+    # VS Code and Antigravity have the reviewer as a custom agent; Cursor doesn't yet (ADR-20261015-4f7b).
+    offer = REVIEWER_OFFER.replace("(`/seamspec:explain`)", "(`/seamspec-explain`, where your tool has it)")
+    return text.replace(REVIEWER_OFFER, offer).replace("/seamspec:", "/seamspec-")
 
 
 def _variant(filename: str) -> str:

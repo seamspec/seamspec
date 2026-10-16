@@ -33,10 +33,20 @@ def human(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize("host", HOSTS)
 def test_commands_are_rendered_in_each_hosts_format(host: str) -> None:
     names = commands.commands_for(host)
-    assert "explain" not in names and "drain" in names and "lock" in names  # the reviewer is Claude Code's
+    assert "drain" in names and "lock" in names
+    assert ("explain" in names) == (host in commands.REVIEWER_HOSTS)  # Cursor can't run a read-only reviewer yet
     for name in names:
         text = commands.render(name, host)
-        assert "/seamspec:" not in text and "seamspec review" in text or name in ("context", "status", "dead-end")
+        assert "/seamspec:" not in text
+        assert (
+            "seamspec review" in text
+            or name in ("context", "status", "dead-end")
+            or (host, name)
+            == (
+                "vscode",
+                "explain",
+            )
+        )
         assert "$ARGUMENTS" not in text and "{{args}}" not in text
         if host == "vscode":
             front = text.split("\n---\n", 1)[0].splitlines()[1:]
@@ -50,9 +60,43 @@ def test_commands_are_rendered_in_each_hosts_format(host: str) -> None:
         commands.render("explain", "cursor")
 
 
+def test_reviewer_is_read_only_in_vscode_and_antigravity(tmp_path: Path) -> None:
+    """ADR-20261015-4f7b: a separate agent that didn't write the rules, limited to reading."""
+    vscode = commands.render_agent("reviewer", "vscode")
+    front = vscode.split("\n---\n", 1)[0]
+    assert "name: seamspec-reviewer" in front and "agents: []" in front
+    assert "tools: ['read', 'search', 'seamspec/review_material']" in front  # nothing that edits or runs
+    prompt = commands.render("explain", "vscode")
+    assert "agent: seamspec-reviewer" in prompt and "Explain the items waiting for SeamSpec review" in prompt
+
+    antigravity = commands.render_agent("reviewer", "antigravity")
+    front = antigravity.split("\n---\n", 1)[0]
+    assert "  - view_file\n  - grep_search\n" in front and 'commandExecutionPolicy: "off"' in front
+    assert "run_command" not in front and "replace_file_content" not in front and "mainAgent: false" in front
+    skill = commands.render("explain", "antigravity")
+    assert "invoke_subagent" in skill and "`seamspec-reviewer`" in skill and "in full and unchanged" in skill
+    for text in (vscode, antigravity):  # without SeamSpec's tool it can still find every item itself
+        assert ".seamspec/invariants/inv_*.json" in text and ".seamspec/.local/requests/" in text
+        assert "You are SeamSpec's reviewer" in text
+    with pytest.raises(ValueError):
+        commands.render_agent("reviewer", "cursor")
+
+    for host in commands.REVIEWER_HOSTS:
+        changes = {c.path: c.status for c in installer.install(tmp_path / host, host)}
+        rel = commands.AGENT_FILES[host].format(name="reviewer")
+        assert changes[rel] == "created" and (tmp_path / host / rel).read_text() == commands.render_agent(
+            "reviewer", host
+        )
+        assert (tmp_path / host / commands.HOST_FILES[host].format(name="explain")).is_file()
+        assert {c.status for c in installer.install(tmp_path / host, host)} == {"unchanged"}
+    installer.install(tmp_path / "cursor", "cursor")
+    assert not (tmp_path / "cursor/.cursor/commands/seamspec-explain.md").exists()
+
+
 def test_agents_md_gets_the_protocol_worded_for_these_hosts(tmp_path: Path) -> None:
     text = directive.directive_text("agents")
-    assert "/seamspec-drain" in text and "/seamspec:" not in text and "reviewer" not in text
+    assert "/seamspec-drain" in text and "/seamspec:" not in text
+    assert "SeamSpec's reviewer (`/seamspec-explain`, where your tool has it)" in text  # not Cursor yet
     assert "Only humans approve invariants" in text and "never answer its prompts" in text
     (tmp_path / "AGENTS.md").write_text("# Our agents\n\nUse tabs.\n")
     assert directive.install(tmp_path, directive.AGENTS_FILE) == "updated"
