@@ -324,6 +324,9 @@ def _init_hosts(root: Path, wanted: str | None) -> None:
             "  If the tool already had this folder open, restart the `seamspec` server in its MCP settings"
             " (or reload the window) so it picks up the new settings."
         )
+        for host in chosen:
+            for note in host_installer.SETUP_NOTES.get(host, ()):
+                typer.echo(f"  {note}")
 
 
 def _init_plugin(root: Path, wanted: bool | None) -> None:

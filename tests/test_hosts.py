@@ -242,6 +242,39 @@ def test_stop_sends_the_agent_back_when_a_locked_rule_fails(git_repo: Path, huma
     assert inv_id in reason and "request_supersede" in reason
 
 
+def test_vscode_hooks_also_load_in_the_copilot_agent(git_repo: Path, human: None, tmp_path: Path) -> None:
+    """VS Code's chats ran in the Copilot agent, which ignored the hook file: it rejects a file with no
+    `version` (hands-on test, 2026-10-16, ADR-20261016-2d9a)."""
+    installer.install(tmp_path, "vscode")
+    data = json.loads((tmp_path / ".github/hooks/seamspec.json").read_text())
+    assert data["version"] == 1
+    assert data["hooks"]["Stop"][0]["timeoutSec"] == data["hooks"]["Stop"][0]["timeout"] == installer.STOP_TIMEOUT
+
+    old = tmp_path / "old"
+    (old / ".github/hooks").mkdir(parents=True)
+    (old / ".github/hooks/seamspec.json").write_text(json.dumps({"hooks": {
+        "SessionStart": [{"type": "command", "command": "seamspec hook vscode session-start", "timeout": 30}],
+        "Stop": [{"type": "command", "command": "seamspec hook vscode stop", "timeout": 120}],
+    }}))  # fmt: skip
+    assert installer.install_hooks(old, "vscode").status == "updated"
+    data = json.loads((old / ".github/hooks/seamspec.json").read_text())
+    assert data["version"] == 1 and data["hooks"]["Stop"] == [
+        {"type": "command", "command": "seamspec hook vscode stop", "timeout": 120, "timeoutSec": 120}
+    ]  # a hand-tuned timeout carries over
+
+    inv_id = lock(git_repo)
+    camel = json.dumps({"sessionId": "s9", "cwd": str(git_repo), "stopHookActive": False})  # the Copilot agent's own
+    (git_repo / "src/queue.py").write_text(BROKEN_CODE)
+    out = json.loads(adapter.main("vscode", "stop", camel))
+    assert out["decision"] == "block" and inv_id in out["reason"]  # what the Copilot agent reads
+    assert out["hookSpecificOutput"]["decision"] == "block"  # what VS Code's Local agent reads
+    start = json.loads(adapter.main("vscode", "session-start", payload("vscode", "session-start", git_repo)))
+    assert (
+        inv_id in start["additionalContext"]
+        and start["additionalContext"] == start["hookSpecificOutput"]["additionalContext"]
+    )
+
+
 def test_stop_is_capped_and_waits_for_background_work(git_repo: Path, human: None) -> None:
     lock(git_repo)
     (git_repo / "src/queue.py").write_text(BROKEN_CODE)
@@ -263,6 +296,7 @@ def test_hook_command_line_and_bad_input(git_repo: Path, human: None) -> None:
 def test_init_hosts_option(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "pyproject.toml").write_text("")
     out = runner.invoke(app, ["init", "--path", str(tmp_path), "--hosts", "cursor,antigravity"])
+    assert "MCP servers in Copilot" not in out.output  # VS Code's notes only when VS Code is set up
     assert out.exit_code == 0, out.output
     assert "Cursor:" in out.output and "Antigravity:" in out.output and "VS Code" not in out.output
     assert (tmp_path / ".cursor/hooks.json").is_file() and (tmp_path / ".agents/hooks.json").is_file()
@@ -272,3 +306,12 @@ def test_init_hosts_option(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     (tmp_path / ".vscode").mkdir()
     quiet = runner.invoke(app, ["init", "--path", str(tmp_path)])  # no terminal: never installs on its own
     assert "run `seamspec init --hosts" in quiet.output and not (tmp_path / ".vscode/mcp.json").exists()
+
+
+def test_init_tells_what_to_do_in_vscode(tmp_path: Path) -> None:
+    """Org Copilot policies hid hooks and MCP in the owner's VS Code (hands-on test, 2026-10-16)."""
+    (tmp_path / "pyproject.toml").write_text("")
+    out = runner.invoke(app, ["init", "--path", str(tmp_path), "--hosts", "vscode"])
+    assert out.exit_code == 0, out.output
+    assert "MCP: List Servers" in out.output and '"Editor preview features"' in out.output
+    assert '"MCP servers in Copilot"' in out.output

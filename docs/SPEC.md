@@ -2165,6 +2165,10 @@ The `vscode` adapter normalizes the payload and maps decisions to the host's out
 - **Fail open carefully:** an error or non-zero exit from a `PreToolUse` hook may deny the tool call in VS Code, so on internal errors the adapter must exit 0 with an explicit allow (unless `hooks.fail_closed = true`).
 - Tier: **Full** (per docs; confirm hands-on before release).
 
+**Hands-on (2026-10-16, ADR-20261016-2d9a).** In the owner's VS Code the hook file, as built, ran only in VS Code's **Local** agent (`SessionStart` ran: the rules summary reached the chat). Chats in the **Copilot** agent (VS Code's default "Copilot" sessions, the same agent as the Copilot CLI) never loaded it: that agent reads `.github/hooks/*.json` too but rejects a file with no `"version"`, and it accepts VS Code's PascalCase events and payload ("VS Code-compatible payload format") while reading its own reply fields at the top level. So the file `init` writes now has `"version": 1` and both `timeout` and `timeoutSec`, and the `vscode` adapter answers in both shapes: top-level `additionalContext` / `decision` + `reason` for the Copilot agent, `hookSpecificOutput` for the Local one, and it reads `sessionId` / `stopHookActive` as well as the snake_case names. A rerun of `init` upgrades an older file (adds `version` and `timeoutSec`, keeps a hand-tuned `timeout`). The Copilot agent's `preToolUse` names its tools (`view`, `bash`, `rg`, … seen in the logs); its edit tools weren't seen yet, so edit-time context and ledger protection still wait.
+
+**What a person has to do in VS Code** (`init` prints it; SeamSpec doesn't and mustn't do it): start SeamSpec's server once (`MCP: List Servers` → seamspec → Start), trust the folder, and on Copilot Business or Enterprise have an org admin enable the Copilot policies **"Editor preview features"** (hooks are a preview feature) and **"MCP servers in Copilot"**; both are off by default and showed as *"Managed by organization"* in the owner's VS Code.
+
 ### 16.3 Cursor — v0.1 (session start + stop; ADR-20261013-e8f3)
 
 **`.cursor/hooks.json`** *(per cursor.com/docs/hooks, 2026-10-05)*:
