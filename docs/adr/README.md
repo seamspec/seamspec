@@ -79,3 +79,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261014-6c2d](ADR-20261014-6c2d-antigravity-hands-on-fixes.md) | Fixes from the Antigravity hands-on test: project folder for the server, tool fallbacks, drain --dismiss | ACCEPTED |
 | [ADR-20261014-8a57](ADR-20261014-8a57-braindump-sorting-limits.md) | BRAINDUMP sorting: decisions count toward the review cap, reject the rest at once, offer again when the code changes | ACCEPTED |
 | [ADR-20261014-5e3a](ADR-20261014-5e3a-planned-rules.md) | Planned rules: notes whose code doesn't exist yet steer the agent until they can be proposed | ACCEPTED |
+| [ADR-20261015-4f7b](ADR-20261015-4f7b-reviewer-in-vscode-and-antigravity.md) | SeamSpec's reviewer in VS Code and Antigravity, as each tool's own read-only agent | ACCEPTED |
