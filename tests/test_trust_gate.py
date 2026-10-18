@@ -197,6 +197,20 @@ def test_init_on_a_fresh_clone_asks_once(py_repo: Path, monkeypatch: pytest.Monk
     assert ("run `seamspec trust`" in result.output) is (answer == "n")
 
 
+def test_rerunning_init_keeps_an_earlier_yes(py_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rerunning init (e.g. to add an editor) asked again with "No" as the default: one Enter would have
+    switched the checks off (hands-on test, ADR-20261017-7b0e)."""
+    store = Store(py_repo)
+    assert trust.consent_given(store) and trust.state(store, load_config(py_repo)).trusted
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    result = runner.invoke(
+        app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin", "--no-ci"], input="\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Allow automatic test runs" not in result.output and "already allowed on this machine" in result.output
+    assert trust.consent_given(store) and trust.execution_permitted(store, load_config(py_repo))[0]
+
+
 def test_clone_trust_is_bound_to_what_was_shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """--mode strict on an advisory clone switches trust_level to "harness" after the screen showed
     "runners": the yes no longer matches what's on disk, so nothing is trusted."""
