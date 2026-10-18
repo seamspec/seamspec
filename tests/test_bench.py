@@ -308,7 +308,7 @@ def test_end_to_end_with_a_scripted_agent(tmp_path: Path, condition: str) -> Non
     assert s.dead_end and s.tampering == 0 and s.cost_usd == pytest.approx(0.09)
     work = Path(score.CACHE) / "runs" / "fake" / f"t1_queue-{condition}-1"
     has_ledger = (work / ".seamspec/config.toml").is_file()
-    assert has_ledger is (condition in ("B", "C", "H"))
+    assert has_ledger is (condition in ("B", "C", "H", "S"))
     assert (work / ".claude/settings.json").is_file() is (condition == "D")
     if condition == "C":
         assert (work / ".git/hooks/pre-commit").is_file()

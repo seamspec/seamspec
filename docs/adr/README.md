@@ -80,7 +80,7 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261014-8a57](ADR-20261014-8a57-braindump-sorting-limits.md) | BRAINDUMP sorting: decisions count toward the review cap, reject the rest at once, offer again when the code changes | ACCEPTED |
 | [ADR-20261014-5e3a](ADR-20261014-5e3a-planned-rules.md) | Planned rules: notes whose code doesn't exist yet steer the agent until they can be proposed | ACCEPTED |
 | [ADR-20261015-4f7b](ADR-20261015-4f7b-reviewer-in-vscode-and-antigravity.md) | SeamSpec's reviewer in VS Code and Antigravity, as each tool's own read-only agent | ACCEPTED |
-| [ADR-20261015-c8e1](ADR-20261015-c8e1-capture-and-long-session-benchmarks.md) | Plan and pass bars for the capture and long-session benchmarks | PROPOSED |
+| [ADR-20261015-c8e1](ADR-20261015-c8e1-capture-and-long-session-benchmarks.md) | Plan and pass bars for the capture and long-session benchmarks | ACCEPTED |
 | [ADR-20261016-2d9a](ADR-20261016-2d9a-vscode-copilot-agent-hooks.md) | VS Code hands-on: one hook file for VS Code's Local and Copilot agents, and setup notes | ACCEPTED |
 | [ADR-20261017-7b0e](ADR-20261017-7b0e-init-rerun-keeps-consent.md) | Rerunning init keeps an earlier yes to automatic test runs | ACCEPTED |
 | [ADR-20261017-1f5c](ADR-20261017-1f5c-cursor-hands-on.md) | Cursor hands-on: hooks work as built; init says to switch the server on | ACCEPTED |

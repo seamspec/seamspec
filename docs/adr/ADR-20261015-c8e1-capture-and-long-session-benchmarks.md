@@ -1,7 +1,7 @@
 ---
 id: ADR-20261015-c8e1
 title: "Plan and pass bars for the capture and long-session benchmarks"
-status: PROPOSED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
+status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-15
 scopes: ["bench/"]
 invariants: []
@@ -73,11 +73,27 @@ If item 1 fails, the write-up says "a 15-request session didn't make the agent f
 - **Calibration:** 1 run each of S and of long-session A on one task, about **$6**. It checks the harness and the session length before the counted runs.
 - **Total: about $125-160.** The harness work (approval step, condition N, violating patches, long-session task variants, scoring) comes first, in its own PR, with tests and no paid runs.
 
-## Questions for the owner (this ADR stays PROPOSED until answered)
+## Questions for the owner (answered 2026-10-18)
 
 1. Is the scripted **trusting reviewer** (approve everything whose test passes) the right stand-in for a person in S? A stricter alternative is to approve only rules that match an agreement, but that tells the harness the answer.
 2. Do you accept the **pass bars**, in particular that "the gate catches what the agent forgets" may only be claimed if E actually slips?
 3. Is the **spend** (about $125-160, Sonnet 5.5 only, your API key, in your terminal) OK?
+
+**The owner's answers (2026-10-18): yes to all three.** The owner also asked for both benchmarks to run (2026-10-16), after the VS Code and Cursor hands-on tests.
+
+## Clarifications made while building the harness (before any run)
+
+These change no threshold. They make the plan match the tasks and keep the measure honest.
+
+- **Agreements per task.** T1 and T3 have three rules plus a dead end; T2 has two rules plus a dead end. "Captures at least 2 of each task's 3 agreements" is applied as **at least two-thirds of a run's agreements** (its rules plus its dead end): 3 of 4 for T1 and T3, 2 of 3 for T2.
+- **Each violating patch breaks exactly one agreement.** The harness's tests run every patch against the real hidden tests, and each must fail only its own rule. That ruled out the first drafts of three patches, each of which also broke a second agreement:
+  - T1's signature patch now makes `enqueue` return a dict instead of the id string;
+  - T3's stdout patch prints a summary line on standard output;
+  - T3's column patch writes `amount_cents` as dollars.
+- **"Captured" ignores tests of new code.** A locked rule test captures an agreement only if it passes on the starting code and fails on the patched code. Tests of code the agent added in session 1 fail on the starting code, so they never count.
+- **The review's commit records only SeamSpec's files, with the commit check skipped.** At that point the check would test the agent's uncommitted work, which isn't the reviewer's to judge.
+- **Gate catches are read from the session logs.** A catch is a message the agent received (a Stop hook's feedback or a refused `git commit`) carrying SeamSpec's failure text. The calibration run must show that such messages appear in the logs at all. If they don't, the count is fixed before the counted runs, and this ADR says how.
+- **N's whole setup** is one `CLAUDE.md` line, fixed in `bench/harness/prepare.py` (`SELF_NOTES`). N's NOTES.md is checked for each agreement by keywords; this is reported, never judged.
 
 ## Enforced Invariants
 

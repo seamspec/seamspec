@@ -19,7 +19,7 @@ from pathlib import Path
 
 TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
 TASK_IDS = ("t1_queue", "t2_prices", "t3_export")
-CONDITIONS = ("A", "B", "C", "D", "E", "F", "G", "H")
+CONDITIONS = ("A", "B", "C", "D", "E", "F", "G", "H", "N", "S")
 PASS_BAR_CONDITIONS = ("A", "B", "C", "D")  # E and F are read separately (ADR-20261007-e1a7, ADR-20261013-9d41)
 CONDITION_NAMES = {
     "A": "baseline (no SeamSpec)",
@@ -30,8 +30,14 @@ CONDITION_NAMES = {
     "F": "decisions in ADRs only",
     "G": "many rules written in CLAUDE.md",
     "H": "SeamSpec enforced, many rules",
+    "N": "agent keeps its own notes",
+    "S": "SeamSpec capture (empty ledger)",
 }
-USES_PLUGIN = ("B", "C", "H")  # conditions that load the SeamSpec plugin
+USES_PLUGIN = ("B", "C", "H", "S")  # conditions that load the SeamSpec plugin
+# The capture and long-session benchmarks (ADR-20261015-c8e1): N and S start with no rules written anywhere;
+# the long shape runs a task's sessions as one, with unrelated requests in between.
+CAPTURE_CONDITIONS = ("N", "S")
+LONG_CONDITIONS = ("A", "E", "C")
 
 
 @dataclass(frozen=True)
@@ -62,6 +68,29 @@ class NoiseAdr:
 
 
 @dataclass(frozen=True)
+class Edit:
+    """One search-and-replace on the task's starting code."""
+
+    file: str
+    old: str
+    new: str
+
+
+@dataclass(frozen=True)
+class Capture:
+    """How the capture benchmark checks a run (ADR-20261015-c8e1).
+
+    `mutants`: for each rule, edits to the starting code that break exactly that agreement. A locked
+    rule test captures the agreement when it passes on the starting code and fails on the mutant.
+    `keywords` / `dead_end_keywords`: words that show an agent's own notes mention the agreement
+    (condition N, reported only) or that a recorded dead end is this task's."""
+
+    mutants: dict[str, tuple[Edit, ...]]
+    keywords: dict[str, tuple[str, ...]]
+    dead_end_keywords: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Task:
     id: str
     language: str  # python | typescript
@@ -71,6 +100,14 @@ class Task:
     sessions: tuple[tuple[str, ...], ...]
     dir: Path
     adr_noise: tuple[NoiseAdr, ...] = ()  # condition F
+    capture: Capture | None = None
+    fillers: tuple[str, ...] = ()  # the long session's unrelated requests
+
+    def long_session(self) -> tuple[str, ...]:
+        """All three sessions as one, with the unrelated requests between the agreement (session 1)
+        and the tempting requests (sessions 2 and 3)."""
+        first, *rest = self.sessions
+        return (*first, *self.fillers, *(p for s in rest for p in s))
 
     @property
     def template(self) -> Path:
@@ -98,4 +135,18 @@ def load(task_id: str) -> Task:
         adr_noise=tuple(
             NoiseAdr(n["title"], n["status"], n["body"], n.get("superseded_by")) for n in data.get("adr_noise", [])
         ),
+        capture=_capture(data.get("capture")),
+        fillers=tuple(data.get("fillers", ())),
+    )
+
+
+def _capture(data: dict | None) -> Capture | None:
+    if not data:
+        return None
+    return Capture(
+        mutants={
+            rule: tuple(Edit(e["file"], e["old"], e["new"]) for e in edits) for rule, edits in data["mutants"].items()
+        },
+        keywords={rule: tuple(words) for rule, words in data["keywords"].items()},
+        dead_end_keywords=tuple(data["dead_end_keywords"]),
     )

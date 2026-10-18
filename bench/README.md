@@ -21,6 +21,11 @@ Conditions:
 - **E:** the same rules and dead end as plain notes in `CLAUDE.md` (ADR-20261007-e1a7);
 - **F:** the same decisions as records in `docs/adr/`, among unrelated and outdated ones, with nothing pointing at them (ADR-20261013-9d41);
 - **G and H:** E and C again with **36 more agreed rules** about two helper packages (`scale/`, `harness/scale.py`). Only the task's own rules are scored: do they still hold as three among thirty-nine?
+- **N and S** (the capture benchmark, [ADR-20261015-c8e1](../docs/adr/ADR-20261015-c8e1-capture-and-long-session-benchmarks.md)): nothing is written down; the agreements exist only in session 1's prompt.
+  - **N:** one `CLAUDE.md` line asks the agent to keep its own NOTES.md.
+  - **S:** SeamSpec enforced with an **empty** ledger. Between sessions a scripted person approves every proposed rule whose test passes (`harness/capture.py`). After session 1, an agreement counts as **captured** when a locked rule test passes on the starting code and fails on that agreement's violating patch (`task.json` → `capture.mutants`).
+
+**The long shape** (`--shape long`, the long-session benchmark): a task's three sessions run as **one**, with the 12 unrelated requests of `task.json` → `fillers` between the agreement and the temptations. It reports how often SeamSpec's Stop or commit check sent the agent back (from the session logs) and whether Claude Code compacted the conversation.
 
 Every run is scored on the final working tree (the pass bar's metric), and also on what was **committed** at `HEAD`. To compare a batch with an earlier one (no model calls):
 
@@ -44,6 +49,17 @@ uv run python -m bench.run --tasks t3_export --conditions A --runs 2 --model cla
 uv run python -m bench.run --runs 5 --model claude-sonnet-5-5 --label full-1 --billing api --counted --bar full --resume --yes   # 120 runs
 uv run python -m bench.run --conditions A,C,D,E --runs 3 --model claude-haiku-5-5 --label full-1-haiku --billing api --bar none --resume --yes
 ```
+
+The capture and long-session benchmarks (ADR-20261015-c8e1, accepted 2026-10-18; about $125-160 in all). Calibrate first (about $6), check the logs, then run the counted batches:
+
+```bash
+uv run python -m bench.run --tasks t1_queue --conditions S --runs 1 --model claude-sonnet-5-5 --label calib-capture --billing api --bar none --yes
+uv run python -m bench.run --tasks t1_queue --conditions A --runs 1 --model claude-sonnet-5-5 --label calib-long --billing api --shape long --bar none --yes
+uv run python -m bench.run --conditions N,S --runs 5 --model claude-sonnet-5-5 --label capture-1 --billing api --counted --bar capture --baseline full-1 --resume --yes   # 30 runs
+uv run python -m bench.run --conditions A,E,C --runs 3 --model claude-sonnet-5-5 --label long-1 --billing api --counted --shape long --bar long --resume --yes   # 27 runs
+```
+
+`--bar capture` compares with `--baseline full-1`: that batch's A (nothing) and E (hand-written notes) ran the same prompts.
 
 **Billing** (`--billing`, the owner's choice):
 - `plan` (default): Claude Code's own login. The harness removes `ANTHROPIC_API_KEY`.

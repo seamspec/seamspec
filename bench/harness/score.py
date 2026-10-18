@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import shutil
@@ -190,3 +191,36 @@ def oracle(task: Task, work: Path, committed: bool = False) -> dict[str, bool]:
             proc.communicate()
             return {rule.id: False for rule in task.rules}
         return _junit_failures(report, task)
+
+
+# --- the long session (ADR-20261015-c8e1) ----------------------------------------------------------
+
+GATE_MARKERS = ("SeamSpec: locked rule check failed", "SeamSpec: commit blocked")
+
+
+def _stream_events(log_dir: Path):
+    for path in sorted(log_dir.glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+
+def gate_catches(log_dir: Path) -> int:
+    """Times SeamSpec's Stop check or commit check sent the agent back, from the session logs: one per
+    message the agent received (a hook's feedback or a refused `git commit`) that carries a marker."""
+    count = 0
+    for event in _stream_events(log_dir):
+        if isinstance(event, dict) and event.get("type") in ("user", "system"):
+            text = json.dumps(event)
+            count += any(marker in text for marker in GATE_MARKERS)
+    return count
+
+
+def compacted(log_dir: Path) -> bool:
+    """Claude Code compacted the conversation at least once."""
+    return any(
+        isinstance(e, dict) and e.get("type") == "system" and "compact" in str(e.get("subtype", ""))
+        for e in _stream_events(log_dir)
+    )
