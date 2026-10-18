@@ -28,20 +28,16 @@ class DirectiveError(RuntimeError):
 
 
 AGENTS_FILE = "AGENTS.md"  # read by Cursor, VS Code (Copilot) and Antigravity (ADR-20261013-e8f3)
-REVIEWER_OFFER = "offer an explanation from\n   SeamSpec's reviewer (`/seamspec:explain`), and offer to open"
 
 
 def directive_text(variant: str = "claude") -> str:
     """The protocol. `agents`: the same rules for the hosts that read AGENTS.md, with their command
-    names (`/seamspec-drain`); the reviewer is offered where the tool has it (not Cursor yet)."""
+    names (`/seamspec-drain`)."""
     text = files("seamspec.templates").joinpath("directive.md").read_text("utf-8").strip()
     if variant == "claude":
         return text
-    if REVIEWER_OFFER not in text:
-        raise ValueError("directive.md changed: update REVIEWER_OFFER for the AGENTS.md variant")
-    # VS Code and Antigravity have the reviewer as a custom agent; Cursor doesn't yet (ADR-20261015-4f7b).
-    offer = REVIEWER_OFFER.replace("(`/seamspec:explain`)", "(`/seamspec-explain`, where your tool has it)")
-    return text.replace(REVIEWER_OFFER, offer).replace("/seamspec:", "/seamspec-")
+    # Cursor, VS Code and Antigravity all have the reviewer now (ADR-20261015-4f7b, ADR-20261018-9c4d).
+    return text.replace("/seamspec:", "/seamspec-")
 
 
 def _variant(filename: str) -> str:

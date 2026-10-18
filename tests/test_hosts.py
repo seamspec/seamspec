@@ -34,7 +34,7 @@ def human(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_commands_are_rendered_in_each_hosts_format(host: str) -> None:
     names = commands.commands_for(host)
     assert "drain" in names and "lock" in names
-    assert ("explain" in names) == (host in commands.REVIEWER_HOSTS)  # Cursor can't run a read-only reviewer yet
+    assert "explain" in names  # every host has the reviewer now
     for name in names:
         text = commands.render(name, host)
         assert "/seamspec:" not in text
@@ -56,11 +56,9 @@ def test_commands_are_rendered_in_each_hosts_format(host: str) -> None:
             assert meta["description"]
         if host == "antigravity":
             assert text.startswith(f"---\nname: seamspec-{name}\ndescription: ")
-    with pytest.raises(ValueError):
-        commands.render("explain", "cursor")
 
 
-def test_reviewer_is_read_only_in_vscode_and_antigravity(tmp_path: Path) -> None:
+def test_reviewer_is_read_only_in_every_other_host(tmp_path: Path) -> None:
     """ADR-20261015-4f7b: a separate agent that didn't write the rules, limited to reading."""
     vscode = commands.render_agent("reviewer", "vscode")
     front = vscode.split("\n---\n", 1)[0]
@@ -78,8 +76,9 @@ def test_reviewer_is_read_only_in_vscode_and_antigravity(tmp_path: Path) -> None
     for text in (vscode, antigravity):  # without SeamSpec's tool it can still find every item itself
         assert ".seamspec/invariants/inv_*.json" in text and ".seamspec/.local/requests/" in text
         assert "You are SeamSpec's reviewer" in text
-    with pytest.raises(ValueError):
-        commands.render_agent("reviewer", "cursor")
+    cursor = commands.render_agent("reviewer", "cursor")
+    assert "readonly: true" in cursor.split("\n---\n", 1)[0] and "You are SeamSpec's reviewer" in cursor
+    assert "`seamspec-reviewer` subagent" in commands.render("explain", "cursor")
 
     for host in commands.REVIEWER_HOSTS:
         changes = {c.path: c.status for c in installer.install(tmp_path / host, host)}
@@ -89,14 +88,13 @@ def test_reviewer_is_read_only_in_vscode_and_antigravity(tmp_path: Path) -> None
         )
         assert (tmp_path / host / commands.HOST_FILES[host].format(name="explain")).is_file()
         assert {c.status for c in installer.install(tmp_path / host, host)} == {"unchanged"}
-    installer.install(tmp_path / "cursor", "cursor")
-    assert not (tmp_path / "cursor/.cursor/commands/seamspec-explain.md").exists()
+    assert (tmp_path / "cursor/.cursor/agents/seamspec-reviewer.md").is_file()  # installed in the loop above
 
 
 def test_agents_md_gets_the_protocol_worded_for_these_hosts(tmp_path: Path) -> None:
     text = directive.directive_text("agents")
     assert "/seamspec-drain" in text and "/seamspec:" not in text
-    assert "SeamSpec's reviewer (`/seamspec-explain`, where your tool has it)" in text  # not Cursor yet
+    assert "SeamSpec's reviewer (`/seamspec-explain`)" in text
     assert "Only humans approve invariants" in text and "never answer its prompts" in text
     (tmp_path / "AGENTS.md").write_text("# Our agents\n\nUse tabs.\n")
     assert directive.install(tmp_path, directive.AGENTS_FILE) == "updated"
@@ -323,3 +321,20 @@ def test_init_tells_what_to_do_in_cursor(tmp_path: Path) -> None:
     out = runner.invoke(app, ["init", "--path", str(tmp_path), "--hosts", "cursor"])
     assert out.exit_code == 0, out.output
     assert "switch SeamSpec's server on once" in out.output and "MCP servers in Copilot" not in out.output
+
+
+@pytest.mark.parametrize("host", ["cursor", "vscode"])
+def test_session_start_says_how_to_turn_the_tools_on(git_repo: Path, human: None, host: str) -> None:
+    """Cursor and VS Code leave the server off until allowed; the agent must be able to tell the user how
+    (hands-on tests, ADR-20261018-9c4d). Said even with nothing locked yet."""
+    out = json.loads(adapter.main(host, "session-start", payload(host, "session-start", git_repo)))
+    text = out["additional_context"] if host == "cursor" else out["hookSpecificOutput"]["additionalContext"]
+    assert "tell the user once that its server is off" in text and adapter.TOOLS_OFF[host] in text
+    inv_id = lock(git_repo)
+    out = json.loads(adapter.main(host, "session-start", payload(host, "session-start", git_repo)))
+    text = out["additional_context"] if host == "cursor" else out["hookSpecificOutput"]["additionalContext"]
+    assert inv_id in text and adapter.TOOLS_OFF[host] in text
+
+
+def test_antigravity_needs_no_tools_note(git_repo: Path, human: None) -> None:
+    assert adapter.main("antigravity", "session-start", payload("antigravity", "session-start", git_repo)) == ""

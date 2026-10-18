@@ -32,13 +32,14 @@ HOST_FILES = {
     "antigravity": ".agents/skills/seamspec-{name}/SKILL.md",  # /seamspec-<name>
 }
 # The reviewer is a separate, read-only agent (ADR-20261013-b7d2). Claude Code ships it in the plugin;
-# VS Code and Antigravity get it as a custom agent (ADR-20261015-4f7b). Cursor's read-only switch also
-# blocks every MCP tool, so it waits.
-REVIEWER_HOSTS = ("vscode", "antigravity")
+# VS Code and Antigravity get it as a custom agent (ADR-20261015-4f7b), and Cursor as a read-only
+# subagent that reads the ledger itself, like Antigravity's (ADR-20261018-9c4d).
+REVIEWER_HOSTS = ("cursor", "vscode", "antigravity")
 NEEDS_REVIEWER = ("explain",)
 AGENT_FILES = {
     "vscode": ".github/agents/seamspec-{name}.agent.md",  # picked by /seamspec-explain (prompt file `agent:`)
     "antigravity": ".agents/agents/seamspec-{name}.md",  # started by the main agent with invoke_subagent
+    "cursor": ".cursor/agents/seamspec-{name}.md",  # started by the main agent, or typed as /seamspec-reviewer
 }
 REVIEWER_LINES = (  # sentences that point at the reviewer; other hosts don't have it
     ("   Offer an explanation from SeamSpec's reviewer, a separate agent that didn't write the test\n"
@@ -133,6 +134,9 @@ def render_agent(name: str, host: str = "claude") -> str:
         # and the prompt then says how to find the items with read and search alone.
         lines = [f"name: seamspec-{name}", f"description: {description}",
                  "tools: ['read', 'search', 'seamspec/review_material']", "agents: []"]  # fmt: skip
+    elif host == "cursor":
+        # `readonly` blocks file edits and state-changing shell commands; Cursor has no tool allowlist.
+        lines = [f"name: seamspec-{name}", f"description: {description}", "model: inherit", "readonly: true"]
     else:
         # Antigravity's docs name no MCP tool for an allowlist, and warn that a wrong name can hang the
         # subagent: it gets the two documented read tools, no commands, and reads the ledger itself.
