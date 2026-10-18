@@ -82,6 +82,16 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def _consented(root: Path) -> bool:
+    """This machine already said yes to automatic test runs in this repository."""
+    if not (root / ".seamspec/config.toml").is_file():
+        return False
+    try:
+        return trust.consent_given(Store(root))
+    except OSError:
+        return False
+
+
 def _untrusted_config(root: Path) -> Any:
     """The existing config of a clone this machine hasn't trusted yet, else None."""
     if not (root / ".seamspec/config.toml").is_file():
@@ -186,6 +196,12 @@ def init(
     if target != "advisory" and not lowering:
         if accept_auto_run:
             auto_run = True
+        elif _interactive() and _consented(root) and _untrusted_config(root) is None:
+            # A rerun (e.g. to add an editor) keeps the yes; asking again with "No" as the default
+            # could switch the checks off with one Enter (hands-on test, ADR-20261017-7b0e).
+            typer.echo(
+                "Automatic test runs: already allowed on this machine (`seamspec init --mode advisory` stops them)."
+            )
         elif _interactive():
             typer.echo(CONSENT_SCREEN)
             # A fresh clone: its committed runner commands need trust too. One question covers both.
