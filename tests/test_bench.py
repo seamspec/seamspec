@@ -437,6 +437,35 @@ def test_an_authentication_error_stops_the_batch(tmp_path: Path, monkeypatch: py
     assert len(calls) == 1  # never tried the second prompt
 
 
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"type": "result", "subtype": "success", "is_error": True, "result": "Invalid API key · Fix external API key",
+         "total_cost_usd": 0, "num_turns": 1},  # calibration 2026-10-18: ran 9 prompts and scored nothing
+        {"type": "result", "is_error": True, "result": "Some other failure", "total_cost_usd": 0, "num_turns": 0},
+    ],
+)  # fmt: skip
+def test_a_failure_before_any_work_stops_the_batch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, result) -> None:
+    import subprocess as sp
+
+    from bench.harness import agent as agent_mod
+    from bench.harness.agent import ClaudeAgent, StopBatch
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    calls: list[list[str]] = []
+    stream = "\n".join([json.dumps({"type": "system", "subtype": "init", "apiKeySource": "ANTHROPIC_API_KEY"}),
+                        json.dumps(result)])  # fmt: skip
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return sp.CompletedProcess(cmd, 0, stdout=stream, stderr="")
+
+    monkeypatch.setattr(agent_mod.subprocess, "run", fake_run)
+    with pytest.raises(StopBatch):
+        ClaudeAgent("m", 1.0, "api").run_session(tmp_path, 1, ("one", "two", "three"), False, tmp_path / "logs")
+    assert len(calls) == 1
+
+
 # --- condition E and committed violations (ADR-20261007-e1a7) --------------------------------------
 
 
