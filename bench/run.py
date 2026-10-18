@@ -60,7 +60,7 @@ def run_one(task: Task, condition: str, run: int, agent: ClaudeAgent | FakeAgent
         if condition == "N" and s == 1:
             extra["notes"], _ = capture.notes_mentions(task, work)
     if shape == "long":
-        extra["gate_catches"], extra["compacted"] = score.gate_catches(logs), score.compacted(logs)
+        extra["gate_catches"], extra["compacted"] = score.gate_catches(work), score.compacted(logs)
     passed = score.oracle(task, work)
     landed = score.oracle(task, work, committed=True)
     tampered = score.tampering(work, prepared.rule_test_paths) + (

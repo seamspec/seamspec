@@ -2363,12 +2363,15 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 1. Before editing a file, call `get_constraints(files)` (or run `seamspec context <files>`).
    Respect every LOCKED invariant. Approaches listed as previously failed (dead ends) failed for
    the stated reason; don't reuse them unless that reason no longer applies.
-2. When you establish a new behavior worth protecting, call `propose_invariant` with a focused,
-   behavior-level test (not implementation details). The tool does not run the test: run
+2. When the user states an agreement or a rule the code must keep, or you establish a behavior
+   worth protecting, capture it right away: call `propose_invariant` with a focused,
+   behavior-level test (not implementation details). If its code doesn't exist yet, say so and
+   propose it once the code works. The tool does not run the test: run
    `seamspec verify --proposed <id>` with your shell tool and fix the test until it passes.
    If the project keeps a list of rules it intends to lock (for example a section of its
    plan), propose each one when its code exists and works.
-3. When an approach fails, call `log_dead_end` with what you tried and why it failed.
+3. When an approach fails, or the user tells you about one that failed before, call
+   `log_dead_end` with what was tried and why it failed.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
 5. Never edit files under `.seamspec/` directly; use SeamSpec tools. If they are missing or fail,
@@ -2384,7 +2387,8 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 8. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
    the SeamSpec summary block.
 9. Users don't have to type commands. Treat plain requests as the matching workflow command:
-   "sort my braindump" → drain; "protect this" / "lock that" → lock; "that didn't work" → dead-end;
+   "sort my braindump" → drain; "protect this" / "lock that" / an agreement the user states → lock;
+   "that didn't work" / a failure the user describes → dead-end;
    a changed requirement for a LOCKED rule → supersede; "what applies here?" → context;
    "wrap up" → checkpoint.
 ```
@@ -2521,6 +2525,8 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - `lifecycle.approve(..., confirm_config=None)` refuses when runner config fingerprints don't match. To confirm, a caller passes the fingerprints of **exactly the bytes it showed the human** (`review.show_config_changes()` returns them); if the files changed again after display, approval is refused. `review`'s own confirmation step applies the same check before writing `fingerprints.json`.
 
 - **The commit check's copy** ([`snapshot.py`](../seamspec/core/snapshot.py), §16.4, ADR-20261014-3b1e): `differs(root)` is true when the index and the working tree differ (unstaged tracked changes or untracked non-ignored files; false outside git); `ledger_differs(root)` checks tracked `.seamspec/` files only. `staged(root, cfg)` is a context manager yielding `Snapshot(root, shims, redirected, must_redirect, first_on_path)`: the index copied with `git checkout-index`, the ledger from disk, the env folders linked and every runner's start script shimmed with `redgreen.shim_runner()`. It raises `SnapshotError` (the gate prints it and refuses) when git can't answer, the staged ledger differs from disk, the copy fails, or an editable install can't be redirected; `Snapshot.trustworthy()` is false when an editable install is present and the redirect's marker is missing after the run. `cli._verify_staged()` runs the locked tests there without `save_last`.
+
+- **Catches** ([`catches.py`](../seamspec/core/catches.py), ADR-20261018-6e1a): `record(store, kind, ids)` appends `{at, kind: "stop" | "commit", ids}` to `.seamspec/.local/catches.jsonl` (per machine, never committed) and never raises; `load` skips broken lines; `counts` gives `{stop, commit}`. `adapters/claude._block` records a `stop` catch for a real failing check (not for a hook error); `seamspec verify --gate` records a `commit` catch when it refuses. `seamspec status` prints *"caught N at the end of a task, M at a commit (this machine)"* and `--json` has `catches`.
 
 ### 19.8c `seamspec/core/commands.py` — implemented (weeks 3–4)
 
@@ -2840,7 +2846,7 @@ In this order (ADR-20261011-0995):
 | Runs | Rough run in **week 3**: 2 tasks × 4 conditions × 3 runs on Claude Sonnet 5.5, after a Haiku dry run that only checks the harness. Full run in week 5: ≥ 5 runs per condition per task, same model and settings |
 | Scoring | A **hidden oracle** test suite, which the agent never sees, checks every rule against the final code. The pass, change-the-pitch and kill thresholds are fixed in ADR-20261006-c8b9 **before** any run |
 | Full run (week 5) | **Plan and pass bar: ADR-20261013-9d41** (accepted by the owner on 2026-10-13, with the many-rules variant added). 3 tasks × 8 conditions × 5 runs = 120 runs on Sonnet 5.5. **G and H repeat E and C with 36 more agreed rules** about two helper packages, because a notes file is plainly enough for three rules; only the task's own rules are scored, and G is read against H.  Then a smaller batch on a less careful model that is reported, not judged. The bar scales the rough run's thresholds to the number of runs and asks C to beat D by a margin, not by one. E and F are read against C (clearly worse / matches / unclear) and decide **which claims the write-up may make**, a table fixed in that ADR. Built without any model call: task T3 (an export tool, with requests that have both a rule-keeping and a rule-breaking way to do them), condition F, `decide_full`, `--bar`, `--resume` |
-| **Full run result** | **PASS** (ADR-20261013-e2b6, [`docs/benchmark/full-1.md`](benchmark/full-1.md)): 120 runs on Sonnet 5.5, $111.94. Rules broken in 15 runs each: A 22, B 0, C 0, D 10, E 0, F 7, G 0, H 0. With plain tests the agent rewrote the rule tests (12 changes; 0 with SeamSpec) and repeated the dead end (5 runs; 0). **A notes file matched SeamSpec, with 3 rules and with 39; advisory matched enforced; in 30 enforced runs the gates never had to fire.** Allowed claims: halves broken agreements against nothing; plain tests get rewritten and SeamSpec's don't; fewer broken agreements than plain tests. Not allowed: better than notes, than ADRs, or enforced better than advisory. **Second model** (Haiku 5.5, 36 runs, reported not judged, [`full-1-haiku.md`](benchmark/full-1-haiku.md)): A 13, C 0, D 9, E 0 in 9 runs each; the same picture, with plain tests rewritten more often. Next: capture from conversation and a long session, each with its own pre-set bar |
+| **Full run result** | **PASS** (ADR-20261013-e2b6, [`docs/benchmark/full-1.md`](benchmark/full-1.md)): 120 runs on Sonnet 5.5, $45.37 (first reported as $111.94: the harness added up Claude Code's running totals; ADR-20261018-6e1a). Rules broken in 15 runs each: A 22, B 0, C 0, D 10, E 0, F 7, G 0, H 0. With plain tests the agent rewrote the rule tests (12 changes; 0 with SeamSpec) and repeated the dead end (5 runs; 0). **A notes file matched SeamSpec, with 3 rules and with 39; advisory matched enforced; in 30 enforced runs the gates never had to fire.** Allowed claims: halves broken agreements against nothing; plain tests get rewritten and SeamSpec's don't; fewer broken agreements than plain tests. Not allowed: better than notes, than ADRs, or enforced better than advisory. **Second model** (Haiku 5.5, 36 runs, reported not judged, [`full-1-haiku.md`](benchmark/full-1-haiku.md)): A 13, C 0, D 9, E 0 in 9 runs each; the same picture, with plain tests rewritten more often. Next: capture from conversation and a long session, each with its own pre-set bar |
 | Rough run result (week 3) | **PASS**: V(A)=9, V(B)=1, V(C)=2, V(D)=6. C beat plain tests on violations, tampering and dead ends, at 1.29× the cost. SeamSpec agents surfaced all 12 conflicts with `request_supersede`; with plain tests, the agent rewrote the tests. See ADR-20261006-b270 and `docs/benchmark/rough-1.md` |
 | Metrics | Locked-invariant violations at end; regressions introduced and not fixed; tests edited, skipped or deleted by the agent; dead-end retries; turns to completion; tokens/cost; human interventions |
 | Output | Published scripts, raw logs, and a single chart: *violations per session by condition* |
