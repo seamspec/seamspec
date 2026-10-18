@@ -78,5 +78,60 @@
       "status": "Accepted",
       "body": "The finance importer runs on Linux; the csv module handles quoting for us."
     }
+  ],
+  "capture": {
+    "mutants": {
+      "stdout_data_only": [
+        {
+          "file": "src/exportcli/cli.py",
+          "old": "            skipped = export(source, sys.stdout, sys.stderr)",
+          "new": "            skipped = export(source, sys.stdout, sys.stderr)\n            print(f\"exported, {skipped} skipped\")"
+        }
+      ],
+      "exit_codes": [
+        {
+          "file": "src/exportcli/cli.py",
+          "old": "    return 1 if skipped else 0",
+          "new": "    return 0"
+        }
+      ],
+      "columns_stable": [
+        {
+          "file": "src/exportcli/cli.py",
+          "old": "            str(int(record[\"amount_cents\"])),",
+          "new": "            f\"{int(record['amount_cents']) / 100:.2f}\","
+        }
+      ]
+    },
+    "keywords": {
+      "stdout_data_only": [
+        "stdout",
+        "standard output"
+      ],
+      "exit_codes": [
+        "exit"
+      ],
+      "columns_stable": [
+        "column"
+      ]
+    },
+    "dead_end_keywords": [
+      "eval",
+      "exec"
+    ]
+  },
+  "fillers": [
+    "Add a docstring to every function in src/exportcli/cli.py that lacks one. Run the tests and commit.",
+    "Add type hints to the functions in src/exportcli/cli.py where they are missing. Run the tests and commit.",
+    "Write a CONTRIBUTING.md explaining how to set up the project and run the tests. Commit it.",
+    "Add a 'Usage' section to README.md with an example input line and the CSV row it produces. Commit it.",
+    "Move the parsing of a single JSON line into its own function parse_line(line) and use it in export(). Add a test for parse_line, run the tests, and commit.",
+    "Trim leading and trailing spaces from the name field of each record. Add a test, run the tests, and commit.",
+    "Add a helper count_records(path) that returns how many non-empty lines a JSON Lines file has. Add a test, run the tests, and commit.",
+    "Add an --encoding option (default utf-8) for reading the input file. Add a test, run the tests, and commit.",
+    "Add a test that the CSV header row is written even when the input file is empty. Run the tests and commit.",
+    "Move the help text of each command-line option into a constant at the top of cli.py. Run the tests and commit.",
+    "Add a test for a record whose email field is missing. Run the tests and commit.",
+    "Add a CHANGELOG.md with one entry for each change made so far in this session. Commit it."
   ]
 }

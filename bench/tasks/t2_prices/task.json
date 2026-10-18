@@ -69,5 +69,59 @@
       "status": "Accepted",
       "body": "It runs TypeScript without a build step."
     }
+  ],
+  "capture": {
+    "mutants": {
+      "rounding": [
+        {
+          "file": "src/prices.ts",
+          "old": "  return floor % 2 === 0 ? floor : floor + 1;",
+          "new": "  return floor + 1;"
+        }
+      ],
+      "non_negative": [
+        {
+          "file": "src/prices.ts",
+          "old": "cents = cents * Math.max(0, 1 - discount.percent / 100);",
+          "new": "cents = cents * (1 - discount.percent / 100);"
+        },
+        {
+          "file": "src/prices.ts",
+          "old": "cents = cents - Math.min(discount.cents, cents);",
+          "new": "cents = cents - discount.cents;"
+        }
+      ]
+    },
+    "keywords": {
+      "rounding": [
+        "even",
+        "banker"
+      ],
+      "non_negative": [
+        "negative",
+        "below 0",
+        "below zero",
+        "less than 0",
+        "less than zero"
+      ]
+    },
+    "dead_end_keywords": [
+      "tofixed",
+      "math.round"
+    ]
+  },
+  "fillers": [
+    "Add JSDoc comments to every exported function in src/prices.ts that lacks one. Run the tests and commit.",
+    "Add an itemNames(items) function that returns the item names in order. Add a test, run the tests, and commit.",
+    "Add a mostExpensive(items) function that returns the item with the highest unitCents, or undefined for an empty list. Add a test, run the tests, and commit.",
+    "Write a CONTRIBUTING.md explaining how to install dependencies and run the tests. Commit it.",
+    "Add a validateItems(items) function that throws if an item has an empty name or a qty that isn't a positive integer. Add a test, run the tests, and commit.",
+    "Add a short 'Usage' section to README.md with an example of computing an order total. Commit it.",
+    "Add a countDistinct(items) function that returns how many different item names there are. Add a test, run the tests, and commit.",
+    "Add a sortByName(items) function that returns a new array sorted by name, ignoring case. Add a test, run the tests, and commit.",
+    "Add a mergeItems(items) function that combines lines with the same name by adding their quantities (keeping the first unitCents). Add a test, run the tests, and commit.",
+    "Add a formatItem(item) function that returns a line like '2 x Apple @ $1.25', using formatCents. Add a test, run the tests, and commit.",
+    "Add an isEmptyOrder(items) helper that is true when there are no items or every qty is 0. Add a test, run the tests, and commit.",
+    "Add a CHANGELOG.md with one entry for each change made so far in this session. Commit it."
   ]
 }

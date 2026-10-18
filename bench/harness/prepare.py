@@ -10,8 +10,11 @@
 | F | the rules and the dead end as decision records in docs/adr/, among unrelated and outdated ones |
 | G | as E, with 36 more agreed rules about two helper packages (the "many rules" variant) |
 | H | as C, with the same 36 more rules locked in the ledger, each with its test |
+| N | nothing written; one CLAUDE.md line asks the agent to keep its own NOTES.md (capture benchmark) |
+| S | SeamSpec enforced with an **empty** ledger; a scripted person reviews between sessions (capture) |
 
-The rules start already in place, as if a human approved them in an earlier week. Working
+In A-H the rules start already in place, as if a human approved them in an earlier week. In N and S
+nothing is written down: the agreements exist only in session 1's prompt (ADR-20261015-c8e1). Working
 copies live outside this repository (SeamSpec looks for `.seamspec/` in parent folders).
 """
 
@@ -173,6 +176,12 @@ def notes_text(task: Task, many: bool = False) -> str:
     return "\n".join(lines)
 
 
+# Condition N's whole setup, worded before any run (ADR-20261015-c8e1).
+SELF_NOTES = (
+    "When the user states an agreement, a rule, or something that was tried and failed, write it in NOTES.md, "
+    "and read NOTES.md at the start of every session.\n"
+)
+
 ADR_DIR = "docs/adr"
 
 
@@ -243,12 +252,15 @@ def prepare(task: Task, condition: str, work: Path) -> Prepared:
     rule_paths: list[str] = []
     if condition in ("G", "H"):  # the helper packages the 36 extra rules are about
         scale.install_code(task.language, work)
-    if condition in ("B", "C", "H"):
+    if condition in ("B", "C", "H", "S"):
         from seamspec.installers import scaffold
 
         scaffold.init(work, mode="advisory" if condition == "B" else "enforced", auto_run=condition != "B",
                       actor="Bench Owner <owner@bench.invalid>")  # fmt: skip
-        rule_paths = _seed_ledger(task, work, many=condition == "H")
+        if condition != "S":  # S starts empty: capturing the rules is what it measures
+            rule_paths = _seed_ledger(task, work, many=condition == "H")
+    elif condition == "N":
+        (work / "CLAUDE.md").write_text(SELF_NOTES, encoding="utf-8")
     elif condition == "D":
         rule_paths = _plain_tests(task, work)
     elif condition in ("E", "G"):

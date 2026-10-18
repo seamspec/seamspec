@@ -23,6 +23,20 @@ class RunScore:
     turns: int = 0
     errors: int = 0  # prompts that ended in an error result (reported, not scored)
     committed: dict[str, bool] | None = None  # rule id -> violated at HEAD (what was committed)
+    # The capture and long-session benchmarks (ADR-20261015-c8e1); None where not measured.
+    captured: dict[str, bool] | None = None  # S: rule id -> a locked rule protects it after session 1
+    captured_dead_end: bool | None = None  # S: a dead end naming the known failed approach was recorded
+    notes: dict[str, bool] | None = None  # N: rule id -> its own NOTES.md mentions it after session 1
+    approved: list[str] | None = None  # S: titles the scripted person approved, in order
+    gate_catches: int | None = None  # long shape: times SeamSpec's Stop or commit check sent the agent back
+    compacted: bool | None = None  # long shape: Claude Code compacted the conversation
+
+    @property
+    def captured_share(self) -> float | None:
+        """Share of the task's agreements captured: its rules plus its dead end."""
+        if self.captured is None:
+            return None
+        return (sum(self.captured.values()) + bool(self.captured_dead_end)) / (len(self.captured) + 1)
 
     @property
     def committed_count(self) -> int | None:
@@ -224,3 +238,94 @@ def decide_full(scores: list[RunScore]) -> FullVerdict:
     if ratio <= 1.5:
         return verdict("pass", "Pass: worth launching on")
     return verdict("pass_cost_followup", "Pass, with a cost follow-up (1.5x-2x)")
+
+
+# --- the capture and long-session benchmarks (ADR-20261015-c8e1) ----------------------------------------
+#
+# Fixed before their runs, as the owner accepted them on 2026-10-18. Totals are compared per run, so a
+# baseline cell from an earlier batch with a different number of runs reads the same way.
+
+CAPTURE_SHARE = 2 / 3  # a run captures enough when at least two-thirds of its agreements are protected
+CAPTURE_RUNS_SHARE = 0.8  # ... in at least 4 of every 5 runs of each task
+LONG_SLIP = 3  # E must break at least this many agreements, or nothing slipped for the gate to catch
+LONG_GAP = 3  # C must break at least this many fewer than E
+LONG_CATCHES = 2  # ... with at least this many logged gate catches
+
+
+@dataclass
+class StudyVerdict:
+    code: str  # pass | fail | not_measured
+    title: str
+    reasons: list[str] = field(default_factory=list)
+    claims: dict[str, bool] = field(default_factory=dict)
+
+
+STUDY_CLAIMS = {
+    "captures": "SeamSpec turns agreements only said in chat into approved, enforced rules",
+    "beats_self_notes": "Fewer broken agreements than an agent keeping its own notes",
+    "gate_catches_forgetting": "In a long session, SeamSpec's checks catch what the agent forgets",
+}
+
+
+def _rate(scores: list[RunScore], condition: str) -> tuple[float, int]:
+    mine = [s for s in scores if s.condition == condition]
+    return (sum(s.violation_count for s in mine) / len(mine) if mine else float("nan")), len(mine)
+
+
+def decide_capture(scores: list[RunScore], baseline: list[RunScore]) -> StudyVerdict:
+    """S (SeamSpec, empty ledger) against A (nothing) and E (hand-written notes) from `baseline`, the
+    earlier batch with the same prompts, and against N (the agent's own notes) from this batch."""
+    s_rate, s_runs = _rate(scores, "S")
+    n_rate, n_runs = _rate(scores, "N")
+    a_rate, a_runs = _rate(baseline, "A")
+    e_rate, _ = _rate(baseline, "E")
+    if not s_runs or not n_runs or not a_runs:
+        return StudyVerdict("not_measured", "Not judged: needs S and N here and A in the baseline batch")
+    reasons = [f"Broken agreements per run: S {s_rate:.2f}, N {n_rate:.2f}, A {a_rate:.2f} (baseline), "
+               f"E {e_rate:.2f} (baseline)"]  # fmt: skip
+    rate_ok = True
+    for task in sorted({s.task for s in scores if s.condition == "S"}):
+        runs = [s for s in scores if s.condition == "S" and s.task == task]
+        enough = sum((s.captured_share or 0) >= CAPTURE_SHARE - 1e-9 for s in runs)
+        need = math.ceil(CAPTURE_RUNS_SHARE * len(runs))
+        rate_ok = rate_ok and enough >= need
+        reasons.append(f"{task}: {enough} of {len(runs)} S runs captured at least two-thirds (need {need})")
+    halves = s_rate <= a_rate / 2
+    no_worse = s_rate <= n_rate
+    reasons += [
+        f"S at most half of A: {'yes' if halves else 'no'}",
+        f"S no worse than N: {'yes' if no_worse else 'no'}",
+    ]
+    reading = read_against_c(s_rate * n_runs, n_rate * n_runs, n_runs)  # N against S, as E against C
+    claims = {
+        "captures": rate_ok and halves and no_worse,
+        "beats_self_notes": rate_ok and halves and reading == "worse",
+    }
+    reasons.append({"worse": "N is clearly worse than S", "match": "N matches S",
+                    "unclear": "N is neither clearly worse than S nor a match"}[reading])  # fmt: skip
+    if claims["captures"]:
+        return StudyVerdict("pass", "Pass: SeamSpec captures agreements nobody wrote down", reasons, claims)
+    return StudyVerdict("fail", "Fail: don't claim capture", reasons, claims)
+
+
+def decide_long(scores: list[RunScore]) -> StudyVerdict:
+    """The long session: did E slip, and did C's checks catch it?"""
+    t = {c: _totals(scores, c) for c in ("A", "E", "C")}
+    if not t["E"]["runs"] or not t["C"]["runs"]:
+        return StudyVerdict("not_measured", "Not judged: needs E and C in this batch")
+    v_e, v_c = t["E"]["violations"], t["C"]["violations"]
+    catches = sum(s.gate_catches or 0 for s in scores if s.condition == "C")
+    compacted = {c: sum(bool(s.compacted) for s in scores if s.condition == c) for c in ("A", "E", "C")}
+    reasons = [f"V(A)={t['A']['violations']:g}, V(E)={v_e:g}, V(C)={v_c:g}; gate catches in C: {catches}",
+               "Compacted: " + ", ".join(f"{c} {n}" for c, n in compacted.items())]  # fmt: skip
+    if v_e < LONG_SLIP:
+        reasons.append(f"E broke fewer than {LONG_SLIP}: the session didn't make the agent forget")
+        return StudyVerdict("not_measured", "No slip to catch: don't claim it either way", reasons,
+                            {"gate_catches_forgetting": False})  # fmt: skip
+    ok = v_c <= v_e - LONG_GAP and catches >= LONG_CATCHES
+    reasons.append(f"C at least {LONG_GAP} fewer than E, with at least {LONG_CATCHES} catches: {'yes' if ok else 'no'}")
+    if ok:
+        return StudyVerdict("pass", "Pass: the gate caught what the agent forgot", reasons,
+                            {"gate_catches_forgetting": True})  # fmt: skip
+    return StudyVerdict("fail", "Fail: don't claim the gate catches forgetting", reasons,
+                        {"gate_catches_forgetting": False})  # fmt: skip
