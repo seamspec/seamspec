@@ -8,7 +8,13 @@ summary, BRAINDUMP nudge and Stop check), and translates the answer back into th
 |---|---|---|
 | Cursor | `additional_context` | `followup_message` (Cursor caps repeats with `loop_limit`) |
 | VS Code | `hookSpecificOutput.additionalContext` | `hookSpecificOutput.decision = "block"` + `reason` |
+| (the same file, Copilot agent) | also top-level `additionalContext` | also top-level `decision` + `reason` |
 | Antigravity | `injectSteps[].systemMessage` | `decision = "continue"` + `reason` |
+
+VS Code's hook file also serves the **Copilot agent** (VS Code's Copilot sessions, the Copilot CLI):
+it reads `.github/hooks/*.json` with `"version": 1`, takes VS Code's event names and payload, and
+reads its own fields at the top level. The answer carries both, so either reader finds it
+(ADR-20261016-2d9a).
 
 The retry budget is SeamSpec's own (`verify.max_stop_retries`), as in Claude Code: after that many
 blocks the agent may stop, and pre-commit and CI still refuse the change. Messages that only inform
@@ -38,8 +44,11 @@ def _to_claude(host: str, event: str, payload: dict[str, Any]) -> dict[str, Any]
         again = True
     else:
         cwd = payload.get("cwd") or (payload.get("workspace_roots") or [None])[0] or os.getcwd()
-        session = payload.get("session_id") or payload.get("conversation_id")
-        again = bool(payload.get("stop_hook_active")) if host == "vscode" else int(payload.get("loop_count") or 0) > 0
+        session = payload.get("session_id") or payload.get("sessionId") or payload.get("conversation_id")
+        if host == "vscode":
+            again = bool(payload.get("stop_hook_active") or payload.get("stopHookActive"))
+        else:
+            again = int(payload.get("loop_count") or 0) > 0
     out: dict[str, Any] = {"cwd": cwd, "session_id": f"{host}-{session or 'unknown'}"}
     if event == "session-start":
         out["source"] = "startup"  # these hosts start fresh sessions only (VS Code reports "new")
@@ -55,8 +64,9 @@ def _from_claude(host: str, event: str, answer: dict[str, Any]) -> dict[str, Any
             return None
         if host == "cursor":
             return {"additional_context": text}
-        if host == "vscode":
-            return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+        if host == "vscode":  # VS Code reads hookSpecificOutput; the Copilot agent, the top level
+            return {"additionalContext": text,
+                    "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}  # fmt: skip
         return {"injectSteps": [{"systemMessage": {"systemMessage": text}}]}
     if answer.get("decision") != "block":
         return None  # allowed: an informational message has no place in these hosts' stop output
@@ -64,7 +74,8 @@ def _from_claude(host: str, event: str, answer: dict[str, Any]) -> dict[str, Any
     if host == "cursor":
         return {"followup_message": reason}
     if host == "vscode":
-        return {"hookSpecificOutput": {"hookEventName": "Stop", "decision": "block", "reason": reason}}
+        return {"decision": "block", "reason": reason,
+                "hookSpecificOutput": {"hookEventName": "Stop", "decision": "block", "reason": reason}}  # fmt: skip
     return {"decision": "continue", "reason": reason}
 
 

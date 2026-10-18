@@ -29,6 +29,14 @@ HOSTS = commands.OTHER_HOSTS
 NAMES = {"cursor": "Cursor", "vscode": "VS Code (Copilot)", "antigravity": "Antigravity"}
 MARKERS = {"cursor": ".cursor", "vscode": ".vscode", "antigravity": ".agents"}  # a host's folder: it's in use
 MCP_SERVER = {"command": "seamspec", "args": ["mcp"]}
+# What a person has to do in the tool itself; SeamSpec can't, and mustn't, do it for them (ADR-20261016-2d9a).
+SETUP_NOTES = {
+    "vscode": (
+        "VS Code: start SeamSpec's server once (Command Palette → `MCP: List Servers` → seamspec → Start).",
+        "VS Code with Copilot Business or Enterprise: an org admin must enable the Copilot policies"
+        ' "Editor preview features" (hooks) and "MCP servers in Copilot"; both are off by default.',
+    ),
+}
 STOP_TIMEOUT = 300  # seconds; the Stop check finishes well inside it (§16.1)
 
 
@@ -76,9 +84,13 @@ def hook_entries(host: str) -> tuple[str, dict[str, Any]]:
             "stop": [{"command": _hook(host, "stop"), "timeout": STOP_TIMEOUT, "loop_limit": 3}],
         }}  # fmt: skip
     if host == "vscode":
-        return ".github/hooks/seamspec.json", {"hooks": {
-            "SessionStart": [{"type": "command", "command": _hook(host, "session-start"), "timeout": 30}],
-            "Stop": [{"type": "command", "command": _hook(host, "stop"), "timeout": STOP_TIMEOUT}],
+        # `version` and `timeoutSec` make the same file load in the Copilot agent (VS Code's Copilot
+        # sessions, the Copilot CLI), which rejects a hook file without a version (ADR-20261016-2d9a).
+        return ".github/hooks/seamspec.json", {"version": 1, "hooks": {
+            "SessionStart": [{"type": "command", "command": _hook(host, "session-start"), "timeout": 30,
+                              "timeoutSec": 30}],
+            "Stop": [{"type": "command", "command": _hook(host, "stop"), "timeout": STOP_TIMEOUT,
+                      "timeoutSec": STOP_TIMEOUT}],
         }}  # fmt: skip
     return ".agents/hooks.json", {"seamspec": {
         "SessionStart": [{"type": "command", "command": _hook(host, "session-start"), "timeout": 30}],
@@ -149,7 +161,7 @@ def install_hooks(root: Path, host: str) -> Change:
         group = data.setdefault("seamspec", {})
         target, wanted = group, ours["seamspec"]
     else:
-        if host == "cursor":
+        if host in ("cursor", "vscode"):
             data.setdefault("version", 1)
         target, wanted = data.setdefault("hooks", {}), ours["hooks"]
     if not isinstance(target, dict):
@@ -159,8 +171,14 @@ def install_hooks(root: Path, host: str) -> Change:
         if not isinstance(present, list):
             return Change(rel, f"skipped ({event} is not a list)")
         for entry in entries:
-            if not any(isinstance(e, dict) and e.get("command") == entry["command"] for e in present):
+            mine = [e for e in present if isinstance(e, dict) and e.get("command") == entry["command"]]
+            if not mine:
                 present.append(entry)
+            for e in mine:  # an older SeamSpec entry gains fields added since, keeping hand-tuned values
+                for key, value in entry.items():
+                    if key == "timeoutSec":
+                        value = e.get("timeout", value)
+                    e.setdefault(key, value)
     return _write_json(root, rel, before, data, (root / rel).is_file())
 
 
