@@ -35,18 +35,21 @@ EVENTS = ("session-start", "stop")
 # Cursor and VS Code leave a project's MCP server off until the person allows it. The agent can't tell
 # them that SeamSpec's tools are off unless it is told where they are switched on (ADR-20261018-9c4d).
 TOOLS_OFF = {
-    "cursor": "Cursor Settings → MCP (or Tools), switch `seamspec` on",
-    "vscode": "Command Palette → `MCP: List Servers` → seamspec → Start",
+    "cursor": "Cursor Settings → MCP (or Tools) → switch seamspec on",
+    "vscode": "Command Palette → MCP: List Servers → seamspec → Start",
 }
 
 
 def tools_off_note(host: str) -> str | None:
+    """Worded as a sentence to repeat: in the Cursor test the agent noticed the tools were missing but
+    left out how to turn them on, when asked only to "tell the user how" (ADR-20261018-9c4d)."""
     where = TOOLS_OFF.get(host)
     if where is None:
         return None
     return (f"SeamSpec: if SeamSpec's tools (get_constraints, propose_invariant, …) aren't available in this chat, "
-            f"tell the user once that its server is off and how to turn it on ({where}); until then use the "
-            "matching `seamspec` commands in the shell.")  # fmt: skip
+            f'begin your first reply with this sentence, word for word: "SeamSpec\'s tools are switched off here. '
+            f'To turn them on: {where}." Say it once per chat; until then use the matching `seamspec` commands '
+            "in the shell.")  # fmt: skip
 
 
 def _to_claude(host: str, event: str, payload: dict[str, Any]) -> dict[str, Any]:
