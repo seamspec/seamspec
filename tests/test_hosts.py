@@ -315,3 +315,11 @@ def test_init_tells_what_to_do_in_vscode(tmp_path: Path) -> None:
     assert out.exit_code == 0, out.output
     assert "MCP: List Servers" in out.output and '"Editor preview features"' in out.output
     assert '"MCP servers in Copilot"' in out.output
+
+
+def test_init_tells_what_to_do_in_cursor(tmp_path: Path) -> None:
+    """Cursor left SeamSpec's server off until switched on by hand (hands-on test, 2026-10-17)."""
+    (tmp_path / "pyproject.toml").write_text("")
+    out = runner.invoke(app, ["init", "--path", str(tmp_path), "--hosts", "cursor"])
+    assert out.exit_code == 0, out.output
+    assert "switch SeamSpec's server on once" in out.output and "MCP servers in Copilot" not in out.output

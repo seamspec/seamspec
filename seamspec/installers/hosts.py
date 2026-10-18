@@ -31,6 +31,10 @@ MARKERS = {"cursor": ".cursor", "vscode": ".vscode", "antigravity": ".agents"}  
 MCP_SERVER = {"command": "seamspec", "args": ["mcp"]}
 # What a person has to do in the tool itself; SeamSpec can't, and mustn't, do it for them (ADR-20261016-2d9a).
 SETUP_NOTES = {
+    "cursor": (
+        "Cursor: switch SeamSpec's server on once (Cursor Settings → MCP / Tools, or Cmd+Shift+P → `MCP`):"
+        " Cursor leaves a project's servers off until you do. Its hooks need nothing.",
+    ),
     "vscode": (
         "VS Code: start SeamSpec's server once (Command Palette → `MCP: List Servers` → seamspec → Start).",
         "VS Code with Copilot Business or Enterprise: an org admin must enable the Copilot policies"
