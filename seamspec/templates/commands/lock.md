@@ -1,6 +1,6 @@
 ---
 name: lock
-description: Protect a behavior you just built as a proposed SeamSpec invariant (a plain-language rule plus a test). Use when the user says "lock this", "protect this" or "make that a rule".
+description: Protect a behavior as a proposed SeamSpec invariant (a plain-language rule plus a test). Use when the user says "lock this", "protect this" or "make that a rule", and when the user states an agreement or a rule the code must keep.
 argument-hint: <behavior to protect>
 ---
 Protect this behavior as a SeamSpec invariant: {{args}}

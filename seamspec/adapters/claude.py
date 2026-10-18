@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core import braindump, failtext, hookguard, journal, verifier
+from ..core import braindump, catches, failtext, hookguard, journal, verifier
 from ..core.area import area as _area
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
@@ -133,7 +133,9 @@ def _retry_key(payload: dict[str, Any]) -> str:
     return str(payload.get("prompt_id") or "session")
 
 
-def _block(state: SessionState, store: Store, cfg: Config, key: str, details: str) -> dict[str, Any]:
+def _block(
+    state: SessionState, store: Store, cfg: Config, key: str, details: str, ids: list[str] | None = None
+) -> dict[str, Any]:
     """Block finishing, capped by max_stop_retries so the agent can never be trapped in a Stop loop."""
     used = state.stop_retries.get(key, 0)
     if used >= cfg.verify.max_stop_retries:
@@ -144,6 +146,8 @@ def _block(state: SessionState, store: Store, cfg: Config, key: str, details: st
         }
     state.stop_retries[key] = used + 1
     state.save(store)
+    if ids is not None:  # a real finding (not a hook error): count it as a catch
+        catches.record(store, "stop", ids)
     return {"decision": "block", "reason": f"{details}\nAttempt {used + 1} of {cfg.verify.max_stop_retries}."}
 
 
@@ -212,9 +216,8 @@ def stop(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] |
     lines = other + summary + [failtext.raw(r) for r in report.results if not r.passed and not r.incomplete]
     if report.incomplete:
         lines.append("[INCOMPLETE] time ran out before every locked rule was checked.")
-    return _block(
-        state, store, cfg, key, "SeamSpec: locked rule check failed.\n" + "\n".join(lines) + "\n" + SUPERSEDE_HINT
-    )
+    details = "SeamSpec: locked rule check failed.\n" + "\n".join(lines) + "\n" + SUPERSEDE_HINT
+    return _block(state, store, cfg, key, details, ids=sorted(failing))
 
 
 def _on_error(event: str, payload: dict[str, Any], store: Store | None, cfg: Config | None, exc: Exception):

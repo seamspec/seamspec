@@ -195,7 +195,17 @@ def oracle(task: Task, work: Path, committed: bool = False) -> dict[str, bool]:
 
 # --- the long session (ADR-20261015-c8e1) ----------------------------------------------------------
 
-GATE_MARKERS = ("SeamSpec: locked rule check failed", "SeamSpec: commit blocked")
+
+def gate_catches(work: Path) -> int:
+    """Times SeamSpec's end-of-task or commit check sent the agent back, from SeamSpec's own record
+    (`.seamspec/.local/catches.jsonl`, ADR-20261018-6e1a). Claude Code's logs don't show Stop hooks,
+    so they can't be counted from there (calibration, 2026-10-18). 0 without SeamSpec."""
+    if not (work / ".seamspec").is_dir():
+        return 0
+    from seamspec.core import catches
+    from seamspec.core.store import Store
+
+    return len(catches.load(Store(work)))
 
 
 def _stream_events(log_dir: Path):
@@ -205,17 +215,6 @@ def _stream_events(log_dir: Path):
                 yield json.loads(line)
             except json.JSONDecodeError:
                 continue
-
-
-def gate_catches(log_dir: Path) -> int:
-    """Times SeamSpec's Stop check or commit check sent the agent back, from the session logs: one per
-    message the agent received (a hook's feedback or a refused `git commit`) that carries a marker."""
-    count = 0
-    for event in _stream_events(log_dir):
-        if isinstance(event, dict) and event.get("type") in ("user", "system"):
-            text = json.dumps(event)
-            count += any(marker in text for marker in GATE_MARKERS)
-    return count
 
 
 def compacted(log_dir: Path) -> bool:

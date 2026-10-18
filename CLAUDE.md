@@ -51,12 +51,15 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 1. Before editing a file, call `get_constraints(files)` (or run `seamspec context <files>`).
    Respect every LOCKED invariant. Approaches listed as previously failed (dead ends) failed for
    the stated reason; don't reuse them unless that reason no longer applies.
-2. When you establish a new behavior worth protecting, call `propose_invariant` with a focused,
-   behavior-level test (not implementation details). The tool does not run the test: run
+2. When the user states an agreement or a rule the code must keep, or you establish a behavior
+   worth protecting, capture it right away: call `propose_invariant` with a focused,
+   behavior-level test (not implementation details). If its code doesn't exist yet, say so and
+   propose it once the code works. The tool does not run the test: run
    `seamspec verify --proposed <id>` with your shell tool and fix the test until it passes.
    If the project keeps a list of rules it intends to lock (for example a section of its
    plan), propose each one when its code exists and works.
-3. When an approach fails, call `log_dead_end` with what you tried and why it failed.
+3. When an approach fails, or the user tells you about one that failed before, call
+   `log_dead_end` with what was tried and why it failed.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
 5. Never edit files under `.seamspec/` directly; use SeamSpec tools. If they are missing or fail,
@@ -72,7 +75,8 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 8. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
    the SeamSpec summary block.
 9. Users don't have to type commands. Treat plain requests as the matching workflow command:
-   "sort my braindump" → drain; "protect this" / "lock that" → lock; "that didn't work" → dead-end;
+   "sort my braindump" → drain; "protect this" / "lock that" / an agreement the user states → lock;
+   "that didn't work" / a failure the user describes → dead-end;
    a changed requirement for a LOCKED rule → supersede; "what applies here?" → context;
    "wrap up" → checkpoint.
 <!-- seamspec:end -->

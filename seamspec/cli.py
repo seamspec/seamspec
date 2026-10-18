@@ -13,7 +13,7 @@ import typer
 
 from . import __version__
 from . import review as review_mod
-from .core import braindump, failtext, journal, lifecycle, requests, snapshot, specdoc, tree, trust, verifier
+from .core import braindump, catches, failtext, journal, lifecycle, requests, snapshot, specdoc, tree, trust, verifier
 from .core.config import ConfigError, load_config
 from .core.context import constraints_for
 from .core.models import DeadEnd, Invariant, InvStatus
@@ -407,6 +407,7 @@ def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
             "planned": len(braindump.planned(store, cfg.braindump.path, cfg.braindump.marker)),
         },
         "last_verify": last_verify,
+        "catches": catches.counts(store),
     }
 
 
@@ -433,6 +434,11 @@ def status(as_json: Annotated[bool, typer.Option("--json", help="Machine-readabl
     typer.echo(f"  dead ends   active {de['ACTIVE']}  retired {de['RETIRED']}")
     lv = data["last_verify"]
     typer.echo(f"  last verify {'never' if lv is None else ('passed' if lv.get('passed') else 'FAILED')}")
+    caught = data["catches"]
+    if caught["stop"] or caught["commit"]:
+        typer.echo(
+            f"  caught      {caught['stop']} at the end of a task, {caught['commit']} at a commit (this machine)"
+        )
     if data["awaiting_review"]:
         typer.echo(f"{data['awaiting_review']} awaiting review: run `seamspec review`.")
     if data["braindump"]["planned"]:
@@ -973,6 +979,8 @@ def verify(
         raise _fail(str(exc)) from None
 
     ok = report.passed and not problems
+    if gate and not ok:  # the commit check refused a commit (ADR-20261018-6e1a)
+        catches.record(store, "commit", list(report.failing_ids))
     pending = len([i for i in store.load_all("inv") if i.status == InvStatus.PROPOSED])
     if as_json:
         typer.echo(json.dumps({**report.to_dict(), "journal_problems": problems, "passed": ok}, indent=2))

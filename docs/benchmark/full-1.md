@@ -2,7 +2,9 @@
 
 Counted run of the full benchmark ([ADR-20261013-9d41](../adr/ADR-20261013-9d41-full-benchmark-plan-and-pass-bar.md)), run on 2026-10-13 with Claude Sonnet 5.5, billed to an API key, by `bench/run.py --label full-1 --counted --bar full`. The plan, the scoring and the pass bar were fixed before the run. What the result means for the product is in [ADR-20261013-e2b6](../adr/ADR-20261013-e2b6-full-benchmark-result.md).
 
-**120 runs** (3 tasks × 8 conditions × 5), **$111.94**, 4.9 hours, no prompt ended in an error.
+**120 runs** (3 tasks × 8 conditions × 5), **$45.37**, 4.9 hours, no prompt ended in an error.
+
+> **Cost correction (2026-10-18, ADR-20261018-6e1a).** This page first said $111.94. Claude Code reports a session's *running* total after each prompt, and the harness added those totals up. The real cost, recomputed from the saved logs, is **$45.37**. Per-run costs in the tables below are overstated the same way. The C/A cost ratio that the pass bar uses moves from 1.17× to **1.16×**, so the verdict doesn't change.
 
 **Conditions:**
 - **A:** baseline, no SeamSpec;
@@ -256,9 +258,9 @@ Fixed in the plan before the run (ADR-20261013-9d41, section 5):
 
 | Batch | Runs | Cost |
 |---|---|---|
-| T3 calibration, baseline only (`calib-t3`) | 2 | $2.38 |
-| **Counted run (`full-1`)** | 120 | **$111.94** |
-| Second model, Haiku 5.5 (`full-1-haiku`, [results](full-1-haiku.md)) | 36 | $3.11 |
-| Total | | **$117.43** |
+| T3 calibration, baseline only (`calib-t3`) | 2 | $0.94 (first reported $2.38) |
+| **Counted run (`full-1`)** | 120 | **$45.37** (first reported $111.94) |
+| Second model, Haiku 5.5 (`full-1-haiku`, [results](full-1-haiku.md)) | 36 | $1.24 (first reported $3.11) |
+| Total | | **$47.55** (first reported $117.43) |
 
 Raw results and session logs are in `bench/results/full-1/` (local, git-ignored); the scripts that produced them are in `bench/`.

@@ -192,25 +192,49 @@ def test_condition_n_writes_one_line_and_its_notes_are_read(tmp_path: Path) -> N
 
 
 @pytest.mark.skipif(not HAVE_UV, reason="uv not installed")
-def test_long_shape_runs_one_session_and_reads_its_log(tmp_path: Path) -> None:
+def test_long_shape_runs_one_session_and_counts_seamspecs_own_catches(tmp_path: Path) -> None:
+    """Claude Code's logs don't show Stop hooks (calibration, 2026-10-18): catches come from SeamSpec's record."""
     seen = []
 
     class Recorder(FakeAgent):
         def run_session(self, work, session, prompts, use_plugin, log_dir):
+            from seamspec.core import catches
+            from seamspec.core.store import Store
+
             seen.append((session, len(prompts), use_plugin))
             log_dir.mkdir(parents=True, exist_ok=True)
-            stop = "Stop hook feedback: SeamSpec: locked rule check failed."
-            refused = [{"type": "tool_result", "content": "SeamSpec: commit blocked."}]
-            events = [{"type": "system", "subtype": "compact_boundary"},
-                      {"type": "user", "message": {"content": stop}},
-                      {"type": "assistant", "message": {"content": "SeamSpec: commit blocked."}},  # not a catch
-                      {"type": "user", "message": {"content": refused}}]  # fmt: skip
-            (log_dir / "s1p1.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n")
+            (log_dir / "s1p1.jsonl").write_text(json.dumps({"type": "system", "subtype": "compact_boundary"}) + "\n")
+            catches.record(Store(work), "stop", ["inv_00000001"])
+            catches.record(Store(work), "commit", ["inv_00000001"])
             return super().run_session(work, session, prompts, use_plugin, log_dir)
 
     s = run_one(T1, "C", 1, Recorder({}), tmp_path / "out", shape="long")
     assert seen == [(1, len(T1.long_session()), True)]
     assert s.gate_catches == 2 and s.compacted is True
+    a = run_one(T1, "A", 1, FakeAgent({}), tmp_path / "out", shape="long")
+    assert a.gate_catches == 0 and a.compacted is False
+
+
+def test_each_prompt_costs_only_its_own_increase(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claude Code reports a session's running total; summing them overstated full-1 ($111.94, really $45.37)."""
+    import subprocess as sp
+
+    from bench.harness import agent as agent_mod
+    from bench.harness.agent import ClaudeAgent
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-not-real")
+    totals = iter([0.09, 0.096, 0.107])
+
+    def fake_run(cmd, **kw):
+        stream = [json.dumps({"type": "system", "subtype": "init", "apiKeySource": "ANTHROPIC_API_KEY"}),
+                  json.dumps({"type": "result", "is_error": False, "total_cost_usd": next(totals), "num_turns": 2,
+                              "session_id": "s"})]  # fmt: skip
+        return sp.CompletedProcess(cmd, 0, stdout="\n".join(stream), stderr="")
+
+    monkeypatch.setattr(agent_mod.subprocess, "run", fake_run)
+    log = ClaudeAgent("m", 1.0, "api").run_session(tmp_path, 1, ("a", "b", "c"), False, tmp_path / "logs")
+    assert [round(r.cost_usd, 3) for r in log.results] == [0.09, 0.006, 0.011]
+    assert round(sum(r.cost_usd for r in log.results), 3) == 0.107
 
 
 # --- the pass bars, exactly as accepted --------------------------------------------------------------

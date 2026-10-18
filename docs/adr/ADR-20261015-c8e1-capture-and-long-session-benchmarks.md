@@ -95,6 +95,15 @@ These change no threshold. They make the plan match the tasks and keep the measu
 - **Gate catches are read from the session logs.** A catch is a message the agent received (a Stop hook's feedback or a refused `git commit`) carrying SeamSpec's failure text. The calibration run must show that such messages appear in the logs at all. If they don't, the count is fixed before the counted runs, and this ADR says how.
 - **N's whole setup** is one `CLAUDE.md` line, fixed in `bench/harness/prepare.py` (`SELF_NOTES`). N's NOTES.md is checked for each agreement by keywords; this is reported, never judged.
 
+## Calibration (2026-10-18), before any counted run
+
+The owner ran the two calibrations (T1, Sonnet 5.5). The first attempt used a rejected API key and counts for nothing; ADR-20261018-6e1a and PR #80 cover that and the fixes below.
+
+- **Capture (S, `calib-capture-2`).** The agent understood the agreements; it even listed them as "untouched". But it **proposed no rule and logged no dead end**, so nothing was captured. In session 2 it raised the retry cap to 60 s and added a thread pool, the known dead end. **Cause:** SeamSpec's protocol only asked for rules about behaviour the agent establishes, never about agreements the user states. **Fixed in the product** (ADR-20261018-6e1a), and the capture calibration is rerun before the counted runs.
+- **Long session (A, `calib-long-2`).** 21 prompts in one session, **0 agreements broken**, the dead end reused, no compaction. The long session as planned may not make the agent forget. If so, the pre-set reading applies: no slip, no claim.
+- **Gate catches can't come from the logs.** Claude Code's stream logs show the SessionStart hook but not Stop hooks. Catches are therefore counted from SeamSpec's own record (`.seamspec/.local/catches.jsonl`, ADR-20261018-6e1a) instead of the log markers this ADR first named.
+- **Cost.** The harness had added up Claude Code's running totals: the two calibration runs cost about **$0.42** and **$0.82**, not the $1.06 and $7.17 it reported. The estimate for both batches drops from about $125-160 to **about $40-45** (capture about $15, long about $25). The spend the owner approved covers it.
+
 ## Enforced Invariants
 
 None.

@@ -143,6 +143,7 @@ class ClaudeAgent:
         env = {k: v for k, v in os.environ.items() if k not in dropped}
         env["PATH"] = os.pathsep.join([str(work / ".venv/bin"), str(work / "node_modules/.bin"), env.get("PATH", "")])
         session_id: str | None = None
+        so_far = 0.0  # Claude Code reports the session's running total; each prompt's own cost is the increase
         log_dir.mkdir(parents=True, exist_ok=True)
         for i, prompt in enumerate(prompts, start=1):
             cmd = ["claude", "-p", prompt, "--model", self.model, "--output-format", "stream-json", "--verbose",
@@ -175,7 +176,9 @@ class ClaudeAgent:
                     f"Claude Code failed before doing anything: {str(final.get('result'))[:200]}. Stopping."
                 )
             usage = final.get("usage") or {}
-            result.cost_usd = float(final.get("total_cost_usd") or 0.0)
+            total = float(final.get("total_cost_usd") or 0.0)
+            result.cost_usd = max(0.0, total - so_far)  # calibration 2026-10-18: summing the totals overstated cost
+            so_far = max(so_far, total)
             result.turns = int(final.get("num_turns") or 0)
             result.duration_ms = int(final.get("duration_ms") or 0)
             result.input_tokens = int(usage.get("input_tokens") or 0) + int(usage.get("cache_read_input_tokens") or 0)
