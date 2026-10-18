@@ -84,3 +84,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261016-2d9a](ADR-20261016-2d9a-vscode-copilot-agent-hooks.md) | VS Code hands-on: one hook file for VS Code's Local and Copilot agents, and setup notes | ACCEPTED |
 | [ADR-20261017-7b0e](ADR-20261017-7b0e-init-rerun-keeps-consent.md) | Rerunning init keeps an earlier yes to automatic test runs | ACCEPTED |
 | [ADR-20261017-1f5c](ADR-20261017-1f5c-cursor-hands-on.md) | Cursor hands-on: hooks work as built; init says to switch the server on | ACCEPTED |
+| [ADR-20261018-9c4d](ADR-20261018-9c4d-cursor-reviewer-and-setup-guide.md) | Cursor gets the reviewer; the agent says when SeamSpec's tools are off; a setup guide per editor | ACCEPTED |
