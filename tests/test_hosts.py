@@ -329,7 +329,7 @@ def test_session_start_says_how_to_turn_the_tools_on(git_repo: Path, human: None
     (hands-on tests, ADR-20261018-9c4d). Said even with nothing locked yet."""
     out = json.loads(adapter.main(host, "session-start", payload(host, "session-start", git_repo)))
     text = out["additional_context"] if host == "cursor" else out["hookSpecificOutput"]["additionalContext"]
-    assert "tell the user once that its server is off" in text and adapter.TOOLS_OFF[host] in text
+    assert "word for word" in text and f"To turn them on: {adapter.TOOLS_OFF[host]}." in text
     inv_id = lock(git_repo)
     out = json.loads(adapter.main(host, "session-start", payload(host, "session-start", git_repo)))
     text = out["additional_context"] if host == "cursor" else out["hookSpecificOutput"]["additionalContext"]
