@@ -38,6 +38,7 @@ USES_PLUGIN = ("B", "C", "H", "S")  # conditions that load the SeamSpec plugin
 # the long shape runs a task's sessions as one, with unrelated requests in between.
 CAPTURE_CONDITIONS = ("N", "S")
 LONG_CONDITIONS = ("A", "E", "C")
+SECOND_CONDITIONS = ("A", "E", "N", "S")  # the second-actor benchmark (ADR-20261019-5f3b)
 
 
 @dataclass(frozen=True)
