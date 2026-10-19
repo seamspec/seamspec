@@ -149,3 +149,28 @@ def test_summary_prints_the_second_actor_section() -> None:
     scores = [_run("S", 1, 1, 0), _run("N", 1, 1, 1, human=2)]
     text = summary(scores, counted=True, bar="second")
     assert "## Second actor by run" in text and "whoever made the change" in text and "r1: yes" in text
+
+
+HAVE_NPM = shutil.which("npm") is not None
+T2 = load("t2_prices")
+
+
+@pytest.mark.skipif(not (HAVE_UV and HAVE_NPM), reason="uv or npm not installed")
+def test_typescript_runs_even_when_the_author_committed_the_node_modules_link(tmp_path: Path) -> None:
+    """second-1 crashed at T2: the author's agent committed the run's node_modules link, and every clone
+    then failed to set up its own (2026-10-19)."""
+
+    def author_commits_everything(work: Path) -> None:
+        (work / "NOTES.md").write_text("- Totals round half to even.\n- A total is never below 0.\n")
+        git(work, "add", "-A")
+        git(work, "commit", "-qm", "Session 1")
+
+    def teammate_drops_the_floor(work: Path) -> None:
+        _mutant(T2, "non_negative", work)
+        git(work, "commit", "-qam", "Vouchers give store credit")
+
+    n = run_one(T2, "N", 1, FakeAgent({1: author_commits_everything, 2: teammate_drops_the_floor}), tmp_path / "out",
+                shape="second")  # fmt: skip
+    assert n.violations == {"rounding": False, "non_negative": True} and n.ci_passed is True
+    assert n.landed == {"rounding": False, "non_negative": True}
+    assert n.human_landed == {"rounding": True, "non_negative": True}

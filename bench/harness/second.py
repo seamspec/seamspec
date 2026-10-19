@@ -25,12 +25,14 @@ from .prepare import GIT_ENV, _run, _toolchain, git
 from .tasks import Task
 
 CI_TIMEOUT = 600
+TOOLCHAIN = (".venv", "node_modules")  # set up per checkout, like a real one; never part of a push
 
 
 def push_origin(work: Path, origin: Path) -> None:
     """Commit what session 1 left (the author's push) and make the bare repository teammates clone."""
     git(work, "add", "-A")
-    if git(work, "status", "--porcelain").strip():
+    git(work, "rm", "-r", "-q", "--cached", "--ignore-unmatch", *TOOLCHAIN)  # the run's links are never pushed
+    if git(work, "diff", "--cached", "--name-only").strip():
         git(work, "commit", "-q", "--no-verify", "-m", "Author: end of session 1")  # bookkeeping, not the agent's
     if origin.exists():
         shutil.rmtree(origin)
@@ -42,6 +44,12 @@ def clone(task: Task, origin: Path, dest: Path) -> Path:
     if dest.exists():
         shutil.rmtree(dest)
     _run(["git", "clone", "-q", str(origin), str(dest)], origin.parent, GIT_ENV)
+    for name in TOOLCHAIN:  # an agent may have committed the run's link: a clone sets up its own
+        path = dest / name
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
     _toolchain(task, dest)
     return dest
 
