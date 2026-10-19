@@ -14,7 +14,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
-from ..core import trust
+from ..core import runners, trust
 from ..core.config import load_config, parse_config
 from ..core.lifecycle import approver_identity
 from ..core.root import CONFIG_REL
@@ -36,6 +36,19 @@ RUNNER_CONFIG_TEMPLATES = {
     ".seamspec/pytest.ini": "pytest.ini",
     ".seamspec/vitest.config.mjs": "vitest.config.mjs",
 }
+
+
+def _runner_config(root: Path, rel: str) -> str:
+    """A runner config file from its template. SeamSpec's pytest.ini also gets the folders the
+    project's own pytest settings add (e.g. `pythonpath = ["src"]`), which it would otherwise drop."""
+    text = _template(RUNNER_CONFIG_TEMPLATES[rel])
+    extra = runners.project_pythonpath(root) if rel == ".seamspec/pytest.ini" else []
+    if extra:
+        text = text.replace(
+            "pythonpath = ..",
+            "# Also the folders your own pytest settings add.\npythonpath = .. " + " ".join(f"../{p}" for p in extra),
+        )
+    return text
 
 
 @dataclass
@@ -233,7 +246,7 @@ def init(
         (root / runner.harness_dir).mkdir(parents=True, exist_ok=True)
         for rel in runner.config_files:
             if rel in RUNNER_CONFIG_TEMPLATES:
-                _write_if_missing(root, rel, _template(RUNNER_CONFIG_TEMPLATES[rel]), report)
+                _write_if_missing(root, rel, _runner_config(root, rel), report)
 
     _record_initial_fingerprints(root, report)
     report.add(".gitignore", merge_gitignore(root))

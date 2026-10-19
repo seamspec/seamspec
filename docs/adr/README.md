@@ -86,3 +86,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261017-1f5c](ADR-20261017-1f5c-cursor-hands-on.md) | Cursor hands-on: hooks work as built; init says to switch the server on | ACCEPTED |
 | [ADR-20261018-9c4d](ADR-20261018-9c4d-cursor-reviewer-and-setup-guide.md) | Cursor gets the reviewer; the agent says when SeamSpec's tools are off; a setup guide per editor | ACCEPTED |
 | [ADR-20261018-6e1a](ADR-20261018-6e1a-capture-what-the-user-states.md) | Calibration fixes: capture what the user states, record each catch, count cost per prompt | ACCEPTED |
+| [ADR-20261018-0b7d](ADR-20261018-0b7d-pytest-pythonpath-carried-over.md) | SeamSpec's pytest.ini carries over the project's own pytest pythonpath | ACCEPTED |

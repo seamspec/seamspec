@@ -1120,14 +1120,14 @@ When `harness_dir` is outside `.seamspec/`, LOCKED harnesses sit in the project'
 
 | Language | Setup |
 |---|---|
-| Python | `init` writes `.seamspec/pytest.ini` with `pythonpath = ..`, i.e. the repo root (§12.3) |
+| Python | `init` writes `.seamspec/pytest.ini` with `pythonpath = ..`, i.e. the repo root (§12.3), plus the folders the project's own pytest settings add (`pythonpath` in `pyproject.toml`'s `[tool.pytest.ini_options]`, `pytest.ini`, `setup.cfg`'s `[tool:pytest]` or `tox.ini`), as `../<folder>` (ADR-20261018-0b7d) |
 | TypeScript / JavaScript | Relative imports from `tests/seamspec/`; SeamSpec's own `vitest.config.mjs` (aliases added there if needed) |
 | Go | Each harness is its own package inside the module and imports project packages by module path (from `go.mod`). Tests exercise exported behavior, which suits behavior-level invariants |
 | Rust | Integration tests import the crate by name, which needs a library target. Binary-only crates are tested by running the binary via `env!("CARGO_BIN_EXE_<name>")` |
 
 `get_constraints` includes, per runner, the harness location, an import hint and where the runner's program comes from, so the agent writes harnesses that compile on the first try (ADR-20261011-e7c5):
 
-- **The Python import hint follows the project's layout.** `src/` is itself a package (`src/__init__.py`): `from src.queue import …`. Packages under `src/`: import the package by its name, never `src.<package>` (that loads a second copy); it's importable because the project is installed in its virtualenv. Packages at the root: `from <package> import …`. The example names a real package, preferring the one that matches `[project] name`.
+- **The Python import hint follows the project's layout.** `src/` is itself a package (`src/__init__.py`): `from src.queue import …`. Packages under `src/`: import the package by its name, never `src.<package>` (that loads a second copy). It's importable because SeamSpec's pytest.ini adds `src/` (when the project's pytest settings do, ADR-20261018-0b7d), or else because the project is installed in its virtualenv. `doctor` warns when the project's pytest settings add a folder that `.seamspec/pytest.ini` doesn't (an older setup): rule tests could then fail to import what the project's own tests can. Packages at the root: `from <package> import …`. The example names a real package, preferring the one that matches `[project] name`.
 - **`command`** says which program the runner resolves to, e.g. *"`pytest` resolves to .venv/bin/pytest"*, found the way the verifier finds it (§12.4.7): the project's `.venv`, `venv` and `node_modules/.bin` first, without activation, then `PATH`. **An activated virtualenv (`VIRTUAL_ENV`) wins over the project's `.venv` and `venv`**, and the note then says so. A command written as a path (`./scripts/run-tests.sh`) isn't looked up: the note says it is run as written from the project root, or that it doesn't exist or isn't executable. So an agent that finds no `pytest` on its own `PATH` doesn't conclude the config is wrong. `init` writes the lookup, with the `VIRTUAL_ENV` exception, as a comment above the pytest runner's `cmd`.
 
 ### 12A.7 Language Detection at `init`
