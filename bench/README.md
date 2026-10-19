@@ -61,6 +61,17 @@ uv run python -m bench.run --conditions A,E,C --runs 3 --model claude-sonnet-5-5
 
 `--bar capture` compares with `--baseline full-1`: that batch's A (nothing) and E (hand-written notes) ran the same prompts.
 
+**The second-actor benchmark** (`--shape second`, [ADR-20261019-5f3b](../docs/adr/ADR-20261019-5f3b-second-actor-benchmark-plan.md), accepted 2026-10-19; about $16-20):
+- the author's session 1 is pushed to a local bare repository;
+- a teammate's fresh clone (no hooks, no local SeamSpec state, no plugin) gets sessions 2 and 3 as one session, then pushes;
+- "CI" runs locally on what landed: the project's tests, plus `seamspec verify --all --ci` where SeamSpec is set up;
+- each run also pushes every agreement's violating patch by hand, as a demonstration (`harness/second.py`).
+
+```bash
+uv run python -m bench.run --tasks t1_queue --conditions N,S --runs 1 --model claude-sonnet-5-5 --label calib-second --billing api --shape second --bar none --yes
+uv run python -m bench.run --conditions A,E,N,S --runs 3 --model claude-sonnet-5-5 --label second-1 --billing api --counted --shape second --bar second --resume --yes   # 36 runs
+```
+
 **Billing** (`--billing`, the owner's choice):
 - `plan` (default): Claude Code's own login. The harness removes `ANTHROPIC_API_KEY`.
 - `api`: real charges to an Anthropic API key. Set a spending limit in the Anthropic Console, then set the key **in your own terminal** and run the command there. The key is never written to a file.

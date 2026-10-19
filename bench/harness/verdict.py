@@ -30,6 +30,11 @@ class RunScore:
     approved: list[str] | None = None  # S: titles the scripted person approved, in order
     gate_catches: int | None = None  # long shape: times SeamSpec's Stop or commit check sent the agent back
     compacted: bool | None = None  # long shape: Claude Code compacted the conversation
+    # The second-actor benchmark (ADR-20261019-5f3b); None where not measured.
+    landed: dict[str, bool] | None = None  # rule id -> broken at the teammate's push AND CI passed
+    ci_passed: bool | None = None  # CI on the teammate's push
+    asked: bool | None = None  # the teammate's agent stopped to ask (reported only)
+    human_landed: dict[str, bool | None] | None = None  # the demonstration: hand edit landed (None: patch didn't apply)
 
     @property
     def captured_share(self) -> float | None:
@@ -261,6 +266,11 @@ class StudyVerdict:
 
 
 STUDY_CLAIMS = {
+    "stops_any_actor": "With SeamSpec, a broken agreement doesn't reach main, whoever made the change",
+    "teammate_agent_breaks_fewer_than_e": "A teammate's agent breaks fewer agreements than with notes a person wrote",
+    "teammate_agent_breaks_fewer_than_n": (
+        "A teammate's agent breaks fewer agreements than with the author's agent's notes"
+    ),
     "captures": "SeamSpec turns agreements only said in chat into approved, enforced rules",
     "beats_self_notes": "Fewer broken agreements than an agent keeping its own notes",
     "gate_catches_forgetting": "In a long session, SeamSpec's checks catch what the agent forgets",
@@ -329,3 +339,43 @@ def decide_long(scores: list[RunScore]) -> StudyVerdict:
                             {"gate_catches_forgetting": True})  # fmt: skip
     return StudyVerdict("fail", "Fail: don't claim the gate catches forgetting", reasons,
                         {"gate_catches_forgetting": False})  # fmt: skip
+
+
+SECOND_SOMETHING_TO_STOP = 3  # E and N together must break at least this many, or there is nothing to stop
+SECOND_LANDED = 3  # ... and at least this many must land in E and N together
+
+
+def decide_second(scores: list[RunScore]) -> StudyVerdict:
+    """The second actor: what the teammate's agent broke, and what reached main past CI."""
+    t = {c: _totals(scores, c) for c in ("A", "E", "N", "S")}
+    if not t["S"]["runs"] or not (t["E"]["runs"] or t["N"]["runs"]):
+        return StudyVerdict("not_measured", "Not judged: needs S and at least one of E and N")
+    landed = {c: sum(sum((s.landed or {}).values()) for s in scores if s.condition == c) for c in t}
+    human = {c: sum(bool(v) for s in scores if s.condition == c for v in (s.human_landed or {}).values()) for c in t}
+    applied = {c: sum(v is not None for s in scores if s.condition == c for v in (s.human_landed or {}).values())
+               for c in t}  # fmt: skip
+    broken_en = t["E"]["violations"] + t["N"]["violations"]
+    reasons = [", ".join(f"V({c})={t[c]['violations']:g}" for c in t) + " (broken by the teammate's agent)",
+               "Landed past CI (agent): " + ", ".join(f"{c} {landed[c]}" for c in t),
+               "Demonstration, hand edits landed: "
+               + ", ".join(f"{c} {human[c]} of {applied[c]}" for c in t)]  # fmt: skip
+    readings = {c: read_against_c(t["S"]["violations"], t[c]["violations"], int(t[c]["runs"]))
+                for c in ("E", "N") if t[c]["runs"]}  # fmt: skip
+    for c, reading in readings.items():
+        reasons.append(f"{c} against S: {reading}")
+    claims = {
+        "stops_any_actor": False,
+        "teammate_agent_breaks_fewer_than_e": readings.get("E") == "worse",
+        "teammate_agent_breaks_fewer_than_n": readings.get("N") == "worse",
+    }
+    if broken_en < SECOND_SOMETHING_TO_STOP:
+        reasons.append(f"E and N broke fewer than {SECOND_SOMETHING_TO_STOP}: the teammate's agent left little to stop")
+        return StudyVerdict("not_measured", "Nothing much to stop: don't claim it either way", reasons, claims)
+    ok = landed["S"] == 0 and human["S"] == 0 and landed["E"] + landed["N"] >= SECOND_LANDED
+    claims["stops_any_actor"] = ok
+    reasons.append(
+        f"S landed 0 (agent and hand edits) and E+N landed at least {SECOND_LANDED}: {'yes' if ok else 'no'}"
+    )
+    if ok:
+        return StudyVerdict("pass", "Pass: with SeamSpec, nothing broken reached main", reasons, claims)
+    return StudyVerdict("fail", "Fail: don't claim it", reasons, claims)

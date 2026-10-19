@@ -1,7 +1,7 @@
 ---
 id: ADR-20261019-5f3b
 title: "Plan and pass bar for the second-actor benchmark"
-status: PROPOSED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
+status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-19
 scopes: ["bench/"]
 invariants: []
@@ -75,13 +75,25 @@ For every task and setup, a scripted teammate commits each agreement's **violati
 - **The human edits:** no model, $0, run by the harness in tests and in the batch.
 - **Order:** the harness comes first, in its own PR with tests and no paid run, as before.
 
-## Questions for the owner (this ADR stays PROPOSED until answered)
+## Questions for the owner (answered 2026-10-19)
 
 1. **The teammate:** has the `seamspec` command but hasn't run `seamspec init`, so there are no local hooks, only what the repository carries, with CI as the gate. Is that the right teammate? Alternatives:
    - **a teammate with no SeamSpec at all:** the outcome is the same for CI, and their agent can't run `seamspec context`;
    - **one who ran `init`:** that's just `capture-1` again.
 2. **The pass bar** above, including that the human-edit table is labelled a demonstration and never counted as measured.
 3. **About $16-20 spend**, your key, your terminal.
+
+**The owner's answers (2026-10-19): yes to all three.** The owner also asked whether CI needs GitHub billing fixed. It doesn't: "origin" is a local bare repository, and "CI" is the same command run locally on what was pushed.
+
+## Clarifications made while building the harness (before any run)
+
+These change no threshold.
+
+- **Some violations are caught by a project's own tests.** T1's own test suite catches the signature break ("`enqueue` returns a dict"); none of the other seven violating patches is caught by its task's own tests. So in the demonstration that edit is blocked in **every** setup, and the write-up says so.
+- **The author's push** commits whatever session 1 left, with the commit check skipped. It's harness bookkeeping, not the agent's own commit.
+- **The teammate pushes only what their agent committed.** Uncommitted work stays on their machine, as it would.
+- **The teammate has `seamspec` on their PATH** (answer 1), so their agent can run `seamspec context` if the protocol block in `CLAUDE.md` leads it there. Their clone has no hooks, no `.seamspec/.local` and no plugin, and the tests check all three.
+- **The demonstration runs on every run,** on that run's session-1 result, because S's captured rules differ from run to run. A patch that no longer matches the code session 1 left is recorded as "n/a", not as landed or blocked.
 
 ## Enforced Invariants
 
