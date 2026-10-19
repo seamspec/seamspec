@@ -853,6 +853,19 @@ STAGED_NOTE = (
 )
 
 
+def _untrusted_message(store: Store, reason: str) -> str:
+    """Why `verify` won't run here, and what to do. A clone this machine never set up (a teammate's fresh
+    clone, ADR-20261019-e2f8) needs `seamspec init`, which shows what would run and asks; an agent in it
+    should say so instead of quietly skipping the check (second-actor benchmark, 2026-10-19)."""
+    if not trust.consent_given(store) and not (store.local / "trust.json").exists():
+        return (
+            f"SeamSpec isn't set up for this clone on this machine ({reason}), so its locked rules can't run "
+            "here yet. Run `seamspec init` in a terminal: it shows the test commands this repository would run "
+            "and asks first. Agents: tell the user this, and that CI still checks the rules on every push."
+        )
+    return f"This clone is not trusted ({reason}). Run `seamspec trust`."
+
+
 def _verify_text(
     store: Store, report: verifier.VerifyReport, problems: list[str], gate: bool, staged: bool = False
 ) -> str:
@@ -939,7 +952,7 @@ def verify(
         st = trust.state(store, cfg)
         if not st.trusted:
             if gate or not _interactive():
-                raise _fail(f"This clone is not trusted ({st.reason}). Run `seamspec trust`.")
+                raise _fail(_untrusted_message(store, st.reason))
             typer.echo(f"This clone is not trusted ({st.reason}).")
             trust_cmd(show=False)
         if gate and not trust.consent_given(store):

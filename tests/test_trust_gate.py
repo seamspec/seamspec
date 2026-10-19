@@ -113,7 +113,7 @@ def test_untrusted_clone_runs_nothing(gated_repo: Path, human: None, tmp_path_fa
         ["seamspec", "verify", "--all", "--gate"], cwd=clone, capture_output=True, text=True,
         env={k: v for k, v in os.environ.items() if k != "SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE"},
     )  # fmt: skip
-    assert result.returncode == 1 and "not trusted" in result.stderr
+    assert result.returncode == 1 and "isn't set up for this clone" in result.stderr  # a fresh clone: run init
     assert not marker.exists(), "an untrusted clone ran a test"
 
 
@@ -407,6 +407,16 @@ def test_verify_untrusted_fails_without_a_terminal(in_repo: Path) -> None:
     result = runner.invoke(app, ["verify"])
     assert result.exit_code == 1 and "not trusted" in result.output
     assert runner.invoke(app, ["verify", "--ci"]).exit_code == 0  # CI policy is the consent
+
+
+def test_a_clone_never_set_up_here_is_told_to_run_init(in_repo: Path) -> None:
+    """A teammate's fresh clone: no consent and no trust on this machine. Their agent got a bare "not
+    trusted" and skipped the check (second-actor benchmark, ADR-20261019-e2f8)."""
+    for name in ("trust.json", "consent.json"):
+        (in_repo / ".seamspec/.local" / name).unlink()
+    result = runner.invoke(app, ["verify"])
+    assert result.exit_code == 1 and "Run `seamspec init` in a terminal" in result.output
+    assert "Agents: tell the user this" in result.output and "CI still checks the rules" in result.output
 
 
 def test_gate_reports_pending_reviews(in_repo: Path) -> None:
