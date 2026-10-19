@@ -89,3 +89,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261018-0b7d](ADR-20261018-0b7d-pytest-pythonpath-carried-over.md) | SeamSpec's pytest.ini carries over the project's own pytest pythonpath | ACCEPTED |
 | [ADR-20261018-a4c2](ADR-20261018-a4c2-capture-and-long-session-results.md) | Results: capture passes, the long session showed no slip | ACCEPTED |
 | [ADR-20261019-5f3b](ADR-20261019-5f3b-second-actor-benchmark-plan.md) | Plan and pass bar for the second-actor benchmark | ACCEPTED |
+| [ADR-20261019-c71d](ADR-20261019-c71d-second-actor-results.md) | Result: with SeamSpec, nothing broken reached main, whoever made the change | ACCEPTED |
