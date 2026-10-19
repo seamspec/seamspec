@@ -93,6 +93,12 @@ These change no threshold.
 - **The author's push** commits whatever session 1 left, with the commit check skipped. It's harness bookkeeping, not the agent's own commit.
 - **The teammate pushes only what their agent committed.** Uncommitted work stays on their machine, as it would.
 - **The teammate has `seamspec` on their PATH** (answer 1), so their agent can run `seamspec context` if the protocol block in `CLAUDE.md` leads it there. Their clone has no hooks, no `.seamspec/.local` and no plugin, and the tests check all three.
+- **Calibration (`calib-second`, T1, N and S, about $0.86).** The teammate flow worked end to end:
+  - the clone carried only committed files;
+  - the notes-keeping teammate's agent read the committed notes and broke nothing;
+  - SeamSpec's CI blocked every hand edit.
+
+  But CI also **failed on the SeamSpec teammate's push although the hidden tests found nothing broken**. The captured rule for "existing `enqueue` calls keep working" also pins the default `max_attempts=5` that the user stated, and the teammate's agent changed it to 20. Since "landed" needs CI to pass, a CI stricter than the hidden tests would make "0 landed with SeamSpec" easier. So the summary also reports, for every setup, **pushes CI blocked although nothing was broken**. This is reported, never judged; the bar is unchanged, and the write-up must show it next to "landed".
 - **The demonstration runs on every run,** on that run's session-1 result, because S's captured rules differ from run to run. A patch that no longer matches the code session 1 left is recorded as "n/a", not as landed or blocked.
 
 ## Enforced Invariants

@@ -136,6 +136,15 @@ def test_fails_if_too_little_lands_with_notes() -> None:
     assert v.code == "fail"
 
 
+def test_blocks_of_unbroken_pushes_are_reported() -> None:
+    """Calibration: CI failed on a push the hidden tests call fine (a captured rule pinned a default)."""
+    fine_but_blocked = _run("S", 1, 0, 0)
+    fine_but_blocked.ci_passed = False
+    scores = [fine_but_blocked, _run("N", 1, 1, 1), _run("E", 1, 1, 1), _run("N", 2, 1, 1)]
+    v = decide_second(scores)
+    assert "Blocked although nothing was broken: A 0, E 0, N 0, S 1" in v.reasons
+
+
 def test_summary_prints_the_second_actor_section() -> None:
     scores = [_run("S", 1, 1, 0), _run("N", 1, 1, 1, human=2)]
     text = summary(scores, counted=True, bar="second")
