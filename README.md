@@ -53,7 +53,14 @@ All the plans, results and allowed claims are in [the decision records](docs/adr
 
 ## Quick start
 
-Until the first release, install from a clone of this repository (needs Python 3.11+ and [uv](https://docs.astral.sh/uv/)):
+**You need:**
+- Python 3.11+, [uv](https://docs.astral.sh/uv/) and git;
+- a project tested with pytest or vitest;
+- one of Claude Code, Cursor, VS Code (Copilot) or Antigravity.
+
+The full walkthrough, from install to a team setup with CI, is **[Getting started](docs/getting-started.md)**.
+
+Until the first release, install from a clone of this repository:
 
 ```bash
 uv tool install --force --editable .
@@ -78,6 +85,15 @@ Then just work. Say what must stay true, or tell the agent what failed before. W
 ```bash
 seamspec review
 ```
+
+## For teams
+
+The guard that matters for a team is **CI**: it runs every approved rule on each pull request, whoever wrote the change. Three steps:
+1. Commit `.seamspec/` with your code, and add the workflow with `seamspec init --ci`.
+2. On GitHub, make the **`seamspec / verify`** check required for `main` (branch protection).
+3. Each teammate runs `seamspec init` after cloning. A clone doesn't carry anyone's local hooks or consent, and `init` shows what would run and asks first.
+
+**Use it with your notes, not instead of them.** A good `CLAUDE.md` helps every agent understand the project. SeamSpec is for the few agreements that would really hurt if broken (money, data contracts, public APIs, security behaviour), so that they're tested, approved, and can't change without someone saying yes. Details: [Getting started, section 6](docs/getting-started.md#6-for-teams).
 
 ## How it works
 
@@ -114,6 +130,7 @@ In Cursor, VS Code and Antigravity they are `/seamspec-lock` and so on. You can 
 
 ## Docs
 
+- [Getting started](docs/getting-started.md): install, first rules, the first week, team setup, troubleshooting
 - [Setting it up in your editor](docs/editors.md)
 - [Design spec](docs/SPEC.md): the full design, kept in step with the code
 - [Decision records](docs/adr/README.md): why it works the way it does, including every benchmark plan and result
