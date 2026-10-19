@@ -355,7 +355,14 @@ def decide_second(scores: list[RunScore]) -> StudyVerdict:
     applied = {c: sum(v is not None for s in scores if s.condition == c for v in (s.human_landed or {}).values())
                for c in t}  # fmt: skip
     broken_en = t["E"]["violations"] + t["N"]["violations"]
+    # Reported, never judged: CI that fails a push the hidden tests call fine. A stricter captured rule
+    # (e.g. one pinning a default value the user stated) blocks more than the hidden tests check, which
+    # would make "nothing landed" easier (calibration, 2026-10-19).
+    overblocked = {
+        c: sum(s.ci_passed is False and not s.violation_count for s in scores if s.condition == c) for c in t
+    }
     reasons = [", ".join(f"V({c})={t[c]['violations']:g}" for c in t) + " (broken by the teammate's agent)",
+               "Blocked although nothing was broken: " + ", ".join(f"{c} {overblocked[c]}" for c in t),
                "Landed past CI (agent): " + ", ".join(f"{c} {landed[c]}" for c in t),
                "Demonstration, hand edits landed: "
                + ", ".join(f"{c} {human[c]} of {applied[c]}" for c in t)]  # fmt: skip
