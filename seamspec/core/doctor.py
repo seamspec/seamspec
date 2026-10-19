@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import journal
+from . import journal, runners
 from .config import ConfigError, load_config
 from .schemas import validation_errors
 from .scope import matches
@@ -156,6 +156,16 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
         report.add(
             "warning", "directive", "the SeamSpec block in AGENTS.md is outdated: rerun `seamspec init --hosts …`"
         )
+    if "pytest" in cfg.runners and (root / ".seamspec/pytest.ini").is_file():
+        missing = [p for p in runners.project_pythonpath(root) if p not in runners.seamspec_pythonpath(root)]
+        if missing:  # rule tests can't import what the project's own tests can (ADR-20261018-0b7d)
+            report.add(
+                "warning",
+                "pytest path",
+                f"your pytest settings add {', '.join(missing)} to the import path, but .seamspec/pytest.ini doesn't:"
+                f" add {' '.join('../' + p for p in missing)} to its `pythonpath`,"
+                " then confirm it in `seamspec review`",
+            )
     stale = _antigravity_root(root)
     if stale:  # a clone in another folder: its tools would look in the wrong place (ADR-20261014-6c2d)
         report.add(

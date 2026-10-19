@@ -114,6 +114,58 @@ def python_layout(root: Path) -> tuple[str, str | None]:
     return "flat", None
 
 
+def project_pythonpath(root: Path) -> list[str]:
+    """Folders the project's own pytest settings put on sys.path (`pythonpath` in pyproject.toml's
+    `[tool.pytest.ini_options]`, pytest.ini, setup.cfg's `[tool:pytest]` or tox.ini's `[pytest]`):
+    relative, inside the repository, existing, and not the root itself. SeamSpec's own pytest.ini
+    replaces the project's settings, so it has to carry these over (ADR-20261018-0b7d)."""
+    import configparser
+    import tomllib
+
+    raw: list[str] = []
+    try:
+        data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+        value = data.get("tool", {}).get("pytest", {}).get("ini_options", {}).get("pythonpath")
+        raw += value if isinstance(value, list) else str(value or "").split()
+    except (OSError, ValueError):
+        pass
+    for name, section in (("pytest.ini", "pytest"), ("setup.cfg", "tool:pytest"), ("tox.ini", "pytest")):
+        parser = configparser.ConfigParser()
+        try:
+            parser.read(root / name, encoding="utf-8")
+        except (OSError, configparser.Error):
+            continue
+        if parser.has_option(section, "pythonpath"):
+            raw += parser.get(section, "pythonpath").split()
+    out: list[str] = []
+    for entry in raw:
+        rel = Path(str(entry).strip())
+        if not str(rel) or rel.is_absolute() or ".." in rel.parts or str(rel) in (".", ""):
+            continue
+        if (root / rel).is_dir() and rel.as_posix() not in out:
+            out.append(rel.as_posix())
+    return out
+
+
+def seamspec_pythonpath(root: Path) -> list[str]:
+    """What `.seamspec/pytest.ini` puts on sys.path, relative to the repository root."""
+    import configparser
+
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(root / ".seamspec" / "pytest.ini", encoding="utf-8")
+    except (OSError, configparser.Error):
+        return []
+    if not parser.has_option("pytest", "pythonpath"):
+        return []
+    out = []
+    for entry in parser.get("pytest", "pythonpath").split():
+        rel = Path(entry)
+        if rel.parts[:1] == ("..",):
+            out.append(Path(*rel.parts[1:]).as_posix() if len(rel.parts) > 1 else ".")
+    return out
+
+
 def import_hint(root: Path, runner: str) -> str | None:
     """How a rule test for this runner imports the project's code."""
     if runner == "vitest":
@@ -128,11 +180,16 @@ def import_hint(root: Path, runner: str) -> str | None:
     if kind == "src-package":
         return f"Import project code from the repo root, e.g. `from src.queue import backoff_delay`; {tail}"
     if kind == "src":
+        how = (
+            "It is importable because SeamSpec's own pytest.ini adds src/, as your pytest settings do."
+            if "src" in seamspec_pythonpath(root)
+            else "It is importable because the project is installed in its virtualenv (`uv sync`, "
+            "`pip install -e .`); if the import fails, install it first."
+        )
         return (
             f"This project keeps its package under src/: import it by name, e.g. `from {package} import ...`, "
-            f"never `src.{package}` (that would load a second copy of the code). It is importable because the "
-            "project is installed in its virtualenv (`uv sync`, `pip install -e .`); if the import fails, install "
-            "it first. SeamSpec's own pytest.ini ignores conftest.py files."
+            f"never `src.{package}` (that would load a second copy of the code). {how} "
+            "SeamSpec's own pytest.ini ignores conftest.py files."
         )
     if package:
         return f"Import project code from the repo root, e.g. `from {package} import ...`; {tail}"
