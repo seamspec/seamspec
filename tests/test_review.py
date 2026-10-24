@@ -480,6 +480,7 @@ def test_declining_a_swap_keeps_the_old_rule_and_offers_to_reject_the_replacemen
     out = runner.invoke(app, ["review"], input="n\nd\ny\n")
     assert out.exit_code == 0, out.output
     assert store.get(old).status == InvStatus.LOCKED and requests.pending_supersede_ids(store) == set()
+    assert set(requests.declined(store)) == {old}  # the agent is told the rule stays (ADR-20261024-6f0c)
     rejected = store.get(new)
     assert rejected.status == InvStatus.REJECTED and old in rejected.status_reason
     # Kept as an ordinary proposal instead: it is offered on its own next time.

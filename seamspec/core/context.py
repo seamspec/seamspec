@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import requests
 from .models import DeadEnd, Invariant, InvStatus
 from .root import to_rel
 from .scope import matches
@@ -20,6 +21,7 @@ class ConstraintSet:
     proposed: list[Invariant] = field(default_factory=list)
     dead_ends: list[DeadEnd] = field(default_factory=list)
     omitted: int = 0  # matches beyond the per-kind limit, so a cut list is never silent
+    declined: list[str] = field(default_factory=list)  # a person kept these rules (ADR-20261024-6f0c)
 
     @property
     def empty(self) -> bool:
@@ -46,6 +48,7 @@ class ConstraintSet:
                 )
         if self.omitted:
             lines.append(f"... and {self.omitted} more. Run `seamspec context` on fewer files to see them.")
+        lines += self.declined
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,6 +59,7 @@ class ConstraintSet:
             "proposed": [i.model_dump(mode="json") for i in self.proposed],
             "dead_ends": [d.model_dump(mode="json") for d in self.dead_ends],
             "omitted": self.omitted,
+            "declined": self.declined,
         }
 
 
@@ -82,4 +86,5 @@ def constraints_for(store: Store, files: list[str], limit: int = DEFAULT_LIMIT) 
         items = getattr(cs, name)
         cs.omitted += max(0, len(items) - limit)
         setattr(cs, name, items[:limit])
+    cs.declined = requests.declined_lines(store, [i.id for i in cs.locked])
     return cs

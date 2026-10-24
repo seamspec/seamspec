@@ -93,3 +93,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261019-e2f8](ADR-20261019-e2f8-verify-in-a-clone-never-set-up.md) | `seamspec verify` in a clone never set up on this machine says to run `seamspec init` | ACCEPTED |
 | [ADR-20261023-7d41](ADR-20261023-7d41-plugin-from-github-at-the-release-tag.md) | A released SeamSpec takes the Claude Code plugin from GitHub at its own tag; project scope for teams | ACCEPTED |
 | [ADR-20261024-b3e9](ADR-20261024-b3e9-release-rehearsal-findings.md) | Release rehearsal findings - licence in the packages, notes below the BRAINDUMP marker pointed out | ACCEPTED |
+| [ADR-20261024-6f0c](ADR-20261024-6f0c-tell-the-agent-a-change-was-declined.md) | Tell the agent when a person declined a supersede request | ACCEPTED |

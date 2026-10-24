@@ -320,7 +320,7 @@ def _apply_supersede(store: Store, cfg: Config, state: dict[str, Any], inv_id: s
         if not reason:
             state["note"] = "A reason is required to decline: the agent sees it."
             return None
-        requests.clear(store, inv_id)
+        requests.decline(store, inv_id, reason)
         return _next(state, f"{inv_id}: supersede declined, the rule stays locked ({reason})")
     req = requests.get(store, inv_id)
     try:
