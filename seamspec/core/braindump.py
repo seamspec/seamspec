@@ -33,6 +33,7 @@ FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 HEADING_RE = re.compile(r"^\s{0,3}#{1,6}(\s|$)")
 RULE_RE = re.compile(r"^\s{0,3}([-*_])(\s*\1){2,}\s*$")
 MANAGED_HEADING = "## Processed (managed by SeamSpec)"
+LOG_RE = re.compile(r"^- `bd_[0-9a-f]{8}` → ")  # what `tidy()` writes below the marker
 Became = Literal["invariant", "dead_end", "decision", "todo", "exploration", "planned"]
 # Set aside without a record. `planned`: a rule whose code doesn't exist yet. It stays in the file,
 # is shown to the agent as a rule the user wants, and becomes a proposed rule once the code exists
@@ -53,6 +54,31 @@ def item_id(text: str) -> str:
 
 def _human_part(markdown: str, marker: str) -> str:
     return markdown.split(marker, 1)[0]
+
+
+def below_marker(markdown: str, marker: str) -> list[str]:
+    """Lines a person wrote below the marker, where SeamSpec keeps its log and never reads notes:
+    anything but blank lines, the managed heading and `tidy()`'s log lines (release rehearsal, 2026-10-24)."""
+    _, found, managed = markdown.partition(marker)
+    if not found:
+        return []
+    return [
+        ln.strip()
+        for ln in managed.splitlines()
+        if ln.strip() and ln.strip() != MANAGED_HEADING and not LOG_RE.match(ln.strip())
+    ]
+
+
+def below_marker_note(root: Path, path: str, marker: str) -> str | None:
+    """The sentence to show when notes sit below the marker, or None."""
+    text = read(root, path)
+    stray = below_marker(text, marker) if text is not None else []
+    if not stray:
+        return None
+    return (
+        f"{len(stray)} line(s) in {path} are below the `{marker}` line, where SeamSpec keeps its log and doesn't "
+        "read notes. Move them above that line to have them sorted."
+    )
 
 
 def parse_items(markdown: str, marker: str) -> list[Item]:

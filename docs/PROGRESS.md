@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-23 · **Current:** v0.1 · getting ready to release (the steps are under *Release steps* below)
+**Last updated:** 2026-10-24 · **Current:** v0.1 · getting ready to release (the steps are under *Release steps* below)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-24 | **Release rehearsal, part 1** (PR `fix/rehearsal-findings`, release step 2). Built the wheel and sdist as PyPI would get them, installed the wheel in a clean environment and ran everything that needs no agent in a fresh `uv init` project (init with four editors, CI and the plugin; propose, verify, approve; the commit check; four stop hooks; the MCP server; session start, drain, dead end, status, spec; init again). All worked from the package. Fixed: the licence is now in both packages (new packaging test); `verify --proposed` no longer says "on the staged files"; the MCP server reports its version; notes typed below the BRAINDUMP marker are pointed out by `drain`, `status` and `braindump_pending` instead of being silently ignored. README links for PyPI moved to step 5 | ADR-20261024-b3e9 |
 | 2026-10-23 | **The Claude Code plugin after the release** (PR `chore/release-plugin-source`, release step 1). A SeamSpec installed from PyPI had no plugin to install. Now a released version takes it from this repository on GitHub, pinned to its own tag (`…/seamspec.git#v0.1.0`), so plugin and CLI match; a checkout still uses itself; `$SEAMSPEC_PLUGIN_MARKETPLACE` overrides it for rehearsals. New: `init --plugin-scope project`, or yes to *"Turn it on for everyone who works in this repository?"*, puts the plugin in the committed `.claude/settings.json` for the team (published sources only, never a machine path). Checked with the real `claude` CLI against a public marketplace pinned to a tag. SPEC no longer refers to the unpublished `Idea.md`; its problem note now cites the long-session result | ADR-20261023-7d41 |
 | 2026-10-19 | **Getting-started guide** (PR `docs/getting-started`). New `docs/getting-started.md`: requirements, install, solo setup, the first rules and review, day to day, **team setup** (commit `.seamspec/`, `seamspec init --ci`, make `seamspec / verify` a required check, each teammate runs `init` after cloning), modes, when the guard is too strict, troubleshooting from the hands-on tests, and turning it off. README gains requirements, a "For teams" section and "use it with your notes" | `docs/getting-started.md`, `README.md` |
 | 2026-10-19 | **README** (PR `docs/readme`). Replaces the placeholder: what SeamSpec does, an example, the benchmark results using only the allowed claims (capture: 0 vs 8 vs 22; second actor: 0 vs 6 vs 12 landed; plain tests rewritten 12 times), the ties and limits stated openly (person-written notes tie; no slip in a long session; the guard can be stricter than meant), quick start, how it works, everyday commands. Still marked pre-release; the release waits for the owner | `README.md` |
@@ -171,10 +172,10 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 ## Release steps (agreed 2026-10-23; publishing only with the owner's go-ahead, ADR-20261005-3adc)
 
 1. [x] Release blockers in code: the plugin from GitHub at the release tag, team scope, `Idea.md` references removed (ADR-20261023-7d41)
-2. [ ] Release rehearsal: build the wheel, install it in a clean folder (not editable), run `uv init` → `seamspec init` → BRAINDUMP → review → stop hook in Claude Code, plus a quick check in Cursor, VS Code and Antigravity; optionally TestPyPI
+2. [ ] Release rehearsal: build the wheel, install it in a clean folder (not editable), run `uv init` → `seamspec init` → BRAINDUMP → review → stop hook in Claude Code, plus a quick check in Cursor, VS Code and Antigravity; optionally TestPyPI. **Part 1 done** (everything without an agent, ADR-20261024-b3e9); part 2, agent sessions in each editor from the installed package, is the owner's hands-on run
 3. [ ] Prepare the public repo: scan history for secrets, `CONTRIBUTING.md`, `SECURITY.md`, issue templates, description and topics; the owner makes it public
 4. [ ] CI and Copilot reviews running again (free on a public repo; else fix billing); CI a required check; re-review #80, #89–#91
-5. [ ] Version `0.1.0` (pyproject and plugin), classifiers, project URLs, `CHANGELOG.md`; README and getting-started switch to `uv tool install seamspec`
+5. [ ] Version `0.1.0` (pyproject and plugin), classifiers, project URLs, `CHANGELOG.md`; README and getting-started switch to `uv tool install seamspec`; README links made absolute so they work on pypi.org
 6. [ ] Publish: PyPI trusted publishing (the owner sets it up), tag `v0.1.0`, GitHub Release
 7. [ ] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK)
 8. [ ] Launch posts: LinkedIn post and article, a short demo

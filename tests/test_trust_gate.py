@@ -390,9 +390,10 @@ def test_verify_changed_selects_by_scope(in_repo: Path) -> None:
 def test_verify_proposed_runs_in_place_then_cleans_up(in_repo: Path) -> None:
     good = propose(in_repo)["id"]
     bad = propose(in_repo, code="def test_x():\n    assert False\n")["id"]
-    assert runner.invoke(app, ["verify", "--proposed", good]).exit_code == 0
+    passed = runner.invoke(app, ["verify", "--proposed", good])
+    assert passed.exit_code == 0 and "staged" not in passed.output  # it ran the files on disk (rehearsal, 2026-10-24)
     out = runner.invoke(app, ["verify", "--proposed", bad])
-    assert out.exit_code == 1 and f"[FAIL] {bad}" in out.output
+    assert out.exit_code == 1 and f"[FAIL] {bad}" in out.output and "stage it again" not in out.output
     # A plain `seamspec verify` keeps the runner's output and ends with the short block (dogfooding #11).
     assert out.output.index("[FAIL]") < out.output.index("1 rule fails:") < out.output.index("line 2: assert False")
     assert "commit blocked" not in out.output and "Full test output" not in out.output

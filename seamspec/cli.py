@@ -478,6 +478,8 @@ def status(as_json: Annotated[bool, typer.Option("--json", help="Machine-readabl
         typer.echo(
             f"{data['braindump']['new_notes']} new note(s) in {cfg.braindump.path}: ask your agent to sort them."
         )
+    if stray := braindump.below_marker_note(store.root, cfg.braindump.path, cfg.braindump.marker):
+        typer.echo(stray)
 
 
 @app.command()
@@ -704,15 +706,20 @@ def drain(
         return
     items = braindump.pending(store, path, marker)
     plans = braindump.planned(store, path, marker)
+    stray = braindump.below_marker_note(store.root, path, marker)
     if as_json:
         out: dict[str, Any] = {"file": path, "pending": [{"id": i.id, "text": i.text} for i in items]}
         if plans:
             out["planned"] = [{"id": i.id, "text": i.text} for i in plans]
+        if stray:
+            out["below_marker"] = stray
         typer.echo(json.dumps(out, indent=2))
         return
     if braindump.read(store.root, path) is None:
         typer.echo(f"No {path} here. `seamspec init` creates one.")
         return
+    if stray:
+        typer.echo(f"Note: {stray}")
     if plans:
         typer.echo(f"{path}: {len(plans)} planned rule(s), waiting for their code (delete the note to drop one):")
         for item in plans:
@@ -998,8 +1005,8 @@ def verify(
                 invs.append(inv)
             report = verifier.VerifyReport(passed=True)
             for inv in invs:
-                with lifecycle.harness_in_place(store, cfg, inv) as staged:
-                    one = verifier.run(root, cfg, [staged])
+                with lifecycle.harness_in_place(store, cfg, inv) as placed:  # not `staged`: that flag means git's index
+                    one = verifier.run(root, cfg, [placed])
                 report.results += one.results
                 report.config_failures = one.config_failures
             report.passed = not report.config_failures and all(r.passed for r in report.results)
