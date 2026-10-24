@@ -29,7 +29,7 @@ You lose convenience, not protection.
 
 ## Claude Code
 
-`seamspec init` offers to install SeamSpec's Claude Code plugin for this project only (local scope). The plugin brings the hooks, the tools and the `/seamspec:*` commands. Nothing else to do.
+`seamspec init` offers to install SeamSpec's Claude Code plugin for this project only (local scope). A released SeamSpec also asks whether to turn it on for everyone in the repository: it then goes into `.claude/settings.json`, which you commit, and each teammate's Claude Code offers it once they trust the folder. The plugin brings the hooks, the tools and the `/seamspec:*` commands. Nothing else to do.
 
 ## Antigravity
 

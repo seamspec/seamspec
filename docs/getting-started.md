@@ -38,6 +38,7 @@ It asks a few questions. Nothing outside your project changes without a yes.
 | Mode | **enforced** (the default offered). See [Modes](#7-modes) |
 | Allow automatic test runs? | **Yes.** It lets SeamSpec run your approved rules when the agent finishes a task and before each commit. They run with your permissions, so it shows what would run and asks first |
 | Install the Claude Code plugin? | **Yes** if you use Claude Code. It's only for Claude Code, and only for this project |
+| Turn it on for everyone in this repository? (released versions only) | **Yes** for a team: it goes into `.claude/settings.json`, which you commit, and each teammate's Claude Code offers it. **No** keeps it to you |
 | Add a CI workflow? | **Yes** for a team (see [section 6](#6-for-teams)) |
 
 **What `init` writes:**
@@ -164,5 +165,5 @@ A captured rule follows what was said. If you said `max_attempts=5`, the rule ma
 ## 10. Turning it off
 
 - **Pause enforcement:** `seamspec init --mode advisory`. This removes SeamSpec's commit hook; the rules stay.
-- **Remove the Claude Code plugin from a project:** `claude plugin uninstall seamspec@seamspec --scope local`.
+- **Remove the Claude Code plugin from a project:** `claude plugin uninstall seamspec@seamspec --scope local` (or `--scope project` if you turned it on for the team, then commit `.claude/settings.json`).
 - **Remove it completely:** delete `.seamspec/`, the SeamSpec block in `CLAUDE.md` / `AGENTS.md` (between the `seamspec:begin` and `seamspec:end` markers), and `.github/workflows/seamspec.yml`.
