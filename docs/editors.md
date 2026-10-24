@@ -78,6 +78,8 @@ Then:
    - **"MCP servers in Copilot"**, for SeamSpec's tools.
 4. **The reviewer:** `/seamspec-explain` runs in the `seamspec-reviewer` agent, which answers you directly.
 
+**SeamSpec checks the saved files.** VS Code can hold an agent's edits in the editor until you click **Keep** (or save). Until then, SeamSpec's checks, the stop hook among them, see the file as it was. If the agent says it changed a file but SeamSpec still reports the old code, click Keep or save, then run `seamspec verify`.
+
 ## Not built yet
 
 **Showing the rules for a file at the moment the agent edits it,** and blocking edits to SeamSpec's own files, exist only in Claude Code. The other editors haven't documented the names their hooks give to edit tools. Until then:

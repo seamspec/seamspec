@@ -388,7 +388,7 @@ def _review_requests(
         if key == "a":
             _approve_request(store, cfg, req, rep if swap else None, config_ok, tally)
         elif key == "d":
-            requests.clear(store, req.invariant_id)
+            requests.decline(store, req.invariant_id)  # the agent is told the rule stays (ADR-20261024-6f0c)
             tally.declined.append(req.invariant_id)
             if swap and typer.confirm(f"  Also reject the replacement {req.replacement_id}?", default=True):
                 assert rep is not None

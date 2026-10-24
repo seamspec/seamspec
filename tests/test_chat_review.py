@@ -320,6 +320,9 @@ def test_declining_a_supersede_needs_a_reason_the_agent_sees(project: Path) -> N
     out = review(Human(pick("decline"), pick("decline", reason="The cap is a contract")))
     assert out["reviewed"] == [f"{old}: supersede declined, the rule stays locked (The cap is a contract)"]
     assert inv(project, old).status == InvStatus.LOCKED
+    from seamspec.core import requests
+
+    assert "Their reason: The cap is a contract." in requests.declined_lines(Store(project))[0]  # the agent sees it
 
 
 def test_dead_ends_keep_or_retire(project: Path) -> None:

@@ -26,7 +26,7 @@ from ..core.area import area as _area
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
 from ..core.models import DeadEnd, Invariant, InvStatus
-from ..core.requests import pending_supersede_ids
+from ..core.requests import declined_lines, pending_supersede_ids
 from ..core.root import find_root, project_at, to_rel
 from ..core.scope import effective_protected_paths, matches
 from ..core.session import SessionState
@@ -43,6 +43,8 @@ SUPERSEDE_HINT = (
     "Fix the regression. If this behavior change is intentional, call "
     "request_supersede(invariant_id, reason, replacement_id) and tell the user."
 )
+DECLINED_HINT = "Fix the regression: a person already decided to keep these rules."
+DECLINED_HEADING = "SeamSpec: changes a person declined; the rules stay in force:"
 
 
 def _pre_tool(**fields: str) -> dict[str, Any]:
@@ -216,7 +218,9 @@ def stop(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] |
     lines = other + summary + [failtext.raw(r) for r in report.results if not r.passed and not r.incomplete]
     if report.incomplete:
         lines.append("[INCOMPLETE] time ran out before every locked rule was checked.")
-    details = "SeamSpec: locked rule check failed.\n" + "\n".join(lines) + "\n" + SUPERSEDE_HINT
+    declines = declined_lines(store, failing)  # a person said no: say so, or the agent asks again (ADR-20261024-6f0c)
+    hint = DECLINED_HINT if declines and len(declines) == len(failing) else SUPERSEDE_HINT
+    details = "SeamSpec: locked rule check failed.\n" + "\n".join(lines + declines) + "\n" + hint
     return _block(state, store, cfg, key, details, ids=sorted(failing))
 
 
@@ -353,7 +357,8 @@ def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[st
     if source not in SESSION_SOURCES:
         return None
     plans = "\n".join(braindump.planned_lines(store, cfg.braindump.path, cfg.braindump.marker))
-    parts = [t for t in (session_summary(store), plans, _braindump_nudge(store, cfg, source)) if t]
+    declines = "\n".join([DECLINED_HEADING, *lines]) if (lines := declined_lines(store)) else ""
+    parts = [t for t in (session_summary(store), declines, plans, _braindump_nudge(store, cfg, source)) if t]
     if not parts:
         return None
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
