@@ -1,13 +1,12 @@
 # SeamSpec — Design Specification
 
-> **Status:** Draft v1.0 · **Supersedes:** `Idea.md`, `mcp_advantages.md`
+> **Status:** Draft v1.0, kept in step with the code
 > **Tagline:** *Build first; every seam that works gets a spec.*
 
 ---
 
 ## Table of Contents
 
-0. [What Changed From Idea.md](#0-what-changed-from-ideamd)
 1. [The Problem](#1-the-problem)
 2. [What SeamSpec Is](#2-what-seamspec-is)
 3. [Design Principles](#3-design-principles)
@@ -36,32 +35,7 @@
 24. [Positioning & Launch](#24-positioning--launch)
 25. [Risks & Mitigations](#25-risks--mitigations)
 26. [Resolved Decisions](#26-resolved-decisions)
-27. [Appendix A — Idea.md Issue → Fix Map](#appendix-a--ideamd-issue--fix-map)
-28. [Appendix B — Glossary](#appendix-b--glossary)
-
----
-
-## 0. What Changed From Idea.md
-
-| Area | Idea.md | This spec | Why |
-|---|---|---|---|
-| Enforcement | "Architecturally blocked" via MCP | Hooks + git pre-commit + CI enforce; MCP is the interface | MCP tools are only called when the agent chooses to call them; they cannot intercept edits |
-| Developer overhead | "Zero" | **Near-zero**: one-keystroke approval of proposed invariants | Fully autonomous locking produces junk invariants |
-| Invariant lifecycle | `PROPOSED` existed but code jumped to `LOCKED`; no retirement | `PROPOSED → LOCKED → SUPERSEDED`, plus `REJECTED`; human-gated transitions | Without a way to retire rules, the ledger blocks legitimate change |
-| Sandbox | "Isolated Sandbox Loop" with `shell=True` | **Verifier**: fixed commands from config, argv lists, timeouts | Containers add friction and no real security over what the agent can already do |
-| Storage | Single `ledger.json` | **One file per record**; index is generated and local | Avoids git merge conflicts |
-| Schema location | `.seamspec/schema.json` | Schema ships **in the package**; records reference `schema_version` | Schema is a definition, not project data |
-| Scope matching | Substring (`f in scope`) | gitignore-style globs (`pathspec`) + optional tags | Substring matching never matched globs |
-| Tamper detection | `hash()` (randomized per process) | SHA-256 of assertion **and** test file | `hash()` is not stable across runs |
-| BRAINDUMP.md | Agent "read-only" yet also strikes through notes | Human-owned; SeamSpec writes only below a marker; gitignored by default | Resolves the contradiction; protects personal notes |
-| Braindump extraction | Implied separate LLM | The **in-session agent** classifies; SeamSpec validates and stores | SeamSpec stays model-free, needs no API keys |
-| MCP tool count | Growing | **7 small tools + 2 resources** (5 tools in v0.1); every tool has a CLI equivalent | Tool definitions cost context on every session (see §4.3) |
-| Workflow commands | None (only rules-file directives) | **`/seamspec:*` chat slash commands** + MCP prompts, rendered per host from one template set (§15A) | Gives developers explicit "crystallize" moments without leaving the chat |
-| Execution consent | Agent-supplied shell commands run inside the MCP server | **MCP never runs unapproved code**; proposed tests run only via the agent's permission-checked shell tool, MCP elicitation, or the human; one-time auto-run consent; repo trust; env scrubbing (§12.4) | With no sandbox, *who decides when code runs* is the control |
-| Review load | Unbounded agent proposals | Per-run cap + **project-wide pending cap** (`proposals.max_pending = 10`); rejection can record a dead end with one key (§11.1, §26) | Too many proposals for the human to review would kill the approval step |
-| Host support | "Runs identically" everywhere | Explicit per-host matrix; same core, different enforcement strength. **v0.1 ships Claude Code only** (as a plugin); Cursor and Copilot follow in v0.2 | Hosts differ in hook capabilities; a smaller v0.1 tests the core idea sooner |
-| Languages | Implicitly Python (`pytest`, `.seamspec/tests/`) | **Language-agnostic runners**: v0.1 presets for pytest and vitest; jest, Go, Rust and `custom` in v0.2; per-runner test folders; failure attribution via JUnit XML, `go test -json`, or isolated reruns (§12A) | Go and Rust can't run tests from `.seamspec/`; the runner design must allow every language from day one |
-| Positioning | OpenSpec described as manual and heavy | Honest comparison: the difference is *when* the gate happens and *whether the spec runs* | A strawman comparison would be called out by expert readers |
+27. [Appendix — Glossary](#appendix--glossary)
 
 ---
 
@@ -76,7 +50,7 @@ Conversational AI coding ("vibecoding") collapses the time from idea to running 
 | Late turns | Circular regressions: fixing bug A reintroduces bug B; approaches that already failed get retried |
 
 > [!NOTE]
-> The turn numbers in `Idea.md` (1–3 / 4–8 / 9+) are plausible but unmeasured. §23 defines a benchmark to measure this instead of asserting it.
+> Measured since (§23): within one long session, nothing slipped in any setup ([long-1](benchmark/long-1.md)). Agreements were lost **between** sessions, and by a teammate's agent working from a fresh clone ([capture-1](benchmark/capture-1.md), [second-1](benchmark/second-1.md)).
 
 Root causes:
 
@@ -147,7 +121,7 @@ OpenSpec **does not execute code**. Its CLI validates documents and manages thei
 > **Honest trade-off:** Because SeamSpec's spec is backward-looking, it **prevents regressions, not bad designs**. OpenSpec's up-front review can catch a wrong architecture before code exists; SeamSpec can only ensure you don't break what already works. The two are complementary, and a future `import` origin type (§10.1) can ingest OpenSpec requirements as proposed invariants.
 
 > [!NOTE]
-> The developer-overhead difference is smaller than `Idea.md` claimed: in current OpenSpec, the AI drafts proposals and humans review. The defensible difference is **gate timing** and **executability**, not who types.
+> The developer-overhead difference is small: in current OpenSpec, the AI drafts proposals and humans review. The defensible difference is **gate timing** and **executability**, not who types.
 
 ### 4.3 OpenSpec and MCP (Issue #319)
 
@@ -183,7 +157,7 @@ The real baseline is not OpenSpec. It is ordinary tests in `tests/`, a host `Sto
 
 ## 5. The "Pick Two" Resolution
 
-`Idea.md` promised three things that conflict:
+The first design promised three things that conflict:
 
 | Promise | Meaning |
 |---|---|
@@ -376,7 +350,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 ├── BRAINDUMP.md                      # human-owned scratchpad (gitignored by default) — v0.2
 ├── CLAUDE.md                         # SeamSpec directive block between markers, written by init (§18)
 ├── .claude/
-│   └── settings.json                 # enables the seamspec Claude Code plugin for the team (§16.1; key names to verify)
+│   └── settings.json                 # with `--plugin-scope project`: the seamspec plugin for the team (§16.1)
 ├── .github/
 │   ├── hooks/seamspec.json           # VS Code Copilot hooks (generated) — v0.2
 │   ├── prompts/seamspec-*.prompt.md  # Copilot workflow commands (generated, §15A) — v0.2
@@ -1402,7 +1376,7 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 
 | Command | Purpose |
 |---|---|
-| `seamspec init [--mode advisory\|enforced\|strict] [--hosts cursor,vscode,antigravity\|none] [--ci\|--no-ci] [--accept-auto-run] [--plugin\|--no-plugin]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install (asks first; `--plugin`/`--no-plugin` for scripts, §16.1), Cursor / VS Code / Antigravity project files (`--hosts`; asks for each host whose folder exists, §16.2–§16.3a), `BRAINDUMP.md` (§13), pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
+| `seamspec init [--mode advisory\|enforced\|strict] [--hosts cursor,vscode,antigravity\|none] [--ci\|--no-ci] [--accept-auto-run] [--plugin\|--no-plugin] [--plugin-scope local\|project]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install (asks first, and whether the team gets it too; `--plugin`/`--no-plugin` and `--plugin-scope` for scripts, §16.1), Cursor / VS Code / Antigravity project files (`--hosts`; asks for each host whose folder exists, §16.2–§16.3a), `BRAINDUMP.md` (§13), pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
 | `seamspec status [--json]` | Counts by status, pending reviews, new braindump notes, last verify result, detected host tiers |
 | `seamspec context <files...>` | Human/agent-readable constraints for files (MCP-free fallback) |
 | `seamspec review` | Interactive pass over everything waiting for a human, in this order (ADR-20261005-b7e2): **runner config changes** (shown in full; until confirmed, approvals are blocked), **dead ends recorded since the last review** (`k`eep / `w`rong, retire it), **supersede requests** (`a`pprove / `d`ecline / `s`kip; a request and its proposed replacement are shown together and decided as one, §11.2), **proposed invariants** oldest first: full test code, then the optional red-green check (§11.4), then `a`pprove / `r`eject / `s`kip. `q` stops at any point; undecided items stay waiting. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"*. Then **proposed decisions** (ADRs with no rule of their own, e.g. from `propose_decision`): `a`ccept / `r`eject / `s`kip, and while more than one is left, `x` rejects this one and every one after it, after listing them and asking *"Reject all N?"*; accepting records the decision and enforces nothing (ADR-20261013-d9e4, ADR-20261014-8a57) |
@@ -1985,17 +1959,19 @@ seamspec-plugin/
 ```
 
 - **Wrappers live in `scripts/`, not `bin/`:** a plugin's `bin/` folder is put on the agent's Bash `PATH`, and plugins with `bin/` aren't installable on claude.ai or Cowork (ADR-20261005-5675).
-- **Install** (ADR-20261005-428a): the repository root is also a plugin **marketplace** (`.claude-plugin/marketplace.json`, name `seamspec`, one plugin with source `./seamspec-plugin`). `seamspec init` offers to install it for the current repository by running Claude Code's own CLI, never by editing its settings files:
+- **Install** (ADR-20261005-428a, ADR-20261023-7d41): the repository root is also a plugin **marketplace** (`.claude-plugin/marketplace.json`, name `seamspec`, one plugin with source `./seamspec-plugin`). `seamspec init` offers to install it for the current repository by running Claude Code's own CLI, never by editing its settings files:
 
 ```text
-claude plugin marketplace add <seamspec checkout> --scope local
-claude plugin install seamspec@seamspec --scope local
+claude plugin marketplace add <source> --scope local|project
+claude plugin install seamspec@seamspec --scope local|project
 ```
 
-  - **`local` scope** enables the plugin in `<repo>/.claude/settings.local.json`: just this user, just this repository. Claude Code also records the marketplace and the install in its config directory (normally `~/.claude/plugins/`, or under `CLAUDE_CONFIG_DIR` when set); that turns nothing on in other projects. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it holds this machine's checkout path. The plugin loads in place from the checkout, so plugin edits apply at the next session or `/reload-plugins`.
-  - **Asks first.** In a terminal, `init` shows both commands and asks *"Install the SeamSpec plugin for Claude Code in this repository? (Skip it if you don't use Claude Code.) [Y/n]"*; the screen above it says the plugin is for Claude Code only (ADR-20261014-6c2d). `--plugin` installs without asking; `--no-plugin` skips. Without a terminal and without a flag it calls nothing and prints `seamspec init --plugin`.
-  - **Skipped** with a note when `claude` isn't on `PATH`, or when the CLI isn't running from a checkout (a wheel install has no marketplace until the release). **Unchanged** when `claude plugin list` already shows it enabled for this repository (or at `user` scope).
-  - Until the release (week 6, after the owner's go-ahead) the marketplace is the local checkout. A published GitHub marketplace, and with it `project` scope (committed `.claude/settings.json`, so teammates are prompted), comes with the release.
+  - **The source** is, in order: `$SEAMSPEC_PLUGIN_MARKETPLACE` when set (any source `claude plugin marketplace add` accepts; for release rehearsals); the checkout the CLI runs from (an editable install; the plugin loads in place, so plugin edits apply at the next session or `/reload-plugins`); for a **released** version, this repository on GitHub pinned to that version's tag, `https://github.com/seamspec/seamspec.git#v<version>`, so the plugin always matches the installed CLI. HTTPS, so no GitHub SSH key is needed. An unreleased build installed without a checkout has no tag to pin to and is skipped.
+  - **`local` scope** (the default) enables the plugin in `<repo>/.claude/settings.local.json`: just this user, just this repository. Claude Code also records the marketplace and the install in its config directory (normally `~/.claude/plugins/`, or under `CLAUDE_CONFIG_DIR` when set); that turns nothing on in other projects. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it can hold this machine's checkout path.
+  - **`project` scope** (`--plugin-scope project`, or *yes* to the team question) writes the committed `<repo>/.claude/settings.json` (`extraKnownMarketplaces` with the git URL and tag, and `enabledPlugins`), so each teammate's Claude Code offers the plugin once they trust the folder. Only a published source (an `https://` URL or `owner/repo`) can go there, never a path on this machine; otherwise it is skipped with a note pointing to `--plugin-scope local`. Teammates also need the `seamspec` command; without it the hook wrapper stays silent (below). Verified with the real CLI against a public GitHub marketplace pinned to a tag (2026-10-23).
+  - **Asks first.** In a terminal, `init` shows both commands and asks *"Install the SeamSpec plugin for Claude Code in this repository? (Skip it if you don't use Claude Code.) [Y/n]"*; the screen above it says the plugin is for Claude Code only (ADR-20261014-6c2d). With a published source and no `--plugin-scope`, it then asks *"Turn it on for everyone who works in this repository? … [y/N]"* and, on yes, shows the `project` commands before running them. `--plugin` installs without asking (at `local` scope unless `--plugin-scope project`); `--no-plugin` skips. Without a terminal and without a flag it calls nothing and prints `seamspec init --plugin`.
+  - **Skipped** with a note when `claude` isn't on `PATH`, or when there is no source (above). **Unchanged** when `claude plugin list` already shows it enabled for this repository (or at `user` scope).
+  - **Upgrades (before 0.1.1):** re-running `init` after upgrading SeamSpec still reports *unchanged*, so the plugin stays pinned to the old tag. Re-adding the same marketplace at the new tag moves the pin (checked with the real CLI); `init` must do that, and update the plugin, before a second release ships.
   - `claude --plugin-dir <repo>/seamspec-plugin` still works for a one-off session.
 - **Directive:** a plugin can't write `CLAUDE.md`, so `seamspec init` writes the directive (§18) into it (ADR-20261005-c41d).
 - **Two wrappers** (ADR-20261005-c41d), because a missing CLI should be silent for hooks but explained for MCP. Both append `$HOME/.local/bin` (where `uv tool` installs) to `PATH` first, since apps started from the Dock often lack it; a `seamspec` already on `PATH` still wins (ADR-20261005-9b8f):
@@ -2317,7 +2293,7 @@ The base branch is `--base <ref>`, defaulting to `origin/$GITHUB_BASE_REF` on pu
 
 ## 17. The Self-Healing Loop
 
-The "self-healing loop" from `Idea.md` is now **host-enforced** rather than trusted to the model:
+The "self-healing loop" (the agent fixes what it broke before it finishes) is **host-enforced** rather than trusted to the model:
 
 ```mermaid
 flowchart LR
@@ -2468,7 +2444,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
   - `install_codeowners()` returns `created`, `updated` or `unchanged`. It manages only a block between `# seamspec:begin` and `# seamspec:end`, owning `/.seamspec/` and each runner's harness folder, with the placeholder owner `@your-team/leads`.
   - The CLI's `init --ci/--no-ci` follows §7.3: advisory never adds CI; enforced asks, or adds nothing without a terminal or flag; strict always adds it plus CODEOWNERS, and says when `--no-ci` is ignored.
 - [`hosts.py`](../seamspec/installers/hosts.py) (ADR-20261013-e8f3): `install(root, host)` for `cursor`, `vscode`, `antigravity` returns one `Change(path, status)` per file: the `AGENTS.md` block (`directive.install_keeping(root, "AGENTS.md")`, the `agents` variant), the MCP server entry (added if missing; a different existing `seamspec` entry is `kept (yours)`; a file that isn't a JSON object is `skipped`), the session-start and stop hook entries (added unless an entry with the same command exists; other hooks untouched), and the `/seamspec-<name>` command files (`core/commands.render(name, host)`, owned by SeamSpec, rewritten to match). `detect(root)` lists hosts whose folder exists. [`adapters/hosts.py`](../seamspec/adapters/hosts.py): `main(host, event, stdin)` for `session-start` and `stop`, translating each host's input and output around `claude.main`; fail open.
-- [`claude_plugin.py`](../seamspec/installers/claude_plugin.py): the Claude Code plugin install (§16.1). `precheck(root)` returns `skipped` (no `claude`, no checkout marketplace) or `unchanged` (already enabled here or at `user` scope), else `None`; `commands(source)` lists the two `claude plugin` invocations for the prompt; `enable(root)` runs them with `--json` and `--scope local`, reports `installed` / `failed` (with Claude Code's message). Whenever `.claude/settings.local.json` exists (installed, a manual install reported `unchanged`, or a `failed` install whose `marketplace add` already wrote it), it is added to `.gitignore`. `install(root)` = `precheck` then `enable`. Tests use a fake `claude`, plus one real `claude` run in a throwaway `CLAUDE_CONFIG_DIR` (every test gets one, so no test can touch the developer's Claude Code settings).
+- [`claude_plugin.py`](../seamspec/installers/claude_plugin.py): the Claude Code plugin install (§16.1). `marketplace_source()` is `$SEAMSPEC_PLUGIN_MARKETPLACE`, else the checkout (`checkout()`), else for a released version `release_source()` (`https://github.com/seamspec/seamspec.git#v<version>`, using `ci.released()`), else `None`; `shareable(source)` is true for an `https://` URL or an `owner/repo` that isn't a local folder. `precheck(root, scope)` returns `skipped` (no `claude`, no source, or `project` scope with a source that isn't shareable) or `unchanged` (already enabled here or at `user` scope), else `None`; `commands(source, scope)` lists the two `claude plugin` invocations for the prompt; `enable(root, scope)` runs them with `--json` and `--scope local|project`, reports `installed` / `failed` (with Claude Code's message). Whenever `.claude/settings.local.json` exists (installed, a manual install reported `unchanged`, or a `failed` install whose `marketplace add` already wrote it), it is added to `.gitignore`. `install(root, scope)` = `precheck` then `enable`. Tests use a fake `claude`, plus one real `claude` run in a throwaway `CLAUDE_CONFIG_DIR` (every test gets one, so no test can touch the developer's Claude Code settings).
 - [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`. Lines inside the old block that SeamSpec never shipped are kept: `merge_keeping(text)` and `install_keeping(root)` return them and place them above the block; `foreign_in(root)` lists them for `doctor`. `known_lines()` reads `templates/directive_known_lines.txt` (a SHA-256 prefix per line ever shipped) and adds the current template's lines; `python -m seamspec.installers.directive` appends new ones after `directive.md` changes, and a test fails if the file is behind (ADR-20261011-b1c8).
 
 ### 19.7 `seamspec/core/verifier.py` and `reports.py` — implemented (week 2)
@@ -2726,7 +2702,7 @@ seamspec/
 │   ├── installers/                 # init: merge configs without clobbering
 │   │   ├── scaffold.py             # `seamspec init` scaffolding (week 1)
 │   │   ├── directive.py            # marked block in CLAUDE.md and AGENTS.md (§18)
-│   │   ├── claude_plugin.py        # plugin install via `claude plugin` at local scope (§16.1)
+│   │   ├── claude_plugin.py        # plugin install via `claude plugin`, local or project scope (§16.1)
 │   │   ├── hosts.py                # Cursor, VS Code, Antigravity project files: AGENTS.md, MCP, hooks, commands (§16.2–§16.3a)
 │   │   ├── git_hooks.py
 │   │   └── ci.py                   # CI workflow + strict-mode CODEOWNERS block (§16.5)
@@ -2935,7 +2911,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 | 6 | Name and schema domain | **SeamSpec** (CLI `seamspec`). *Name history:* drafted as "VibeSpec"; dropped 2026-10-03 because GitHub user/org `vibespec` was taken and `vibespec.dev` resolves. `seamspec` was free everywhere and is now claimed: PyPI (0.0.3), npm (0.0.1) + `@seamspec` org, GitHub org `seamspec`. Schema `$id`s use `https://seamspec.github.io/schemas/v1/` | Names get taken, and a schema `$id` should never move | §9.4, §10, §22 |
 | 7 | `run_proposed` default | New default **`auto`**: `ask` when the MCP client declares elicitation support, else `host`. **In v0.1 elicitation is deferred, so `auto` = `host`** | `ask` shows the human a consent prompt in the IDE, which is stronger than relying on the agent's shell permissions. Falling back is safe while host support is unverified | §9.5, §12.4.2, §12.4.4, §19.2 |
 | 8 | `trust_level` in `strict` | **Yes, defaults to `harness`** (explicit config wins; implemented in v0.1, ADR-20261005-8e80). `fail_closed` follows the same rule | `strict` users opted into rigor; any new upstream test should need re-trust before it runs locally | §7.3, §9.5, §12.4.6, §19.2 |
-| 9 | v0.1 scope | **Claude Code only**; pytest + vitest; ledger, `review`, `verify`, pre-commit, Stop gate, `/lock`, `/dead-end`, 5-tool MCP, CI. Cursor/Copilot, BRAINDUMP, jest/Go/Rust, elicitation and harness trust move to **v0.2** | The original v0.1 was about 3× too big; the biggest risk is whether SeamSpec helps at all, so test the core loop first | §0, §8, §12A.2, §14, §22 |
+| 9 | v0.1 scope | **Claude Code only**; pytest + vitest; ledger, `review`, `verify`, pre-commit, Stop gate, `/lock`, `/dead-end`, 5-tool MCP, CI. Cursor/Copilot, BRAINDUMP, jest/Go/Rust, elicitation and harness trust move to **v0.2** | The original v0.1 was about 3× too big; the biggest risk is whether SeamSpec helps at all, so test the core loop first | §8, §12A.2, §14, §22 |
 | 10 | Claude Code packaging | Ship as a **plugin** (hooks + skills + MCP); commands are plugin skills, e.g. `/seamspec:lock` | Only plugin skills get a namespace; nothing is merged into committed settings, so teammates without SeamSpec are unaffected | §15A.4, §16.1 |
 | 11 | Edit-time gate | **`context`** by default: add constraints with no permission decision. Deny once only for brand-new governed files or `gate_mode = "deny_once"`. Never return `allow` | A denial can push the agent to write through Bash, skipping the gate; `allow` would bypass the user's permission prompts | §7.2, §16.1, §19.10 |
 | 12 | "Under verification" flag | **None.** `SEAMSPEC_VERIFY` removed | A flag lets code behave differently under test (a defeat device) | §12.4.7, §19.7 |
@@ -2952,35 +2928,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 
 ---
 
-## Appendix A — Idea.md Issue → Fix Map
-
-| Idea.md issue | Location (Idea.md) | Fix in this spec |
-|---|---|---|
-| "Architecturally blocked" via MCP | §4, L30 | §7 enforcement layers; MCP is interface only |
-| Agent self-locks invariants | `lock_decision_and_invariants` | `propose_invariant` + human `approve` (§11) |
-| No invariant retirement | — | Supersede flow (§11.2) |
-| Substring scope matching | `audit_intent_against_invariants` | `pathspec` globs + tags (§19.5) |
-| `hash()` for tamper detection | L335 | SHA-256 of harness + assertion (§19.5, §19.7) |
-| Same harness written N times | L322–325 | One harness per invariant, path chosen by SeamSpec |
-| `shell=True`, no timeout | L266 | argv from config, timeouts (§12, §19.7) |
-| CWD-relative paths | L207–210 | `find_root` via env / walk-up (§19.1) |
-| Non-atomic, unlocked ledger writes | L220–223 | Atomic writes + file lock + per-record files (§19.4) |
-| ADR numbering collisions, unsanitized slug | L309, L313 | `ADR-YYYYMMDD-xxxx` IDs; sanitized slugs (§9.3) |
-| `date -u` subprocess | L368 | `datetime.now(timezone.utc)` (§19.3) |
-| Default ledger missing required field | L215 | Per-record schema; no monolithic ledger |
-| `datetime.utcnow()` deprecated | L78 | Timezone-aware datetimes |
-| "Atomic Git Commit" not implemented | Diagram | Removed; git integration is pre-commit + CI |
-| Inconsistent tool names | §4, `.cursorrules`, code | Single tool list (§14) used everywhere |
-| Wrong IDE config paths/keys | §5.3 | Corrected per host (§14.3) |
-| Regression sweep ran whole test directory | L275–279 | Explicit harness list for LOCKED only (§12.2) |
-| BRAINDUMP read-only vs strike-through contradiction | L547 vs L573 | Ownership rules + marker (§13.2) |
-| `drain` locks items directly | L573 | Everything lands `PROPOSED` (§13.6) |
-| Hidden LLM dependency for braindump parsing | L599–601 | In-session agent classifies; model-free core (§3, §13.6) |
-| Duplicated sections, stray `"""`, broken LaTeX | Throughout | Clean single document |
-
----
-
-## Appendix B — Glossary
+## Appendix — Glossary
 
 | Term | Meaning |
 |---|---|

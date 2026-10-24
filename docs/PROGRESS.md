@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-14 · **Current:** v0.1 · Week 4: CI, doctor, remaining skills, dogfooding · [Week 4 issue](https://github.com/seamspec/seamspec/issues/4)
+**Last updated:** 2026-10-23 · **Current:** v0.1 · getting ready to release (the steps are under *Release steps* below)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-23 | **The Claude Code plugin after the release** (PR `chore/release-plugin-source`, release step 1). A SeamSpec installed from PyPI had no plugin to install. Now a released version takes it from this repository on GitHub, pinned to its own tag (`…/seamspec.git#v0.1.0`), so plugin and CLI match; a checkout still uses itself; `$SEAMSPEC_PLUGIN_MARKETPLACE` overrides it for rehearsals. New: `init --plugin-scope project`, or yes to *"Turn it on for everyone who works in this repository?"*, puts the plugin in the committed `.claude/settings.json` for the team (published sources only, never a machine path). Checked with the real `claude` CLI against a public marketplace pinned to a tag. SPEC no longer refers to the unpublished `Idea.md`; its problem note now cites the long-session result | ADR-20261023-7d41 |
 | 2026-10-19 | **Getting-started guide** (PR `docs/getting-started`). New `docs/getting-started.md`: requirements, install, solo setup, the first rules and review, day to day, **team setup** (commit `.seamspec/`, `seamspec init --ci`, make `seamspec / verify` a required check, each teammate runs `init` after cloning), modes, when the guard is too strict, troubleshooting from the hands-on tests, and turning it off. README gains requirements, a "For teams" section and "use it with your notes" | `docs/getting-started.md`, `README.md` |
 | 2026-10-19 | **README** (PR `docs/readme`). Replaces the placeholder: what SeamSpec does, an example, the benchmark results using only the allowed claims (capture: 0 vs 8 vs 22; second actor: 0 vs 6 vs 12 landed; plain tests rewritten 12 times), the ties and limits stated openly (person-written notes tie; no slip in a long session; the guard can be stricter than meant), quick start, how it works, everyday commands. Still marked pre-release; the release waits for the owner | `README.md` |
 | 2026-10-19 | **`seamspec verify` in a clone never set up here says to run `init`** (PR `fix/verify-untrusted-clone`). In the second-actor benchmark a teammate's agent got a bare "not trusted" and skipped the check. Now `verify` says SeamSpec isn't set up for this clone, to run `seamspec init` (which shows what would run and asks), and tells agents to pass that on and that CI still checks every push | ADR-20261019-e2f8 |
@@ -167,10 +168,22 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 - [x] Execution consent: `init` consent screen, `seamspec trust` (§12.4). Merged in #11
 - [x] Pre-commit installer; `verify --gate` (§16.4). Merged in #11
 
+## Release steps (agreed 2026-10-23; publishing only with the owner's go-ahead, ADR-20261005-3adc)
+
+1. [x] Release blockers in code: the plugin from GitHub at the release tag, team scope, `Idea.md` references removed (ADR-20261023-7d41)
+2. [ ] Release rehearsal: build the wheel, install it in a clean folder (not editable), run `uv init` → `seamspec init` → BRAINDUMP → review → stop hook in Claude Code, plus a quick check in Cursor, VS Code and Antigravity; optionally TestPyPI
+3. [ ] Prepare the public repo: scan history for secrets, `CONTRIBUTING.md`, `SECURITY.md`, issue templates, description and topics; the owner makes it public
+4. [ ] CI and Copilot reviews running again (free on a public repo; else fix billing); CI a required check; re-review #80, #89–#91
+5. [ ] Version `0.1.0` (pyproject and plugin), classifiers, project URLs, `CHANGELOG.md`; README and getting-started switch to `uv tool install seamspec`
+6. [ ] Publish: PyPI trusted publishing (the owner sets it up), tag `v0.1.0`, GitHub Release
+7. [ ] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK)
+8. [ ] Launch posts: LinkedIn post and article, a short demo
+- **Before a second release (0.1.1):** `init` (or `doctor`) must notice a plugin pinned to an older tag, move the pin and update the plugin (ADR-20261023-7d41).
+- npm: nothing to publish for v0.1; the reserved name stays as it is.
+
 ## Open questions (owner's call)
 
 - **Publishing to PyPI / npm:** waits for the owner's explicit go-ahead after thorough testing; no early pre-release (ADR-20261005-3adc). Try it meanwhile with `uv tool install --force --editable <path-to-repo>`.
-- Before the repo goes public: remove references to the unpublished `Idea.md` from SPEC.md.
 - **Proposal history on replace** (hands-on finding #7): `propose_invariant(replace_id=…)` overwrites the original rule text and origin. Keep the earlier version and show the diff in `seamspec review`?
 - **Approvals in chat** (hands-on finding #8): built (ADR-20261006-c300), but off by default after verification 2 failed in both Claude Code apps (ADR-20261008-5d1e). Open: the local review page (option B), decided after dogfooding; check again when Claude Code changes how it shows MCP form dialogs.
 

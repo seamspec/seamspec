@@ -77,6 +77,11 @@ shows the agent the locked rules as it edits, runs them before it finishes (Stop
 adds the SeamSpec MCP tools and /seamspec:lock, /seamspec:dead-end.
 SeamSpec will run:"""
 
+PLUGIN_TEAM_QUESTION = (
+    "Turn it on for everyone who works in this repository? It goes into .claude/settings.json, which you"
+    " commit; each teammate's Claude Code offers it once they trust the folder. (No: just you.)"
+)
+
 
 def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
@@ -143,7 +148,16 @@ def init(
         bool | None,
         typer.Option(
             "--plugin/--no-plugin",
-            help="Install and enable the SeamSpec Claude Code plugin for this repository only. Asks when omitted.",
+            help="Install and enable the SeamSpec Claude Code plugin for this repository. Asks when omitted.",
+        ),
+    ] = None,
+    plugin_scope: Annotated[
+        str | None,
+        typer.Option(
+            "--plugin-scope",
+            help="local: just you (.claude/settings.local.json). project: everyone in this repository "
+            "(.claude/settings.json, which you commit; released versions only). Asks when omitted; "
+            "local without a terminal.",
         ),
     ] = None,
     ci: Annotated[
@@ -170,6 +184,8 @@ def init(
     ] = False,
 ) -> None:
     """Set up SeamSpec in this repository. Safe to re-run: existing files are kept or merged."""
+    if plugin_scope is not None and plugin_scope not in claude_plugin.SCOPES:
+        raise typer.BadParameter(f"use {' or '.join(claude_plugin.SCOPES)}", param_hint="--plugin-scope")
     root = path.resolve()
     if not root.is_dir():
         raise _fail(f"{root} is not a directory")
@@ -266,7 +282,7 @@ def init(
     if not (root / ".git").exists():
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
     _init_ci(root, report.mode, ci)
-    _init_plugin(root, plugin)
+    _init_plugin(root, plugin, plugin_scope)
     _init_hosts(root, hosts)
 
 
@@ -345,24 +361,25 @@ def _init_hosts(root: Path, wanted: str | None) -> None:
                 typer.echo(f"  {note}")
 
 
-def _init_plugin(root: Path, wanted: bool | None) -> None:
+def _init_plugin(root: Path, wanted: bool | None, scope: str | None = None) -> None:
     """Offer the Claude Code plugin (SPEC §16.1). Changing Claude Code's settings needs a yes."""
     if wanted is False:
         return
     if wanted is None and not _interactive():
         typer.echo("Claude Code plugin: not checked (no terminal). Run `seamspec init --plugin` to install it.")
         return
-    result = claude_plugin.precheck(root)
+    result = claude_plugin.precheck(root, scope or "local")
     if result is None:
         source = claude_plugin.marketplace_source()
         assert source is not None  # precheck() checked it
         if wanted is None:
             typer.echo(PLUGIN_SCREEN)
-            for args in claude_plugin.commands(source):
+            for args in claude_plugin.commands(source, scope or "local"):
                 typer.echo(f"  claude plugin {' '.join(args)}")
             typer.echo(
-                f"It would be enabled in {claude_plugin.SETTINGS_LOCAL}: just you, just this repository."
-                " Claude Code would also record the install in its config directory (normally"
+                f"It would be enabled in {claude_plugin.SETTINGS[scope or 'local']}"
+                + (": just you, just this repository." if scope != "project" else ", for everyone in this repository.")
+                + " Claude Code would also record the install in its config directory (normally"
                 " ~/.claude/plugins/); nothing is turned on elsewhere."
             )
             if not typer.confirm(
@@ -372,12 +389,23 @@ def _init_plugin(root: Path, wanted: bool | None) -> None:
             ):
                 typer.echo("Claude Code plugin: not installed. Run `seamspec init --plugin` any time.")
                 return
-        result = claude_plugin.enable(root)
+            if scope is None and claude_plugin.shareable(source):
+                scope = "project" if typer.confirm(PLUGIN_TEAM_QUESTION, default=False) else "local"
+                if scope == "project":
+                    typer.echo("SeamSpec will run these instead:")
+                    for args in claude_plugin.commands(source, scope):
+                        typer.echo(f"  claude plugin {' '.join(args)}")
+        result = claude_plugin.enable(root, scope or "local")
     typer.echo(f"Claude Code plugin: {result.status} ({result.message})")
     if result.gitignore in ("created", "updated"):
         typer.echo(f"  {result.gitignore:<9} .gitignore ({claude_plugin.SETTINGS_LOCAL})")
     if result.status == "installed":
         typer.echo("  Start a new Claude Code session (or run /reload-plugins) to load it.")
+        if scope == "project":
+            typer.echo(
+                f"  Commit {claude_plugin.SETTINGS['project']}. Teammates also need the `seamspec` command;"
+                " without it the plugin stays silent."
+            )
 
 
 def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
