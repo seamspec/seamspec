@@ -253,6 +253,26 @@ def test_drain_command_lists_and_tidy_moves_sorted_notes(tmp_path: Path, human: 
     assert runner.invoke(app, ["drain", "--tidy"]).exit_code == 1  # an agent's shell: it's the person's file
 
 
+def test_notes_typed_below_the_marker_are_pointed_out(tmp_path: Path, human: None, monkeypatch) -> None:
+    """The natural place to type is the end of the file, which is SeamSpec's log: those notes were silently
+    ignored (release rehearsal, 2026-10-24). SeamSpec's own log lines never count."""
+    store = project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    todo = next(i for i in braindump.pending(store, "BRAINDUMP.md", MARKER) if i.text.startswith("TODO"))
+    braindump.dismiss(store, "BRAINDUMP.md", MARKER, [{"item_id": todo.id, "as": "todo"}])
+    assert runner.invoke(app, ["drain", "--tidy"]).exit_code == 0  # writes the heading and a log line
+    assert braindump.below_marker_note(tmp_path, "BRAINDUMP.md", MARKER) is None
+    assert "below_marker" not in json.loads(runner.invoke(app, ["drain", "--json"]).output)
+
+    with (tmp_path / "BRAINDUMP.md").open("a") as f:
+        f.write("\n- prices are always in euros\n- caching totals in a dict went stale\n")
+    listed = runner.invoke(app, ["drain"]).output
+    assert "2 line(s) in BRAINDUMP.md are below the `<!-- seamspec:processed -->` line" in listed
+    assert "Move them above that line" in json.loads(runner.invoke(app, ["drain", "--json"]).output)["below_marker"]
+    assert "2 line(s) in BRAINDUMP.md are below" in runner.invoke(app, ["status"]).output
+    assert all("euros" not in i.text for i in braindump.pending(store, "BRAINDUMP.md", MARKER))  # still not read
+
+
 def test_drain_dismiss_sets_notes_aside_without_mcp(tmp_path: Path, monkeypatch) -> None:
     """Without the tools, an agent could list notes but not set any aside (hands-on test, 2026-10-14)."""
     project(tmp_path)
@@ -286,7 +306,11 @@ def test_braindump_tools_over_mcp(tmp_path: Path, monkeypatch) -> None:
     pending = anyio.run(call, "braindump_pending", {})["pending"]
     todo = next(p for p in pending if p["text"].startswith("TODO"))["id"]
     after = anyio.run(call, "braindump_pending", {"dismiss": {todo: "todo"}})
-    assert after["dismissed"] == [todo] and len(after["pending"]) == 5
+    assert after["dismissed"] == [todo] and len(after["pending"]) == 5 and "below_marker" not in after
+    with (tmp_path / "BRAINDUMP.md").open("a") as f:
+        f.write("- typed at the end of the file\n")
+    stray = anyio.run(call, "braindump_pending", {})["below_marker"]
+    assert stray.startswith("1 line(s)") and "never edit the file yourself" in stray  # the agent tells the user
     args = {"title": "RFC 7807", "context": "c", "decision": "Use it.", "consequences": [],
             "scope_paths": ["src/**"], "origin_text": "x"}  # fmt: skip
     made = anyio.run(call, "propose_decision", args)

@@ -24,7 +24,7 @@ from mcp.server.request_state import RequestStateSecurity
 from mcp_types import InputRequiredResult, ListRootsResult
 from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
-from . import brief, chat_review
+from . import __version__, brief, chat_review
 from .core import adr, braindump, lifecycle, runners, tree, verifier
 from .core.config import Config, ConfigError, RunnerCfg, load_config
 from .core.context import constraints_for
@@ -42,7 +42,10 @@ INSTRUCTIONS = (
 
 # Dialog state rides the client between rounds, sealed by the SDK; an hour leaves time to read a test.
 mcp = MCPServer(
-    name="seamspec", instructions=INSTRUCTIONS, request_state_security=RequestStateSecurity.ephemeral(ttl=3600)
+    name="seamspec",
+    version=__version__,  # editors show it in their MCP server lists
+    instructions=INSTRUCTIONS,
+    request_state_security=RequestStateSecurity.ephemeral(ttl=3600),
 )
 
 
@@ -322,6 +325,8 @@ def braindump_pending(
             out["planned"] = [{"id": i.id, "text": i.text} for i in plans]
         if done:
             out["dismissed"] = done
+        if stray := braindump.below_marker_note(svc.root, path, marker):
+            out["below_marker"] = stray + " Tell the user; never edit the file yourself."
         if braindump.read(svc.root, path) is None:
             out["note"] = f"There is no {path} in this project."
         return out
