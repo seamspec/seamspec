@@ -173,11 +173,11 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 ## Release steps (agreed 2026-10-23; publishing only with the owner's go-ahead, ADR-20261005-3adc)
 
 1. [x] Release blockers in code: the plugin from GitHub at the release tag, team scope, `Idea.md` references removed (ADR-20261023-7d41)
-2. [ ] Release rehearsal: build the wheel, install it in a clean folder (not editable), run `uv init` → `seamspec init` → BRAINDUMP → review → stop hook in Claude Code, plus a quick check in Cursor, VS Code and Antigravity; optionally TestPyPI. **Part 1 done** (everything without an agent, ADR-20261024-b3e9); part 2, agent sessions in each editor from the installed package, is the owner's hands-on run
+2. [ ] Release rehearsal: build the wheel, install it in a clean folder (not editable), run `uv init` → `seamspec init` → BRAINDUMP → review → stop hook in Claude Code, plus a quick check in Cursor, VS Code and Antigravity; optionally TestPyPI. **Part 1 done** (everything without an agent, ADR-20261024-b3e9). **Part 2 done** in Claude Code, VS Code and Antigravity (ADR-20261024-6f0c). Still open: Cursor (owner out of credits; its setup was already checked hands-on), and the plugin fetched from GitHub at a tag (needs the public repo and the `v0.1.0` tag, so it moves to step 6)
 3. [ ] Prepare the public repo: scan history for secrets, `CONTRIBUTING.md`, `SECURITY.md`, issue templates, description and topics; the owner makes it public
 4. [ ] CI and Copilot reviews running again (free on a public repo; else fix billing); CI a required check; re-review #80, #89–#91
 5. [ ] Version `0.1.0` (pyproject and plugin), classifiers, project URLs, `CHANGELOG.md`; README and getting-started switch to `uv tool install seamspec`; README links made absolute so they work on pypi.org
-6. [ ] Publish: PyPI trusted publishing (the owner sets it up), tag `v0.1.0`, GitHub Release
+6. [ ] Publish: PyPI trusted publishing (the owner sets it up), tag `v0.1.0`, GitHub Release; then, from a clean machine, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
 7. [ ] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK)
 8. [ ] Launch posts: LinkedIn post and article, a short demo
 - **Before a second release (0.1.1):** `init` (or `doctor`) must notice a plugin pinned to an older tag, move the pin and update the plugin (ADR-20261023-7d41).
