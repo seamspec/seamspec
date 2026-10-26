@@ -51,7 +51,7 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261006-d16b](ADR-20261006-d16b-ci-workflow-from-init.md) | The CI workflow and CODEOWNERS that init installs | ACCEPTED |
 | [ADR-20261007-8663](ADR-20261007-8663-remaining-skills-v01.md) | The remaining v0.1 skills - supersede, checkpoint, context, status | ACCEPTED |
 | [ADR-20261007-1b4c](ADR-20261007-1b4c-mode-changes.md) | Changing the mode after init - keep by default, raise with consent, lower only by a human | ACCEPTED |
-| [ADR-20261007-d757](ADR-20261007-d757-trim-ci-minutes.md) | Trim SeamSpec's own CI to fit the Actions minutes of a private repo | ACCEPTED |
+| [ADR-20261007-d757](ADR-20261007-d757-trim-ci-minutes.md) | Trim SeamSpec's own CI to fit the Actions minutes of a private repo | SUPERSEDED |
 | [ADR-20261007-e1a7](ADR-20261007-e1a7-quick-condition-e.md) | Quick condition E - rules written in CLAUDE.md, and how its result is read (fixed before running) | ACCEPTED |
 | [ADR-20261007-ac04](ADR-20261007-ac04-ledger-single-source-session-start-hook.md) | The ledger stays the single source; a session-start hook adds the current rules (no notes files) | ACCEPTED |
 | [ADR-20261008-5d1e](ADR-20261008-5d1e-chat-approvals-off-by-default.md) | Chat approvals off by default until Claude Code shows the whole dialog (verification 2) | ACCEPTED |
@@ -95,3 +95,5 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261024-b3e9](ADR-20261024-b3e9-release-rehearsal-findings.md) | Release rehearsal findings - licence in the packages, notes below the BRAINDUMP marker pointed out | ACCEPTED |
 | [ADR-20261024-6f0c](ADR-20261024-6f0c-tell-the-agent-a-change-was-declined.md) | Tell the agent when a person declined a supersede request | ACCEPTED |
 | [ADR-20261026-1c7a](ADR-20261026-1c7a-going-public.md) | Going public - history checked, contribution and security policy | ACCEPTED |
+| [ADR-20261026-d67b](ADR-20261026-d67b-pin-uv-in-ci.md) | Pin uv in SeamSpec's own CI; upgrade it on purpose | ACCEPTED |
+| [ADR-20261026-f4e2](ADR-20261026-f4e2-full-ci-on-pull-requests.md) | Full CI on every pull request, macOS included, now the repo is public | ACCEPTED |

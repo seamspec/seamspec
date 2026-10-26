@@ -14,7 +14,7 @@ SeamSpec is an open-source governance layer for AI coding agents: when something
 - **Spec and code agree.** If code needs to differ from SPEC.md, update the affected section in the same commit.
 - **Anything that changes or adds to the spec, or changes this build process, gets an ADR** in `docs/adr/` (format and file naming in `docs/adr/README.md`). Plain implementation detail doesn't.
 - **Branches and PRs only, never push to `main`** (ADR-20261005-d8bc). Branch names: `week-N/<topic>`, `docs/<topic>`, `fix/<topic>`, `chore/<topic>`. One PR per deliverable, filled in from `.github/pull_request_template.md`, with `Part of #N` for the week's issue. The owner squash-merges.
-- **Request a Copilot review on every PR you open** (`gh pr edit <n> --add-reviewer @copilot`; automatic requests don't work on this private free-plan repo). Before asking the owner to merge, address each finding (fix it and reply, or reply why not) and say so in the PR (ADR-20261005-c076).
+- **Every PR gets a Copilot review.** The `main` ruleset requests it automatically; if none appears, request it with `gh pr edit <n> --add-reviewer @copilot` (ADR-20261026-f4e2). Before asking the owner to merge, address each finding (fix it and reply, or reply why not) and say so in the PR (ADR-20261005-c076).
 - **Log progress in the PR:** update `docs/PROGRESS.md` in the same PR as the code; tick the week's issue checklist once the PR is merged.
 - **Clean room:** never read, copy or look at competitors' code. Public descriptions (READMEs, websites, docs) may inform positioning only.
 - **Model-free core:** SeamSpec itself never calls an LLM (SPEC §3).
