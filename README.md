@@ -136,6 +136,10 @@ In Cursor, VS Code and Antigravity they are `/seamspec-lock` and so on. You can 
 - [Decision records](docs/adr/README.md): why it works the way it does, including every benchmark plan and result
 - [Progress](docs/PROGRESS.md)
 
+## Contributing
+
+Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). To report a security problem privately, see [SECURITY.md](SECURITY.md).
+
 ## License
 
 [Apache-2.0](LICENSE)
