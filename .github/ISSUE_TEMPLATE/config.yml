@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/seamspec/seamspec/security/advisories/new
+    about: Please don't open a public issue for security problems.
+  - name: Getting started
+    url: https://github.com/seamspec/seamspec/blob/main/docs/getting-started.md
+    about: Setup, everyday use and troubleshooting.
