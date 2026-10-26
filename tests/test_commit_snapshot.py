@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from seamspec.cli import app
-from seamspec.core import lifecycle, snapshot
-from seamspec.core.config import load_config
+from seamspec.core import lifecycle, redgreen, snapshot
+from seamspec.core.config import Config, RunnerCfg, load_config
 from seamspec.core.store import Store
 
 from .conftest import git
@@ -137,8 +138,86 @@ def test_editable_install_without_a_redirect_fails_closed(
 def test_the_copy_is_removed(locked: tuple[Path, str]) -> None:
     root, _ = locked
     (root / "notes.txt").write_text("untracked\n")
-    with snapshot.staged(root, load_config(root)) as snap:
+    with snapshot.staged(root, load_config(root), ["pytest"]) as snap:
         copy = snap.root
         assert (copy / "src/queue.py").read_text() == GOOD
         assert not (copy / "notes.txt").exists() and not (copy / ".seamspec/.local").exists()
     assert not copy.exists()
+
+
+# --- found by the catch-up review of #53-#95 (ADR-20261026-5b8e) ---------------------------------------
+
+
+def test_a_commit_with_no_rules_to_run_is_not_blocked_by_an_editable_install(
+    gated_repo: Path,  # noqa: F811
+    human: None,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Right after `seamspec init`: no approved rules, an editable install (uv's default) and a file
+    not staged yet. Nothing runs, so there is nothing that could import the working tree's code."""
+    (gated_repo / "notes.txt").write_text("untracked\n")
+    monkeypatch.chdir(gated_repo)
+    monkeypatch.setattr(snapshot, "editable_install", lambda *args: True)
+    monkeypatch.setattr(snapshot, "shim_runner", lambda *args: None)
+    result = runner.invoke(app, ["verify", "--all", "--gate"])
+    assert result.exit_code == 0, result.output
+
+
+def test_each_runner_that_ran_needs_its_own_redirect(tmp_path: Path) -> None:
+    """One redirected runner says nothing about another: `.venv/bin/pytest` (started by its path, so
+    never redirected) could import the working tree's code while `pytest` was redirected."""
+    shims = tmp_path / "bin"
+    shims.mkdir()
+    (shims / "applied.pytest").write_text("")
+    snap = snapshot.Snapshot(tmp_path, shims, True, True, evidence={"pytest": "applied.pytest", "unit": "applied.x"})
+    assert snap.trustworthy(["pytest"]) and snap.trustworthy([])
+    assert not snap.trustworthy(["pytest", "by-path"])  # no redirect at all
+    assert not snap.trustworthy(["unit"])  # a copy was made, but its redirect never ran
+    assert snapshot.Snapshot(tmp_path, shims, True, True, no_python={"vitest"}).trustworthy(["vitest"])
+    assert snapshot.Snapshot(tmp_path, shims, False, False).trustworthy(["by-path"])  # not editable
+
+
+def test_a_runner_that_cant_be_redirected_is_refused_before_anything_runs(
+    locked: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = locked
+    (root / "notes.txt").write_text("untracked\n")
+    monkeypatch.setattr(snapshot, "editable_install", lambda *args: True)
+    monkeypatch.setattr(snapshot, "shim_runner", lambda *args: None)
+    cfg = load_config(root)
+    with pytest.raises(snapshot.SnapshotError, match="editable mode"), snapshot.staged(root, cfg, ["pytest"]):
+        pass
+    with snapshot.staged(root, cfg, []):  # no rule uses it: nothing to refuse
+        pass
+
+
+def test_node_runners_need_no_redirect(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, first in (("npx", "#!/usr/bin/env node"), ("pytest", f"#!{sys.executable}"), ("uv", "\x7fELF")):
+        (bin_dir / name).write_text(first + "\n")
+        (bin_dir / name).chmod(0o755)
+    cfg = Config(
+        runners={
+            n: RunnerCfg(cmd=[n], filename="test_{id}.py", env={"PATH": str(bin_dir)}) for n in ("npx", "pytest", "uv")
+        }
+    )
+    assert redgreen.starts_without_python(cfg, "npx", tmp_path)
+    assert not redgreen.starts_without_python(cfg, "pytest", tmp_path)
+    assert not redgreen.starts_without_python(cfg, "uv", tmp_path)  # a binary may well start Python
+
+
+def test_rule_tests_outside_the_ledger_come_from_disk(locked: tuple[Path, str]) -> None:
+    """vitest keeps rule tests in `tests/seamspec/`. One approved but not staged yet still applies;
+    a tracked one changed after `git add` is refused, as for `.seamspec/`."""
+    root, _ = locked
+    cfg = load_config(root)
+    cfg.runners["pytest"] = cfg.runners["pytest"].model_copy(update={"harness_dir": "tests/seamspec"})
+    (root / "tests/seamspec").mkdir(parents=True)
+    (root / "tests/seamspec/inv_new.test.ts").write_text("// approved, not staged\n")
+    with snapshot.staged(root, cfg, []) as snap:
+        assert (snap.root / "tests/seamspec/inv_new.test.ts").read_text() == "// approved, not staged\n"
+    git(root, "add", "tests/seamspec")
+    (root / "tests/seamspec/inv_new.test.ts").write_text("// changed after git add\n")
+    with pytest.raises(snapshot.SnapshotError, match="git add tests/seamspec"), snapshot.staged(root, cfg, []):
+        pass
