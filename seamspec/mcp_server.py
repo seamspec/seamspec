@@ -24,8 +24,8 @@ from mcp.server.request_state import RequestStateSecurity
 from mcp_types import InputRequiredResult, ListRootsResult
 from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
-from . import chat_review
-from .core import adr, lifecycle, runners, tree, verifier
+from . import __version__, brief, chat_review
+from .core import adr, braindump, lifecycle, runners, tree, verifier
 from .core.config import Config, ConfigError, RunnerCfg, load_config
 from .core.context import constraints_for
 from .core.models import Invariant, InvStatus
@@ -42,7 +42,10 @@ INSTRUCTIONS = (
 
 # Dialog state rides the client between rounds, sealed by the SDK; an hour leaves time to read a test.
 mcp = MCPServer(
-    name="seamspec", instructions=INSTRUCTIONS, request_state_security=RequestStateSecurity.ephemeral(ttl=3600)
+    name="seamspec",
+    version=__version__,  # editors show it in their MCP server lists
+    instructions=INSTRUCTIONS,
+    request_state_security=RequestStateSecurity.ephemeral(ttl=3600),
 )
 
 
@@ -193,7 +196,7 @@ def _adr_summaries(svc: Services, rels: list[str], linked: set[str]) -> list[dic
     return out
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def get_constraints(files: list[str], roots: SessionRoots = None) -> dict[str, Any]:
     """Locked rules, proposed rules, failed approaches and decisions that apply to these files. Call before editing."""
 
@@ -204,12 +207,14 @@ def get_constraints(files: list[str], roots: SessionRoots = None) -> dict[str, A
         linked = {i.adr_id for i in cs.locked + cs.proposed if i.adr_id}
         out["adrs"] = _adr_summaries(svc, cs.files, linked)
         out["runners"] = _runner_hints(svc, cs.files)
+        if plans := braindump.planned(svc.store, svc.cfg.braindump.path, svc.cfg.braindump.marker):
+            out["planned"] = {"note": braindump.PLANNED_HEADING, "rules": [{"id": i.id, "text": i.text} for i in plans]}
         return out
 
     return _with_services(run, roots, files)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def propose_invariant(
     title: str,
     assertion: str,
@@ -222,11 +227,13 @@ def propose_invariant(
     scope_tags: list[str] | None = None,
     replace_id: str | None = None,
     adr: AdrDraft | None = None,
+    critical: bool = False,
     roots: SessionRoots = None,
 ) -> dict[str, Any]:
     """Propose a rule with a focused behavior-level test. Does NOT run the test: afterwards run
     `seamspec verify --proposed <id>` with your shell. Use replace_id to update your own proposal.
-    On error "queue_full", stop proposing and ask the user to run `seamspec review`."""
+    critical: suggest it always be shown in full (the user decides). On error "queue_full", stop
+    proposing and ask the user to run `seamspec review`."""
 
     def run(svc: Services) -> dict[str, Any]:
         return lifecycle.propose_invariant(
@@ -243,17 +250,19 @@ def propose_invariant(
             scope_tags=scope_tags,
             replace_id=replace_id,
             adr_draft=adr,
+            critical=critical,
         )
 
     return _with_services(run, roots)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def log_dead_end(
     scope_paths: list[str],
     approach: str,
     failure_symptom: str,
     related_invariant: str | None = None,
+    origin_ref: str | None = None,
     roots: SessionRoots = None,
 ) -> dict[str, Any]:
     """Record an approach that was tried and failed, with the evidence, so it isn't retried."""
@@ -265,12 +274,67 @@ def log_dead_end(
             approach=approach,
             failure_symptom=failure_symptom,
             related_invariant=related_invariant,
+            origin_ref=origin_ref,
         ),
         roots,
     )
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
+def propose_decision(
+    title: str,
+    context: str,
+    decision: str,
+    consequences: list[str],
+    scope_paths: list[str],
+    origin_text: str,
+    origin_ref: str | None = None,
+    roots: SessionRoots = None,
+) -> dict[str, Any]:
+    """Propose a decision (ADR) with no test of its own; the user decides in `seamspec review`."""
+    return _with_services(
+        lambda svc: lifecycle.propose_decision(
+            svc.store,
+            svc.cfg,
+            title=title,
+            context=context,
+            decision=decision,
+            consequences=consequences,
+            scope_paths=scope_paths,
+            origin_text=origin_text,
+            origin_ref=origin_ref,
+        ),
+        roots,
+    )
+
+
+@mcp.tool(structured_output=False)
+def braindump_pending(
+    dismiss: dict[str, Literal["todo", "exploration", "planned"]] | None = None, roots: SessionRoots = None
+) -> dict[str, Any]:
+    """Unsorted BRAINDUMP.md notes. dismiss: {note id: "todo" | "exploration" | "planned"}. Sort the rest with
+    propose_invariant, propose_decision or log_dead_end, origin_ref = the note id."""
+
+    def run(svc: Services) -> dict[str, Any]:
+        path, marker = svc.cfg.braindump.path, svc.cfg.braindump.marker
+        dismissals = [{"item_id": k, "as": v} for k, v in (dismiss or {}).items()]
+        done = braindump.dismiss(svc.store, path, marker, dismissals)
+        items = braindump.pending(svc.store, path, marker)
+        out: dict[str, Any] = {"file": path, "pending": [{"id": i.id, "text": i.text} for i in items]}
+        if plans := braindump.planned(svc.store, path, marker):
+            out["planned"] = [{"id": i.id, "text": i.text} for i in plans]
+        if done:
+            out["dismissed"] = done
+        if stray := braindump.below_marker_note(svc.root, path, marker):
+            out["below_marker"] = stray + " Tell the user; never edit the file yourself."
+        if braindump.read(svc.root, path) is None:
+            out["note"] = f"There is no {path} in this project."
+        return out
+
+    return _with_services(run, roots)
+
+
+@mcp.tool(structured_output=False)
 def request_supersede(
     invariant_id: str, reason: str, replacement_id: str | None = None, roots: SessionRoots = None
 ) -> dict[str, Any]:
@@ -280,7 +344,7 @@ def request_supersede(
     )
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def verify(scope: Literal["changed", "all"] = "all", roots: SessionRoots = None) -> dict[str, Any]:
     """Run the LOCKED rules' tests (all, or those whose scope matches changed files). Never runs proposals."""
 
@@ -311,7 +375,7 @@ def verify(scope: Literal["changed", "all"] = "all", roots: SessionRoots = None)
     return _with_services(run, roots)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 def open_review(ctx: Context, ids: list[str] | None = None) -> dict[str, Any] | InputRequiredResult:
     """Show the user SeamSpec's review dialogs (proposed rules, supersede requests, new dead ends) so they
     can decide in chat, if this project turned chat approvals on. Only the user answers; you get the outcomes."""
@@ -332,6 +396,17 @@ def open_review(ctx: Context, ids: list[str] | None = None) -> dict[str, Any] | 
                                 [svc.root, Path.cwd()])  # fmt: skip
 
     return _with_services(run)
+
+
+@mcp.tool(structured_output=False)
+def review_material(ids: list[str] | None = None, roots: SessionRoots = None) -> dict[str, Any]:
+    """Read-only, runs nothing. What waits for human review, with SeamSpec's facts about each test
+    and the code changes in its scope. For SeamSpec's reviewer agent."""
+
+    def run(svc: Services) -> dict[str, Any]:
+        return brief.material(svc.store, ids)
+
+    return _with_services(run, roots)
 
 
 @mcp.resource("seamspec://adrs", description="One line per decision record: id, title, status, scopes.")

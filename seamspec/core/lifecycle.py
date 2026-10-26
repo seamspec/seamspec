@@ -21,7 +21,7 @@ from typing import Any, Literal
 from pydantic import ValidationError
 from typing_extensions import TypedDict  # pydantic needs this one on Python < 3.12
 
-from . import adr, journal, requests, verifier
+from . import adr, braindump, journal, requests, verifier
 from .config import Config
 from .hashing import sha256_file, sha256_text
 from .models import DeadEnd, Invariant, InvStatus, Origin, Scope, Verification, Via, utcnow
@@ -124,8 +124,33 @@ def _origin(cfg: Config, origin_type: str, text: str, ref: str | None) -> Origin
     return Origin(type=origin_type, text=text[:ORIGIN_MAX], ref=ref)  # type: ignore[arg-type]
 
 
+BRAINDUMP_REF = "bd_"
+
+
+def _from_braindump(
+    store: Store, cfg: Config, ref: str | None, became: braindump.Became, record_id: str, text: str
+) -> None:
+    """A record made from a braindump item marks the item as processed (§13.2). The note's own words
+    are remembered when it is still in the file, not the agent's rewording of it."""
+    if ref and ref.startswith(BRAINDUMP_REF):
+        text = braindump.note_text(store, cfg.braindump.path, cfg.braindump.marker, ref) or text
+        text = redact(text) if cfg.braindump.redact_secrets else text
+        braindump.record(store, ref, became, record_id, text)
+
+
 def pending_count(store: Store) -> int:
-    return sum(1 for i in store.load_all("inv") if i.status == InvStatus.PROPOSED)
+    """The review backlog: proposed rules, plus proposed decisions with no rule of their own. Both
+    wait for the same human, so both count toward `proposals.max_pending` (ADR-20261014-8a57)."""
+    rules = sum(1 for i in store.load_all("inv") if i.status == InvStatus.PROPOSED)
+    return rules + sum(1 for a in adr.load_all(store) if a.status == "PROPOSED" and not a.invariants)
+
+
+def _queue_full(store: Store) -> dict[str, Any]:
+    return {
+        "error": "queue_full",
+        "pending": pending_count(store),
+        "message": "Review queue is full. Ask the user to run `seamspec review`.",
+    }
 
 
 def propose_invariant(
@@ -144,8 +169,10 @@ def propose_invariant(
     replace_id: str | None = None,
     adr_draft: AdrDraft | None = None,
     by_human: bool = False,
+    critical: bool = False,
 ) -> dict[str, Any]:
-    """Create (or, with `replace_id`, update) a PROPOSED invariant. Never runs anything (§12.4.3)."""
+    """Create (or, with `replace_id`, update) a PROPOSED invariant. Never runs anything (§12.4.3).
+    `critical` is a suggestion: the human sees it in review, and approving keeps it."""
     if runner not in cfg.runners:
         raise LifecycleError(f"unknown runner {runner!r}; configured: {', '.join(sorted(cfg.runners)) or 'none'}")
     if not harness_code.strip():
@@ -158,11 +185,7 @@ def propose_invariant(
             raise LifecycleError(f"{replace_id} is not a PROPOSED invariant; only proposals can be replaced")
         existing = found
     elif not by_human and pending_count(store) >= cfg.proposals.max_pending:
-        return {
-            "error": "queue_full",
-            "pending": pending_count(store),
-            "message": "Review queue is full. Ask the user to run `seamspec review`.",
-        }
+        return _queue_full(store)
 
     inv_id = existing.id if existing else store.new_id("inv")
     harness_rel = proposed_path(cfg, runner, inv_id)
@@ -177,6 +200,7 @@ def propose_invariant(
             verification=Verification(runner=runner, harness_path=harness_rel),
             adr_id=existing.adr_id if existing else None,
             created_at=existing.created_at if existing else utcnow(),
+            critical=critical,
         )
     except ValidationError as exc:
         raise LifecycleError(f"invalid proposal: {exc}") from exc
@@ -198,6 +222,8 @@ def propose_invariant(
         inv.adr_id = record.id
 
     (store.save if existing else store.create)(inv)
+    if origin_type == "braindump":
+        _from_braindump(store, cfg, origin_ref, "invariant", inv_id, origin_text)
     return {
         "id": inv_id,
         "status": "PROPOSED",
@@ -216,11 +242,16 @@ def log_dead_end(
     failure_symptom: str,
     related_invariant: str | None = None,
     source: Literal["verifier", "braindump", "manual", "agent"] = "agent",
+    origin_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Record a failed approach. No approval needed: dead ends never gate anything (§11.3)."""
+    """Record a failed approach. No approval needed: dead ends never gate anything (§11.3).
+    `origin_ref`: the braindump item it came from, if any; that item is then processed."""
     if related_invariant is not None:
         store.get(related_invariant)  # must exist
+    if origin_ref and origin_ref.startswith(BRAINDUMP_REF):
+        source = "braindump"
     symptom = redact(failure_symptom) if cfg.braindump.redact_secrets else failure_symptom
+    approach = redact(approach) if cfg.braindump.redact_secrets else approach
     try:
         de = DeadEnd(
             id=store.new_id("de"),
@@ -229,11 +260,65 @@ def log_dead_end(
             failure_symptom=symptom[:SYMPTOM_MAX],
             source=source,
             related_invariant=related_invariant,
+            origin_ref=origin_ref,
         )
     except ValidationError as exc:
         raise LifecycleError(f"invalid dead end: {exc}") from exc
     store.create(de)
+    _from_braindump(store, cfg, origin_ref, "dead_end", de.id, approach)
     return {"id": de.id, "status": "ACTIVE"}
+
+
+def propose_decision(
+    store: Store,
+    cfg: Config,
+    *,
+    title: str,
+    context: str,
+    decision: str,
+    consequences: list[str],
+    scope_paths: list[str],
+    origin_text: str,
+    origin_ref: str | None = None,
+) -> dict[str, Any]:
+    """A decision with no test of its own: a PROPOSED decision record (ADR) that a human accepts or
+    rejects in `seamspec review` (§13.6, ADR-20261013-d9e4). Never locks anything."""
+    for name, value in (("title", title), ("context", context), ("decision", decision)):
+        if not value.strip():
+            raise LifecycleError(f"{name} is empty")
+    if not scope_paths:
+        raise LifecycleError("scope_paths is empty")
+    if pending_count(store) >= cfg.proposals.max_pending:
+        return _queue_full(store)  # one long plan once made 20 decisions in a single sort
+    origin = _origin(cfg, "braindump" if origin_ref else "prompt", origin_text, origin_ref)
+    where = f"braindump item `{origin_ref}`" if origin_ref else "the conversation"
+    record = adr.create(
+        store,
+        title=title.strip(),
+        context=f"{context.strip()}\n\nFrom {where}: {origin.text}",
+        decision=decision,
+        consequences=consequences,
+        scopes=scope_paths,
+    )
+    _from_braindump(store, cfg, origin_ref, "decision", record.id, origin_text)
+    return {"adr_id": record.id, "status": "PROPOSED"}
+
+
+def decide_decision(store: Store, adr_id: str, accept: bool, actor: str | None = None, via: Via = "terminal",
+                    client: str | None = None) -> dict[str, Any]:  # fmt: skip
+    """Accept or reject a proposed decision that has no rule of its own (human only). A decision
+    linked to rules follows them: it is accepted when its rule is approved (§11.1)."""
+    require_interactive(via)
+    record = adr.get(store, adr_id)
+    if record.status != "PROPOSED":
+        raise LifecycleError(f"{adr_id} is {record.status}, not PROPOSED")
+    if record.invariants:
+        raise LifecycleError(f"{adr_id} belongs to {', '.join(record.invariants)}: it follows their review")
+    status = "ACCEPTED" if accept else "REJECTED"
+    adr.set_status(store, adr_id, status)
+    journal.note(store, "decision_accepted" if accept else "decision_rejected", item=adr_id,
+                 actor=actor or approver_identity(store), via=via, client=client)  # fmt: skip
+    return {"id": adr_id, "status": status}
 
 
 def request_supersede(
@@ -251,12 +336,16 @@ def request_supersede(
     return {"request_id": invariant_id, "status": "pending", "next": "Ask the user to run `seamspec review`."}
 
 
-def _check_replacement(store: Store, old_id: str, replacement_id: str) -> None:
+def _check_replacement(store: Store, old_id: str, replacement_id: str) -> Invariant:
     if replacement_id == old_id:
         raise LifecycleError("an invariant can't replace itself")
-    rep = store.get(replacement_id)
+    try:
+        rep = store.get(replacement_id)
+    except KeyError:
+        rep = None
     if not isinstance(rep, Invariant) or rep.status not in (InvStatus.PROPOSED, InvStatus.LOCKED):
         raise LifecycleError(f"replacement {replacement_id} must be PROPOSED or LOCKED")
+    return rep
 
 
 # --- human-only operations -----------------------------------------------------------------------
@@ -413,7 +502,11 @@ def supersede(
     client: str | None = None,
 ) -> dict[str, Any]:
     """LOCKED → SUPERSEDED, by explicit command or by approving a pending request (§11.2).
-    The replacement, if any, still needs its own approval."""
+
+    A replacement must already be LOCKED: the old rule is never retired in favor of a rule that is
+    still only proposed, or a review that stops in between would leave the behavior with no rule at
+    all (dogfooding #10, ADR-20261013-7c2e). Callers approve the replacement first. A retirement
+    with no replacement stays possible, and says so."""
     require_interactive(via)
     inv = _get_inv(store, inv_id)
     if inv.status != InvStatus.LOCKED:
@@ -423,8 +516,12 @@ def supersede(
     replacement_id = replacement_id or (pending.replacement_id if pending else None)
     if not reason:
         raise LifecycleError("a reason is required (or a pending supersede request)")
-    if replacement_id is not None:
-        _check_replacement(store, inv_id, replacement_id)
+    if replacement_id is not None and _check_replacement(store, inv_id, replacement_id).status != InvStatus.LOCKED:
+        raise LifecycleError(
+            f"{inv_id} isn't retired yet: its replacement {replacement_id} is still only proposed. Approve the"
+            " replacement first (`seamspec review` does both as one decision), so the behavior is never left"
+            " without a rule."
+        )
 
     who = actor or approver_identity(store)
     harness = _retire_harness(store, inv)
@@ -444,6 +541,23 @@ def supersede(
         with contextlib.suppress(KeyError):
             adr.set_status(store, inv.adr_id, "SUPERSEDED")
     return {"id": inv_id, "status": "SUPERSEDED", "superseded_by": replacement_id}
+
+
+def set_critical(
+    store: Store, inv_id: str, critical: bool, actor: str | None = None, via: Via = "terminal",
+    client: str | None = None,
+) -> dict[str, Any]:  # fmt: skip
+    """Mark a rule critical, or clear the mark (human only, ADR-20261013-c1a9). PROPOSED or LOCKED.
+    Not a status change, so it is a journal note, not a transition."""
+    require_interactive(via)
+    inv = _get_inv(store, inv_id)
+    if inv.status not in (InvStatus.PROPOSED, InvStatus.LOCKED):
+        raise LifecycleError(f"{inv_id} is {inv.status.value}: only a proposed or locked rule can be marked")
+    if inv.critical != critical:
+        store.save(Invariant.model_validate({**inv.model_dump(), "critical": critical}))
+        journal.note(store, "critical_marked" if critical else "critical_cleared", item=inv_id,
+                     actor=actor or approver_identity(store), via=via, client=client)  # fmt: skip
+    return {"id": inv_id, "critical": critical}
 
 
 def retire_dead_end(

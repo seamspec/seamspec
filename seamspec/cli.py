@@ -13,13 +13,13 @@ import typer
 
 from . import __version__
 from . import review as review_mod
-from .core import journal, lifecycle, requests, tree, trust, verifier
+from .core import braindump, catches, failtext, journal, lifecycle, requests, snapshot, specdoc, tree, trust, verifier
 from .core.config import ConfigError, load_config
 from .core.context import constraints_for
 from .core.models import DeadEnd, Invariant, InvStatus
 from .core.root import RootNotFound, find_root
 from .core.scope import matches
-from .core.store import RecordError, Store
+from .core.store import RecordError, Store, atomic_write
 from .installers import ci as ci_installer
 from .installers import claude_plugin, scaffold
 from .installers.directive import DirectiveError
@@ -72,13 +72,29 @@ Secrets are stripped from the environment, but files on disk are readable.
 
 
 PLUGIN_SCREEN = """\
-Claude Code plugin: shows the agent the locked rules as it edits, runs them before it
-finishes (Stop hook), and adds the SeamSpec MCP tools and /seamspec:lock, /seamspec:dead-end.
+Claude Code plugin (for Claude Code only; Cursor, VS Code and Antigravity don't use it):
+shows the agent the locked rules as it edits, runs them before it finishes (Stop hook), and
+adds the SeamSpec MCP tools and /seamspec:lock, /seamspec:dead-end.
 SeamSpec will run:"""
+
+PLUGIN_TEAM_QUESTION = (
+    "Turn it on for everyone who works in this repository? It goes into .claude/settings.json, which you"
+    " commit; each teammate's Claude Code offers it once they trust the folder. (No: just you.)"
+)
 
 
 def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _consented(root: Path) -> bool:
+    """This machine already said yes to automatic test runs in this repository."""
+    if not (root / ".seamspec/config.toml").is_file():
+        return False
+    try:
+        return trust.consent_given(Store(root))
+    except OSError:
+        return False
 
 
 def _untrusted_config(root: Path) -> Any:
@@ -132,7 +148,16 @@ def init(
         bool | None,
         typer.Option(
             "--plugin/--no-plugin",
-            help="Install and enable the SeamSpec Claude Code plugin for this repository only. Asks when omitted.",
+            help="Install and enable the SeamSpec Claude Code plugin for this repository. Asks when omitted.",
+        ),
+    ] = None,
+    plugin_scope: Annotated[
+        str | None,
+        typer.Option(
+            "--plugin-scope",
+            help="local: just you (.claude/settings.local.json). project: everyone in this repository "
+            "(.claude/settings.json, which you commit; released versions only). Asks when omitted; "
+            "local without a terminal.",
         ),
     ] = None,
     ci: Annotated[
@@ -140,6 +165,14 @@ def init(
         typer.Option(
             "--ci/--no-ci",
             help="Add the CI workflow (enforced mode asks when omitted; strict always adds it; advisory never).",
+        ),
+    ] = None,
+    hosts: Annotated[
+        str | None,
+        typer.Option(
+            "--hosts",
+            help="Also set SeamSpec up for these tools: cursor,vscode,antigravity (or none). When omitted, "
+            "asks about the ones whose folder exists here.",
         ),
     ] = None,
     accept_auto_run: Annotated[
@@ -151,6 +184,8 @@ def init(
     ] = False,
 ) -> None:
     """Set up SeamSpec in this repository. Safe to re-run: existing files are kept or merged."""
+    if plugin_scope is not None and plugin_scope not in claude_plugin.SCOPES:
+        raise typer.BadParameter(f"use {' or '.join(claude_plugin.SCOPES)}", param_hint="--plugin-scope")
     root = path.resolve()
     if not root.is_dir():
         raise _fail(f"{root} is not a directory")
@@ -177,6 +212,12 @@ def init(
     if target != "advisory" and not lowering:
         if accept_auto_run:
             auto_run = True
+        elif _interactive() and _consented(root) and _untrusted_config(root) is None:
+            # A rerun (e.g. to add an editor) keeps the yes; asking again with "No" as the default
+            # could switch the checks off with one Enter (hands-on test, ADR-20261017-7b0e).
+            typer.echo(
+                "Automatic test runs: already allowed on this machine (`seamspec init --mode advisory` stops them)."
+            )
         elif _interactive():
             typer.echo(CONSENT_SCREEN)
             # A fresh clone: its committed runner commands need trust too. One question covers both.
@@ -206,6 +247,14 @@ def init(
     typer.echo(f"SeamSpec initialised in {root} (mode: {report.mode})")
     for rel, what in report.actions:
         typer.echo(f"  {what:<9} {rel}")
+    if report.kept_lines:  # never drop someone's own instruction silently (ADR-20261011-b1c8)
+        n = len(report.kept_lines)
+        typer.echo(
+            f"  CLAUDE.md: {n} line{'s' if n != 1 else ''} inside SeamSpec's block {'were' if n != 1 else 'was'}"
+            " not SeamSpec's. Kept, and moved above the block:"
+        )
+        for line in report.kept_lines:
+            typer.echo(f"    | {review_mod.cut(line, 160)}")
     found = report.detection
     typer.echo(
         "Runners: "
@@ -233,7 +282,8 @@ def init(
     if not (root / ".git").exists():
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
     _init_ci(root, report.mode, ci)
-    _init_plugin(root, plugin)
+    _init_plugin(root, plugin, plugin_scope)
+    _init_hosts(root, hosts)
 
 
 def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
@@ -274,35 +324,88 @@ def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
                    " (replace @your-team/leads with your reviewers)")  # fmt: skip
 
 
-def _init_plugin(root: Path, wanted: bool | None) -> None:
+def _init_hosts(root: Path, wanted: str | None) -> None:
+    """Cursor, VS Code and Antigravity (ADR-20261013-e8f3): project files only, merged, asked first."""
+    from .installers import hosts as host_installer
+
+    if wanted is not None and wanted.strip().lower() == "none":
+        return
+    if wanted is not None:
+        chosen = [h.strip().lower() for h in wanted.split(",") if h.strip()]
+        unknown = [h for h in chosen if h not in host_installer.HOSTS]
+        if unknown:
+            raise _fail(f"unknown tool(s): {', '.join(unknown)}; choose from {', '.join(host_installer.HOSTS)}")
+    else:
+        found = host_installer.detect(root)
+        if not found:
+            return
+        if not _interactive():
+            names = ", ".join(host_installer.NAMES[h] for h in found)
+            typer.echo(f"Also found {names}: run `seamspec init --hosts {','.join(found)}` to set SeamSpec up there.")
+            return
+        chosen = [h for h in found if typer.confirm(
+            f"Set SeamSpec up for {host_installer.NAMES[h]} too (rules in AGENTS.md, its MCP config, hooks and"
+            " /seamspec-* commands)?", default=True)]  # fmt: skip
+    for host in chosen:
+        typer.echo(f"{host_installer.NAMES[host]}:")
+        for change in host_installer.install(root, host):
+            typer.echo(f"  {change.status:<9} {change.path}")
+    if chosen:
+        typer.echo("  The hooks run `seamspec` from your PATH; start a new chat (or reload the window) to load them.")
+        typer.echo(
+            "  If the tool already had this folder open, restart the `seamspec` server in its MCP settings"
+            " (or reload the window) so it picks up the new settings."
+        )
+        for host in chosen:
+            for note in host_installer.SETUP_NOTES.get(host, ()):
+                typer.echo(f"  {note}")
+
+
+def _init_plugin(root: Path, wanted: bool | None, scope: str | None = None) -> None:
     """Offer the Claude Code plugin (SPEC §16.1). Changing Claude Code's settings needs a yes."""
     if wanted is False:
         return
     if wanted is None and not _interactive():
         typer.echo("Claude Code plugin: not checked (no terminal). Run `seamspec init --plugin` to install it.")
         return
-    result = claude_plugin.precheck(root)
+    result = claude_plugin.precheck(root, scope or "local")
     if result is None:
         source = claude_plugin.marketplace_source()
         assert source is not None  # precheck() checked it
         if wanted is None:
             typer.echo(PLUGIN_SCREEN)
-            for args in claude_plugin.commands(source):
+            for args in claude_plugin.commands(source, scope or "local"):
                 typer.echo(f"  claude plugin {' '.join(args)}")
             typer.echo(
-                f"It would be enabled in {claude_plugin.SETTINGS_LOCAL}: just you, just this repository."
-                " Claude Code would also record the install in its config directory (normally"
+                f"It would be enabled in {claude_plugin.SETTINGS[scope or 'local']}"
+                + (": just you, just this repository." if scope != "project" else ", for everyone in this repository.")
+                + " Claude Code would also record the install in its config directory (normally"
                 " ~/.claude/plugins/); nothing is turned on elsewhere."
             )
-            if not typer.confirm("Install the SeamSpec plugin for Claude Code in this repository?", default=True):
+            if not typer.confirm(
+                "Install the SeamSpec plugin for Claude Code in this repository?"
+                " (Skip it if you don't use Claude Code.)",
+                default=True,
+            ):
                 typer.echo("Claude Code plugin: not installed. Run `seamspec init --plugin` any time.")
                 return
-        result = claude_plugin.enable(root)
+            if scope is None and claude_plugin.shareable(source):
+                scope = "project" if typer.confirm(PLUGIN_TEAM_QUESTION, default=False) else "local"
+                if scope == "project":
+                    typer.echo("SeamSpec will run these instead:")
+                    for args in claude_plugin.commands(source, scope):
+                        typer.echo(f"  claude plugin {' '.join(args)}")
+        result = claude_plugin.enable(root, scope or "local")
     typer.echo(f"Claude Code plugin: {result.status} ({result.message})")
     if result.gitignore in ("created", "updated"):
         typer.echo(f"  {result.gitignore:<9} .gitignore ({claude_plugin.SETTINGS_LOCAL})")
     if result.status == "installed":
         typer.echo("  Start a new Claude Code session (or run /reload-plugins) to load it.")
+        if scope == "project":
+            typer.echo(
+                f"  Commit {claude_plugin.SETTINGS['project']}. Teammates also need the `seamspec` command;"
+                " without it the plugin stays silent."
+            )
 
 
 def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
@@ -321,10 +424,18 @@ def _status_data(store: Store, cfg: Any) -> dict[str, Any]:
         "mode": cfg.mode,
         "runners": sorted(cfg.runners),
         "invariants": {s.value: inv_counts.get(s.value, 0) for s in InvStatus},
+        "critical": sum(1 for i in invs if isinstance(i, Invariant) and i.critical and i.status == InvStatus.LOCKED),
         "dead_ends": {s: de_counts.get(s, 0) for s in ("ACTIVE", "RETIRED")},
-        "awaiting_review": inv_counts.get(InvStatus.PROPOSED.value, 0) + len(requests.pending_supersede_ids(store)),
+        "awaiting_review": inv_counts.get(InvStatus.PROPOSED.value, 0)
+        + len(requests.pending_supersede_ids(store))
+        + len(review_mod.pending_decisions(store)),
         "supersede_requests": sorted(requests.pending_supersede_ids(store)),
+        "braindump": {
+            "new_notes": len(braindump.pending(store, cfg.braindump.path, cfg.braindump.marker)),
+            "planned": len(braindump.planned(store, cfg.braindump.path, cfg.braindump.marker)),
+        },
         "last_verify": last_verify,
+        "catches": catches.counts(store),
     }
 
 
@@ -343,12 +454,94 @@ def status(as_json: Annotated[bool, typer.Option("--json", help="Machine-readabl
     typer.echo(f"SeamSpec · {root}")
     typer.echo(f"  mode        {data['mode']}")
     typer.echo(f"  runners     {', '.join(data['runners']) or 'none configured'}")
-    typer.echo("  invariants  " + "  ".join(f"{k.lower()} {v}" for k, v in inv.items()))
+    typer.echo(
+        "  invariants  "
+        + "  ".join(f"{k.lower()} {v}" for k, v in inv.items())
+        + (f"  (critical {data['critical']})" if data["critical"] else "")
+    )
     typer.echo(f"  dead ends   active {de['ACTIVE']}  retired {de['RETIRED']}")
     lv = data["last_verify"]
     typer.echo(f"  last verify {'never' if lv is None else ('passed' if lv.get('passed') else 'FAILED')}")
+    caught = data["catches"]
+    if caught["stop"] or caught["commit"]:
+        typer.echo(
+            f"  caught      {caught['stop']} at the end of a task, {caught['commit']} at a commit (this machine)"
+        )
     if data["awaiting_review"]:
         typer.echo(f"{data['awaiting_review']} awaiting review: run `seamspec review`.")
+    if data["braindump"]["planned"]:
+        typer.echo(
+            f"{data['braindump']['planned']} planned rule(s) from {cfg.braindump.path}, waiting for their code"
+            " (`seamspec drain` lists them)."
+        )
+    if data["braindump"]["new_notes"]:
+        typer.echo(
+            f"{data['braindump']['new_notes']} new note(s) in {cfg.braindump.path}: ask your agent to sort them."
+        )
+    if stray := braindump.below_marker_note(store.root, cfg.braindump.path, cfg.braindump.marker):
+        typer.echo(stray)
+
+
+@app.command()
+def spec(
+    out: Annotated[
+        Path | None, typer.Option("--out", help="Write the document to this file (marked as generated).")
+    ] = None,
+    check: Annotated[
+        Path | None, typer.Option("--check", help="Exit 1 if this written copy is out of date (for CI).")
+    ] = None,
+) -> None:
+    """Print the spec this code has earned: every approved rule, generated from the ledger (§15.2)."""
+    _root_dir, _cfg, store = _open()
+    if out is not None and check is not None:
+        raise _fail("use --out or --check, not both")
+    try:
+        counts = specdoc.counts(store)
+        document = specdoc.render(store, generated_line=out is not None or check is not None)
+    except RecordError as exc:
+        raise _fail(f"bad record: {exc}") from None
+    waiting = (
+        f"Not in the spec: {counts.proposed} proposed rule{'' if counts.proposed == 1 else 's'} waiting for review"
+        " (`seamspec review`)."
+        if counts.proposed
+        else None
+    )
+    if check is not None:
+        try:
+            written = check.read_text(encoding="utf-8").replace("\r\n", "\n")
+        except (OSError, ValueError) as exc:
+            raise _fail(f"{check}: can't read it ({exc}). Write it with `seamspec spec --out {check}`.") from None
+        if written != document:
+            raise _fail(f"{check} is out of date: run `seamspec spec --out {check}` and commit the result.")
+        typer.echo(f"{check} is up to date ({counts.line()}).")
+        return
+    if out is None:
+        typer.echo(document, nl=False)
+        if waiting:
+            typer.echo(waiting, err=True)  # beside the document, never in it
+        return
+    target = out if out.is_absolute() else Path.cwd() / out
+    resolved = target.resolve()  # both sides resolved, so a symlinked project folder is still recognised
+    if (store.root / ".seamspec").resolve() in [resolved, *resolved.parents]:
+        raise _fail("the spec can't be written inside .seamspec/: that folder holds the records it is generated from")
+    if target.is_dir():
+        raise _fail(f"{out} is a folder: give a file name, for example `{out}/SPEC.md`")
+    if target.exists():
+        try:
+            mine = specdoc.is_generated(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            mine = False
+        if not mine:
+            raise _fail(
+                f"{out} exists and wasn't written by `seamspec spec`, so it is left alone. Choose another name."
+            )
+    try:
+        atomic_write(target, document)
+    except OSError as exc:  # no permission, a parent that is a file, a full disk
+        raise _fail(f"{out}: can't write it ({exc})") from None
+    typer.echo(f"Wrote {out}: {counts.line()}.")
+    if waiting:
+        typer.echo(waiting)
 
 
 @app.command()
@@ -356,8 +549,8 @@ def context(
     files: Annotated[list[str], typer.Argument(help="Files you are about to change.")],
     as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
 ) -> None:
-    """Show the invariants and dead ends that apply to FILES (MCP-free fallback for agents)."""
-    root, _cfg, store = _open()
+    """Show the invariants and dead ends that apply to FILES, and the rules the user planned (MCP-free fallback)."""
+    root, cfg, store = _open()
     try:
         cs = constraints_for(store, [str((Path.cwd() / f).resolve()) for f in files])
     except RecordError as exc:
@@ -366,11 +559,14 @@ def context(
         typer.echo(json.dumps(cs.to_dict(), indent=2))
         return
     shown = ", ".join(cs.files) or "(no files inside this repository)"
+    plans = braindump.planned_lines(store, cfg.braindump.path, cfg.braindump.marker)
     if not (cs.locked or cs.proposed or cs.dead_ends):
         typer.echo(f"SeamSpec: no invariants or dead ends apply to {shown}.")
-        return
-    typer.echo(f"SeamSpec: {shown} {'is' if len(cs.files) == 1 else 'are'} governed by:")
-    typer.echo(cs.render())
+    else:
+        typer.echo(f"SeamSpec: {shown} {'is' if len(cs.files) == 1 else 'are'} governed by:")
+        typer.echo(cs.render())
+    if plans:
+        typer.echo("\n" + "\n".join(plans))
 
 
 # --- lifecycle (SPEC §11, §15) ------------------------------------------------------------------
@@ -394,7 +590,7 @@ def _emit(result: dict[str, Any]) -> None:
 
 PROPOSE_KEYS = {
     "title", "assertion", "scope_paths", "runner", "harness_code", "origin_text",
-    "origin_type", "origin_ref", "scope_tags", "replace_id", "adr",
+    "origin_type", "origin_ref", "scope_tags", "replace_id", "adr", "critical",
 }  # fmt: skip
 
 
@@ -421,6 +617,21 @@ def propose(
         _emit({"error": "invalid", "message": str(exc)})
 
 
+@app.command()
+def critical(
+    inv_id: Annotated[str, typer.Argument(help="Proposed or locked rule.")],
+    off: Annotated[bool, typer.Option("--off", help="Clear the mark instead.")] = False,
+) -> None:
+    """Mark a rule critical, so the agent always sees it in full (human only). --off clears it."""
+    _human_only()
+    _root_dir, _cfg, store = _open()
+    try:
+        lifecycle.set_critical(store, inv_id, not off)
+    except (lifecycle.LifecycleError, KeyError) as exc:
+        raise _fail(str(exc)) from None
+    typer.echo(f"{inv_id}: {'no longer critical' if off else 'critical (always shown to the agent in full)'}")
+
+
 @app.command("dead-end")
 def dead_end(
     from_json: Annotated[str, typer.Option("--json", help="Read the dead end as JSON from stdin ('-').")] = "-",
@@ -430,13 +641,95 @@ def dead_end(
         raise _fail("only `--json -` (stdin) is supported")
     _root_dir, cfg, store = _open()
     data = _read_json_stdin()
-    allowed = {"scope_paths", "approach", "failure_symptom", "related_invariant"}
+    allowed = {"scope_paths", "approach", "failure_symptom", "related_invariant", "origin_ref"}
     if set(data) - allowed or not {"scope_paths", "approach", "failure_symptom"} <= set(data):
-        raise _fail(f"expected fields: {', '.join(sorted(allowed))} (related_invariant optional)")
+        raise _fail(f"expected fields: {', '.join(sorted(allowed))} (related_invariant, origin_ref optional)")
     try:
         _emit(lifecycle.log_dead_end(store, cfg, **data))
     except (lifecycle.LifecycleError, KeyError) as exc:
         _emit({"error": "invalid", "message": str(exc)})
+
+
+@app.command("propose-decision")
+def propose_decision(
+    from_json: Annotated[str, typer.Option("--json", help="Read the decision as JSON from stdin ('-').")] = "-",
+) -> None:
+    """Propose a decision record with no test of its own (agents without MCP); a human decides in review."""
+    if from_json != "-":
+        raise _fail("only `--json -` (stdin) is supported")
+    _root_dir, cfg, store = _open()
+    data = _read_json_stdin()
+    required = {"title", "context", "decision", "consequences", "scope_paths", "origin_text"}
+    if set(data) - (required | {"origin_ref"}) or not required <= set(data):
+        raise _fail(f"expected fields: {', '.join(sorted(required))} (origin_ref optional)")
+    try:
+        _emit(lifecycle.propose_decision(store, cfg, **data))
+    except (lifecycle.LifecycleError, KeyError, TypeError) as exc:
+        _emit({"error": "invalid", "message": str(exc)})
+
+
+@app.command()
+def drain(
+    as_json: Annotated[bool, typer.Option("--json", help="Machine-readable output.")] = False,
+    tidy: Annotated[
+        bool, typer.Option("--tidy", help="Move sorted notes below the marker (changes your file; human only).")
+    ] = False,
+    dismiss: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--dismiss",
+            metavar="ID=todo|exploration|planned",
+            help="Set a note aside as a task, an idea, or a rule planned before its code exists; it stays in the "
+            "file (repeatable; agents without MCP).",
+        ),
+    ] = None,
+) -> None:
+    """List BRAINDUMP.md notes not yet sorted. Sorting is the agent's job (`/seamspec:drain`)."""
+    _root_dir, cfg, store = _open()
+    path, marker = cfg.braindump.path, cfg.braindump.marker
+    if dismiss:
+        if tidy:
+            raise _fail("use --dismiss or --tidy, not both")
+        pairs = [d.partition("=") for d in dismiss]
+        if any(not sep for _, sep, _ in pairs):
+            raise _fail("write each as ID=todo, ID=exploration or ID=planned")
+        try:
+            done = braindump.dismiss(store, path, marker, [{"item_id": i, "as": k} for i, _, k in pairs])
+        except (ValueError, KeyError) as exc:
+            raise _fail(str(exc).strip("'\"")) from None
+        typer.echo(f"Set aside {len(done)} note(s); they stay in {path}.")
+        return
+    if tidy:
+        _human_only()
+        moved = braindump.tidy(store, path, marker)
+        typer.echo(f"Moved {moved} sorted note(s) below the marker in {path}." if moved else "Nothing to tidy.")
+        return
+    items = braindump.pending(store, path, marker)
+    plans = braindump.planned(store, path, marker)
+    stray = braindump.below_marker_note(store.root, path, marker)
+    if as_json:
+        out: dict[str, Any] = {"file": path, "pending": [{"id": i.id, "text": i.text} for i in items]}
+        if plans:
+            out["planned"] = [{"id": i.id, "text": i.text} for i in plans]
+        if stray:
+            out["below_marker"] = stray
+        typer.echo(json.dumps(out, indent=2))
+        return
+    if braindump.read(store.root, path) is None:
+        typer.echo(f"No {path} here. `seamspec init` creates one.")
+        return
+    if stray:
+        typer.echo(f"Note: {stray}")
+    if plans:
+        typer.echo(f"{path}: {len(plans)} planned rule(s), waiting for their code (delete the note to drop one):")
+        for item in plans:
+            typer.echo(f"  {item.id}  {review_mod.cut(item.text, 100)}")
+    if not items:
+        typer.echo(f"{path}: nothing new to sort.")
+        return
+    typer.echo(f"{path}: {len(items)} note(s) not sorted yet. Ask your agent to sort them (`/seamspec:drain`).")
+    for item in items:
+        typer.echo(f"  {item.id}  {review_mod.cut(item.text, 100)}")
 
 
 def _human_only() -> None:
@@ -589,14 +882,39 @@ def trust_cmd(
     typer.echo("Trusted.")
 
 
-def _verify_text(report: verifier.VerifyReport, problems: list[str]) -> str:
-    lines = list(problems) + list(report.config_failures) + list(report.integrity_failures)
-    for r in report.results:
-        if r.passed:
-            continue
-        who = ", ".join(r.failed_ids or r.invariant_ids)
-        tag = "INCOMPLETE" if r.incomplete else "FAIL"
-        lines.append(f"[{tag}] {who} ({r.runner})\n{r.output}")
+STAGED_NOTE = (
+    "Checked what this commit records (your staged files), which differs from the files on disk. "
+    "If you fixed something after `git add`, stage it again."
+)
+
+
+def _untrusted_message(store: Store, reason: str) -> str:
+    """Why `verify` won't run here, and what to do. A clone this machine never set up (a teammate's fresh
+    clone, ADR-20261019-e2f8) needs `seamspec init`, which shows what would run and asks; an agent in it
+    should say so instead of quietly skipping the check (second-actor benchmark, 2026-10-19)."""
+    if not trust.consent_given(store) and not (store.local / "trust.json").exists():
+        return (
+            f"SeamSpec isn't set up for this clone on this machine ({reason}), so its locked rules can't run "
+            "here yet. Run `seamspec init` in a terminal: it shows the test commands this repository would run "
+            "and asks first. Agents: tell the user this, and that CI still checks the rules on every push."
+        )
+    return f"This clone is not trusted ({reason}). Run `seamspec trust`."
+
+
+def _verify_text(
+    store: Store, report: verifier.VerifyReport, problems: list[str], gate: bool, staged: bool = False
+) -> str:
+    """What failed, for a human (dogfooding #11, ADR-20261013-4e9b). The short block per rule comes
+    last, where the eye lands in a terminal. At a refused commit the runner's own output is left out
+    for every failure the block explains; a plain `seamspec verify` and CI keep all of it, above."""
+    summary, unexplained = failtext.summary(store, report)
+    shown = unexplained if gate else [r for r in report.results if not r.passed]
+    count = failtext.count(report)
+    head = "SeamSpec: commit blocked." if gate else "SeamSpec: verification failed."
+    note = [STAGED_NOTE] if staged else []
+    lines = [head, *note, *problems, *report.config_failures, *(failtext.raw(r) for r in shown)]
+    if summary:
+        lines += ["", f"{count}:" if count else "Failed:", *summary]
     return "\n".join(lines)
 
 
@@ -669,13 +987,14 @@ def verify(
         st = trust.state(store, cfg)
         if not st.trusted:
             if gate or not _interactive():
-                raise _fail(f"This clone is not trusted ({st.reason}). Run `seamspec trust`.")
+                raise _fail(_untrusted_message(store, st.reason))
             typer.echo(f"This clone is not trusted ({st.reason}).")
             trust_cmd(show=False)
         if gate and not trust.consent_given(store):
             raise _fail("automatic test runs aren't allowed on this machine. Re-run `seamspec init`.")
 
     problems = journal.unjournaled_changes(store) if gate else []
+    staged = False
     try:
         if proposed:
             invs = []
@@ -686,8 +1005,8 @@ def verify(
                 invs.append(inv)
             report = verifier.VerifyReport(passed=True)
             for inv in invs:
-                with lifecycle.harness_in_place(store, cfg, inv) as staged:
-                    one = verifier.run(root, cfg, [staged])
+                with lifecycle.harness_in_place(store, cfg, inv) as placed:  # not `staged`: that flag means git's index
+                    one = verifier.run(root, cfg, [placed])
                 report.results += one.results
                 report.config_failures = one.config_failures
             report.passed = not report.config_failures and all(r.passed for r in report.results)
@@ -697,31 +1016,53 @@ def verify(
                 files = tree.changed_files(root)
                 if files is not None:
                     locked = [i for i in locked if any(matches(i.scope.paths, f) for f in files)]
-            report = verifier.run(root, cfg, locked)
-            verifier.save_last(root, report)
+            # A commit records the staged files: when they differ from disk, check those (ADR-20261014-3b1e).
+            staged = gate and not ci and snapshot.differs(root)
+            if staged:
+                report = _verify_staged(root, cfg, locked)
+            else:
+                report = verifier.run(root, cfg, locked)
+                verifier.save_last(root, report)
     except (RecordError, KeyError, lifecycle.LifecycleError) as exc:
         raise _fail(str(exc)) from None
 
     ok = report.passed and not problems
+    if gate and not ok:  # the commit check refused a commit (ADR-20261018-6e1a)
+        catches.record(store, "commit", list(report.failing_ids))
     pending = len([i for i in store.load_all("inv") if i.status == InvStatus.PROPOSED])
     if as_json:
         typer.echo(json.dumps({**report.to_dict(), "journal_problems": problems, "passed": ok}, indent=2))
     else:
         ran = sum(len(r.invariant_ids) for r in report.results)
         if ok:
-            typer.echo(f"SeamSpec: {ran} invariant(s) passed.")
+            typer.echo(f"SeamSpec: {ran} invariant(s) passed" + (" (on the staged files)." if staged else "."))
         else:
-            typer.echo("SeamSpec: verification failed.\n" + _verify_text(report, problems), err=gate)
+            typer.echo(_verify_text(store, report, problems, gate, staged), err=gate)
             if not proposed:
                 typer.echo(
-                    "Fix the regression, or if the change is intentional, supersede the rule "
+                    "\nFix the regression, or if the change is intentional, supersede the rule "
                     "(`seamspec supersede <id> --reason ...`).",
                     err=gate,
                 )
+            if gate and report.results and not staged:  # `verify --all` runs the files on disk
+                typer.echo("Full test output: `seamspec verify --all`", err=True)
         if gate and pending:
             typer.echo(f"SeamSpec: {pending} item(s) awaiting review: run `seamspec review`.", err=True)
     if not ok:
         raise typer.Exit(1)
+
+
+def _verify_staged(root: Path, cfg: Any, locked: list[Invariant]) -> verifier.VerifyReport:
+    """Run the locked tests on a copy of what the commit records (SPEC §16.4). Fails closed when the
+    copy can't be made or the run may have imported the working tree's code."""
+    try:
+        with snapshot.staged(root, cfg) as snap:
+            report = verifier.run(snap.root, cfg, locked, first_on_path=snap.first_on_path)
+            if not snap.trustworthy():
+                raise snapshot.SnapshotError(snapshot.EDITABLE)
+    except snapshot.SnapshotError as exc:
+        raise _fail(f"commit blocked. {exc}") from None
+    return report
 
 
 @app.command("mcp")
@@ -734,12 +1075,21 @@ def mcp_cmd() -> None:
 
 @app.command(hidden=True)
 def hook(
-    host: Annotated[str, typer.Argument(help="Host adapter: claude")],
+    host: Annotated[str, typer.Argument(help="Host adapter: claude | cursor | vscode | antigravity")],
     event: Annotated[str, typer.Argument(help="Hook event: pre-tool-use | stop | session-start | config-change")],
 ) -> None:
     """Internal: host hook entry point. Reads the hook payload on stdin; always exits 0."""
+    if host in ("cursor", "vscode", "antigravity"):  # ADR-20261013-e8f3
+        from .adapters import hosts as other_hosts
+
+        if event not in other_hosts.EVENTS:
+            typer.echo(f"seamspec hook: unknown event {event!r} for {host}", err=True)
+            return
+        if out := other_hosts.main(host, event):
+            typer.echo(out)
+        return
     if host != "claude":
-        typer.echo(f"seamspec hook: unknown host {host!r} (v0.1 supports claude)", err=True)
+        typer.echo(f"seamspec hook: unknown host {host!r} (claude, cursor, vscode, antigravity)", err=True)
         return
     from .adapters import claude
 

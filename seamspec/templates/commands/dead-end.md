@@ -1,6 +1,6 @@
 ---
 name: dead-end
-description: Record an approach that was tried and failed, so SeamSpec reminds future sessions not to retry it. Use when the user says "that didn't work" or "don't try that again".
+description: Record an approach that was tried and failed, so SeamSpec reminds future sessions not to retry it. Use when the user says "that didn't work" or "don't try that again", and when the user describes something that was tried before and failed.
 argument-hint: "[what failed]"
 ---
 Record a failed approach as a SeamSpec dead end. User note (may be empty): {{args}}

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import journal
+from . import journal, runners
 from .config import ConfigError, load_config
 from .schemas import validation_errors
 from .scope import matches
@@ -28,6 +28,7 @@ from .verifier import FINGERPRINTS_REL, check_fingerprints, check_integrity
 LEDGER = {"invariants": "invariant", "dead_ends": "dead_end"}
 # Fields of a LOCKED record that only a supersede may change (forward-only, §16.5).
 FROZEN = ("title", "assertion", "scope", "verification", "approved_at", "approved_by")
+CRITICAL_MANY = 10  # more critical rules than this gets a warning
 
 
 @dataclass
@@ -136,8 +137,43 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
     except RecordError:
         report.add("warning", "journal", "skipped: fix the broken record(s) above first")
     if (root / "CLAUDE.md").is_file() and directive.drift(root):
-        report.add("warning", "directive",
-                   "the SeamSpec block in CLAUDE.md is missing or outdated: rerun `seamspec init`")  # fmt: skip
+        foreign = len(directive.foreign_in(root))
+        if foreign:  # init keeps them (ADR-20261011-b1c8): say so, or the owner hesitates to rerun it
+            message = (
+                f"{foreign} line{'s' if foreign != 1 else ''} inside the SeamSpec block in CLAUDE.md"
+                f" {'were' if foreign != 1 else 'was'} not written by SeamSpec: rerun `seamspec init`,"
+                " which keeps them (moved above the block) and updates the block"
+            )
+        else:
+            message = "the SeamSpec block in CLAUDE.md is missing or outdated: rerun `seamspec init`"
+        report.add("warning", "directive", message)
+    agents = root / directive.AGENTS_FILE  # Cursor, VS Code, Antigravity (ADR-20261013-e8f3)
+    if (
+        agents.is_file()
+        and directive.BEGIN_PREFIX in agents.read_text(encoding="utf-8")
+        and directive.drift(root, directive.AGENTS_FILE)
+    ):
+        report.add(
+            "warning", "directive", "the SeamSpec block in AGENTS.md is outdated: rerun `seamspec init --hosts …`"
+        )
+    if "pytest" in cfg.runners and (root / ".seamspec/pytest.ini").is_file():
+        missing = [p for p in runners.project_pythonpath(root) if p not in runners.seamspec_pythonpath(root)]
+        if missing:  # rule tests can't import what the project's own tests can (ADR-20261018-0b7d)
+            report.add(
+                "warning",
+                "pytest path",
+                f"your pytest settings add {', '.join(missing)} to the import path, but .seamspec/pytest.ini doesn't:"
+                f" add {' '.join('../' + p for p in missing)} to its `pythonpath`,"
+                " then confirm it in `seamspec review`",
+            )
+    stale = _antigravity_root(root)
+    if stale:  # a clone in another folder: its tools would look in the wrong place (ADR-20261014-6c2d)
+        report.add(
+            "warning",
+            "antigravity",
+            f"Antigravity's SeamSpec server is set to {stale}, not this folder:"
+            " rerun `seamspec init --hosts antigravity`",
+        )
     hooks = _git(root, "rev-parse", "--git-path", "hooks")
     hook = (root / hooks.strip() / "pre-commit") if hooks else None
     text = hook.read_text(encoding="utf-8", errors="replace") if hook and hook.is_file() else ""
@@ -194,6 +230,13 @@ def _ledger_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], rep
                 report.add("warning", "scope", f"{inv_id}: scope {scope} matches no tracked file (renamed or moved?)")
     for problem in check_fingerprints(root, cfg):
         report.add("error", "runner config", problem)
+    critical = sum(
+        1 for k, d in records.items() if k.startswith("inv_") and d.get("status") == "LOCKED" and d.get("critical")
+    )
+    if critical > CRITICAL_MANY:  # ADR-20261013-c1a9: a mark that covers everything means nothing
+        report.add("warning", "critical",
+                   f"{critical} locked rules are marked critical: the mark is meant for a few rules that must never be"
+                   " missed (`seamspec critical <id> --off` clears one)")  # fmt: skip
 
 
 def _forward_only(root: Path, base_ref: str, now: dict[str, dict[str, Any]], report: DoctorReport) -> dict | None:
@@ -215,6 +258,8 @@ def _forward_only(root: Path, base_ref: str, now: dict[str, dict[str, Any]], rep
         if status != "LOCKED":
             report.add("error", "forward-only", f"{inv_id} moved back from LOCKED to {status}")
             continue
+        if before.get("critical") and not after.get("critical"):  # allowed, but a reviewer should see it
+            report.add("warning", "critical", f"{inv_id} is no longer marked critical")
         changed = [f for f in FROZEN if before.get(f) != after.get(f)]
         if changed:
             report.add("error", "forward-only",
@@ -265,6 +310,19 @@ def retirement_summary(root: Path, base_ref: str, base: dict, now: dict, mode: s
     lines += ["", "**Runner config changes** (`.seamspec/fingerprints.json`)", ""]
     lines += [f"- `{k}`" for k in changed_cfg] or ["None."]
     return "\n".join(lines) + "\n"
+
+
+def _antigravity_root(root: Path) -> str | None:
+    """The folder Antigravity's SeamSpec server is told to use, when it isn't this one."""
+    try:
+        data = json.loads((root / ".agents/mcp_config.json").read_text(encoding="utf-8"))
+        env = data["mcpServers"]["seamspec"]["env"]
+        set_to = env.get("SEAMSPEC_ROOT") if isinstance(env, dict) else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not isinstance(set_to, str) or not set_to:
+        return None
+    return None if Path(set_to).resolve() == root.resolve() else set_to
 
 
 def run(root: Path, ci: bool = False, base_ref: str | None = None) -> DoctorReport:

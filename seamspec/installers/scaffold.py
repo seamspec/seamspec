@@ -14,7 +14,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
-from ..core import trust
+from ..core import runners, trust
 from ..core.config import load_config, parse_config
 from ..core.lifecycle import approver_identity
 from ..core.root import CONFIG_REL
@@ -38,6 +38,19 @@ RUNNER_CONFIG_TEMPLATES = {
 }
 
 
+def _runner_config(root: Path, rel: str) -> str:
+    """A runner config file from its template. SeamSpec's pytest.ini also gets the folders the
+    project's own pytest settings add (e.g. `pythonpath = ["src"]`), which it would otherwise drop."""
+    text = _template(RUNNER_CONFIG_TEMPLATES[rel])
+    extra = runners.project_pythonpath(root) if rel == ".seamspec/pytest.ini" else []
+    if extra:
+        text = text.replace(
+            "pythonpath = ..",
+            "# Also the folders your own pytest settings add.\npythonpath = .. " + " ".join(f"../{p}" for p in extra),
+        )
+    return text
+
+
 @dataclass
 class InitReport:
     root: Path
@@ -47,6 +60,8 @@ class InitReport:
     consent: bool = False
     trusted: bool = False
     hook: git_hooks.HookResult | None = None
+    # Lines someone wrote inside SeamSpec's CLAUDE.md block, which init moved above it instead of deleting.
+    kept_lines: list[str] = field(default_factory=list)
 
     def add(self, path: str, what: str) -> None:
         self.actions.append((path, what))
@@ -158,6 +173,23 @@ def default_mode(current: Mode | None) -> Mode:
     return current if current in ("enforced", "strict") else "enforced"
 
 
+def _braindump(root: Path, report: InitReport) -> None:
+    """Create BRAINDUMP.md once, git-ignored (§13.3). An existing file and its ignore line are the
+    person's: a team that shares it removes the line, and init never adds it back."""
+    from ..core.config import ConfigError, load_config
+
+    try:
+        path = load_config(root).braindump.path
+    except ConfigError:
+        path = "BRAINDUMP.md"
+    if (root / path).exists():
+        report.add(path, "kept")
+        return
+    atomic_write(root / path, _template("BRAINDUMP.md"))
+    merge_gitignore(root, (path,), header="SeamSpec: your personal scratchpad (remove this line to share it)")
+    report.add(path, "created (git-ignored)")
+
+
 def init(
     root: Path,
     mode: Mode | None = None,
@@ -214,12 +246,14 @@ def init(
         (root / runner.harness_dir).mkdir(parents=True, exist_ok=True)
         for rel in runner.config_files:
             if rel in RUNNER_CONFIG_TEMPLATES:
-                _write_if_missing(root, rel, _template(RUNNER_CONFIG_TEMPLATES[rel]), report)
+                _write_if_missing(root, rel, _runner_config(root, rel), report)
 
     _record_initial_fingerprints(root, report)
     report.add(".gitignore", merge_gitignore(root))
+    _braindump(root, report)
     if claude_md:
-        report.add("CLAUDE.md", directive.install(root))
+        status, report.kept_lines = directive.install_keeping(root)
+        report.add("CLAUDE.md", status)
 
     store = Store(root)
     who = actor or approver_identity(store)

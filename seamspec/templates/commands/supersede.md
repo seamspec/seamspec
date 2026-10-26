@@ -19,7 +19,8 @@ A LOCKED SeamSpec invariant needs to change: {{args}}
 7. Tell the user the change needs their approval in `seamspec review`.
    Before that, tell the user in a line or two what the test does NOT cover (cases, inputs
    or parts of the rule it leaves out), so they can judge it; say so if you see no gap.
-   Offer to open the review for them: if your host can open a terminal the
+   Offer an explanation from SeamSpec's reviewer, a separate agent that didn't write the test
+   (`/seamspec:explain`), and offer to open the review for them: if your host can open a terminal the
    user types into (e.g. a tab in the Claude desktop app's terminal panel) and they say yes, open one
    running `seamspec review` in this repository. Never run it in your own shell and never type its
    answers: only the user answers. Otherwise tell them to run it. Only if this project turned on

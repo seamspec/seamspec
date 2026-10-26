@@ -22,7 +22,7 @@ gate_mode = "context"          # context | deny_once | off (§7.2)
 paths = [".seamspec/**"]
 
 [proposals]
-max_pending = 10               # project-wide cap on PROPOSED invariants awaiting review
+max_pending = 10               # project-wide cap on what awaits review: proposed rules + proposed decisions
 
 [execution]
 run_proposed = "auto"          # auto | host | ask | never (v0.1: auto = host)
@@ -30,3 +30,8 @@ env_passthrough = []           # extra env vars tests may see, e.g. ["DATABASE_U
 {{execution_extra}}
 [review]
 {{review_extra}}
+[braindump]                    # your scratchpad (§13); git-ignored by default
+path = "BRAINDUMP.md"
+redact_secrets = true          # mask secret-looking text before it reaches a committed record
+nudge = "ask"                  # ask | off: tell the agent about new notes at session start (§13.9)
+

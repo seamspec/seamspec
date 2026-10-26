@@ -70,6 +70,9 @@ class Invariant(_Record):
     superseded_by: str | None = Field(default=None, pattern=INV_ID)
     status_reason: str | None = None
     decided_via: Via | None = None  # None: decided in the terminal, before this field existed
+    # Always shown to the agent in full, however many rules there are (ADR-20261013-c1a9). Changes how
+    # a rule is shown, never whether it is enforced: every locked rule is enforced the same way.
+    critical: bool = False
 
     @model_validator(mode="after")
     def _status_requirements(self) -> Invariant:
@@ -98,6 +101,8 @@ class DeadEnd(_Record):
     failure_symptom: str = Field(max_length=1000)
     source: Literal["verifier", "braindump", "manual", "agent"]
     related_invariant: str | None = Field(default=None, pattern=INV_ID)
+    # Where it came from, when that is a record of its own: a braindump item id (ADR-20261013-d9e4).
+    origin_ref: str | None = None
     status: Literal["ACTIVE", "RETIRED"] = "ACTIVE"
     retired_reason: str | None = None
     decided_via: Via | None = None

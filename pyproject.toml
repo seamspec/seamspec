@@ -4,6 +4,7 @@ version = "0.1.0.dev0"
 description = "Executable specs for AI coding agents. Build first; every seam that works gets a spec."
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "vamshidhar.p" }]
 keywords = ["ai", "coding-agents", "specs", "testing", "mcp", "claude-code", "regression"]
@@ -53,7 +54,9 @@ addopts = "-q"
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-extend-exclude = ["docs", "notes"]   # SPEC code blocks are edited by hand, never reformatted
+# docs: SPEC code blocks are edited by hand. .seamspec: approved rule tests are locked by hash, so a
+# linter must never ask for them to be changed (ADR-20261013-c3f7).
+extend-exclude = ["docs", "notes", ".seamspec"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

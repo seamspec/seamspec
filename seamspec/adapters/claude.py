@@ -21,11 +21,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core import hookguard, journal, verifier
+from ..core import braindump, catches, failtext, hookguard, journal, verifier
+from ..core.area import area as _area
 from ..core.config import MAX_STOP_DEADLINE, Config, load_config
 from ..core.context import constraints_for
 from ..core.models import DeadEnd, Invariant, InvStatus
-from ..core.requests import pending_supersede_ids
+from ..core.requests import declined_lines, pending_supersede_ids
 from ..core.root import find_root, project_at, to_rel
 from ..core.scope import effective_protected_paths, matches
 from ..core.session import SessionState
@@ -42,6 +43,8 @@ SUPERSEDE_HINT = (
     "Fix the regression. If this behavior change is intentional, call "
     "request_supersede(invariant_id, reason, replacement_id) and tell the user."
 )
+DECLINED_HINT = "Fix the regression: a person already decided to keep these rules."
+DECLINED_HEADING = "SeamSpec: changes a person declined; the rules stay in force:"
 
 
 def _pre_tool(**fields: str) -> dict[str, Any]:
@@ -132,7 +135,9 @@ def _retry_key(payload: dict[str, Any]) -> str:
     return str(payload.get("prompt_id") or "session")
 
 
-def _block(state: SessionState, store: Store, cfg: Config, key: str, details: str) -> dict[str, Any]:
+def _block(
+    state: SessionState, store: Store, cfg: Config, key: str, details: str, ids: list[str] | None = None
+) -> dict[str, Any]:
     """Block finishing, capped by max_stop_retries so the agent can never be trapped in a Stop loop."""
     used = state.stop_retries.get(key, 0)
     if used >= cfg.verify.max_stop_retries:
@@ -143,6 +148,8 @@ def _block(state: SessionState, store: Store, cfg: Config, key: str, details: st
         }
     state.stop_retries[key] = used + 1
     state.save(store)
+    if ids is not None:  # a real finding (not a hook error): count it as a catch
+        catches.record(store, "stop", ids)
     return {"decision": "block", "reason": f"{details}\nAttempt {used + 1} of {cfg.verify.max_stop_retries}."}
 
 
@@ -205,20 +212,16 @@ def stop(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] |
             f"{', '.join(sorted(failing))}. Run `seamspec review` to approve or decline it."
         }
 
-    lines = (
-        other
-        + report.integrity_failures
-        + [
-            f"[FAIL] {', '.join(r.failed_ids or r.invariant_ids)} ({r.runner})\n{r.output}"
-            for r in report.results
-            if not r.passed and not r.incomplete
-        ]
-    )
+    # The short block per failing rule first (id, title, the check that failed), then the runner's own
+    # output: Claude Code keeps the start of a long hook message (dogfooding #11, ADR-20261013-4e9b).
+    summary, _unexplained = failtext.summary(store, report)
+    lines = other + summary + [failtext.raw(r) for r in report.results if not r.passed and not r.incomplete]
     if report.incomplete:
         lines.append("[INCOMPLETE] time ran out before every locked rule was checked.")
-    return _block(
-        state, store, cfg, key, "SeamSpec: locked rule check failed.\n" + "\n".join(lines) + "\n" + SUPERSEDE_HINT
-    )
+    declines = declined_lines(store, failing)  # a person said no: say so, or the agent asks again (ADR-20261024-6f0c)
+    hint = DECLINED_HINT if declines and len(declines) == len(failing) else SUPERSEDE_HINT
+    details = "SeamSpec: locked rule check failed.\n" + "\n".join(lines + declines) + "\n" + hint
+    return _block(state, store, cfg, key, details, ids=sorted(failing))
 
 
 def _on_error(event: str, payload: dict[str, Any], store: Store | None, cfg: Config | None, exc: Exception):
@@ -240,8 +243,13 @@ SESSION_SOURCES = ("startup", "clear", "compact")  # resume/fork already carry t
 # Claude Code replaces hook output over 10,000 characters with a file path and a 2,000-character
 # preview, so the summary must stay well under that (ADR-20261011-6b2d).
 SESSION_MAX_CHARS = 8000
+CRITICAL_ASSERTION_MAX = 400  # a critical rule is always listed in full, up to this length each
 
 
+CRITICAL_HEADING = (
+    "SeamSpec: critical rules, always shown in full. A human approved each one and marked it "
+    "critical; each has a test that must keep passing:"
+)
 RULES_HEADING = ("SeamSpec: rules in force in this repository. A human approved each rule, and each has a test "
                  "that must keep passing:")  # fmt: skip
 DEAD_HEADING = ("SeamSpec: approaches tried before that failed (recorded, not approved); don't retry unless the "
@@ -263,23 +271,6 @@ def _flat(text: str) -> str:
 def _clip(text: str, limit: int = 100) -> str:
     text = _flat(text)
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
-
-
-def _area(paths: list[str], root: Path) -> str:
-    """The folder a scope is about (Copilot, #41). With a glob: the whole path segments before the
-    first one that holds a glob (`src/billing/**` and `src/billing/gen*.py` -> `src/billing`,
-    `.github/**` -> `.github`). Without one, the path names a folder or a file (gitignore rules):
-    a folder that exists, or one written with a trailing `/`, is its own area; a file's area is its folder."""
-    first = _flat(paths[0]).lstrip("!/") if paths else ""
-    parts = first.split("/")
-    globbed = next((i for i, part in enumerate(parts) if any(c in part for c in "*?[")), None)
-    if globbed is not None:
-        area = "/".join(parts[:globbed])
-    elif first.endswith("/") or (root / first).is_dir():
-        area = first.rstrip("/")
-    else:
-        area = "/".join(parts[:-1])
-    return area or "(repository root)"
 
 
 def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | None:
@@ -314,6 +305,13 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
             return ", ".join(paths[:most]) + f", +{len(paths) - most} more"
         return ", ".join(paths)
 
+    # Critical rules (ADR-20261013-c1a9) come first and in full at every level; only the others shrink.
+    critical = [r for r in locked if r.critical]
+    locked = [r for r in locked if not r.critical]
+    critical_block = ([CRITICAL_HEADING] if critical else []) + [
+        f"- {r.id} · {_flat(r.title)}: {_clip(r.assertion, CRITICAL_ASSERTION_MAX)} (scope: {scope(r, most=4)})"
+        for r in critical
+    ]
     rules_full = ([RULES_HEADING] if locked else []) + [
         f"- {r.id} · {_flat(r.title)}: {_flat(r.assertion)} (scope: {scope(r)})" for r in locked
     ]  # fmt: skip
@@ -332,18 +330,19 @@ def session_summary(store: Store, max_chars: int = SESSION_MAX_CHARS) -> str | N
         by_area.setdefault(_area(list(r.scope.paths), store.root), [0, 0])[0] += 1
     for d in dead:
         by_area.setdefault(_area(list(d.scope.paths), store.root), [0, 0])[1] += 1
-    counts = [f"SeamSpec: {len(locked)} rules in force (each approved by a human and backed by a test) and "
+    others = "other " if critical else ""
+    counts = [f"SeamSpec: {len(locked)} {others}rules in force (each approved by a human and backed by a test) and "
               f"{len(dead)} recorded dead ends, too many to list here. Call `get_constraints` for the files you "
               "work on; it returns every rule and dead end that applies. By area:"]  # fmt: skip
     counts += [f"- {area}: {n_r} rule(s), {n_d} dead end(s)" for area, (n_r, n_d) in sorted(by_area.items())]
 
     levels = (rules_full + dead_full, rules_full + dead_short, rules_short + dead_short, rules_titles + dead_short)
     for tier in (*levels, counts):
-        text = "\n".join(tier + tail)
+        text = "\n".join(critical_block + tier + tail)
         if len(text) <= max_chars:
             return text
-    # Even the per-area list is too long: totals only (never silently empty).
-    return "\n".join([counts[0].replace(" By area:", "")] + tail)
+    # Even the per-area list is too long: totals only (never silently empty). Critical rules stay.
+    return "\n".join(critical_block + [counts[0].replace(" By area:", "")] + tail)
 
 
 def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] | None:
@@ -354,12 +353,36 @@ def session_start(payload: dict[str, Any], store: Store, cfg: Config) -> dict[st
             _save_hook_baseline(store, hookguard.scan(_project_dirs(payload, store)))
         except OSError as exc:  # never at the cost of the summary
             print(f"seamspec: couldn't record dialog hooks: {exc}", file=sys.stderr)
-    if payload.get("source", "startup") not in SESSION_SOURCES:
+    source = payload.get("source", "startup")
+    if source not in SESSION_SOURCES:
         return None
-    text = session_summary(store)
-    if text is None:
+    plans = "\n".join(braindump.planned_lines(store, cfg.braindump.path, cfg.braindump.marker))
+    declines = "\n".join([DECLINED_HEADING, *lines]) if (lines := declined_lines(store)) else ""
+    parts = [t for t in (session_summary(store), declines, plans, _braindump_nudge(store, cfg, source)) if t]
+    if not parts:
         return None
-    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(parts)}}
+
+
+NUDGE_SOURCES = ("startup", "clear")  # never after compaction: it would interrupt a task in progress
+
+
+def _braindump_nudge(store: Store, cfg: Config, source: str) -> str | None:
+    """Tell the agent once that BRAINDUMP.md has new notes, so it can offer to sort them (§13.9).
+    Only when what's pending changed since the last nudge; silent on any error (convenience, never
+    enforcement)."""
+    if cfg.braindump.nudge == "off" or source not in NUDGE_SOURCES:
+        return None
+    try:
+        items = braindump.pending(store, cfg.braindump.path, cfg.braindump.marker)
+        if not braindump.should_nudge(store, items):
+            return None
+        braindump.remember_nudge(store, items)
+    except Exception:  # noqa: BLE001 - the nudge must never break a session start
+        return None
+    return (f"SeamSpec: {cfg.braindump.path} has {len(items)} new note(s). Ask the user once whether to sort them "
+            "now (same as /seamspec:drain). Don't sort them without a yes, and don't ask again this session "
+            "after a no.")  # fmt: skip
 
 
 # --- ConfigChange: no new hook may answer SeamSpec's dialogs mid-session (ADR-20261006-c300, guard 1) ----------
