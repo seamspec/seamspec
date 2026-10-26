@@ -39,6 +39,8 @@ ALLOWED_TOOLS = [
 
 
 BILLING = ("plan", "api")
+# How Claude Code words a rejected key; calibration on 2026-10-18 met "Invalid API key · Fix external API key".
+AUTH_WORDS = ("authenticate", "api key is invalid", "invalid api key", "fix external api key")
 
 
 class StopBatch(RuntimeError):
@@ -111,7 +113,7 @@ def auth_failed(lines: list[str]) -> str | None:
             return f"authentication failed (HTTP {event.get('error_status')})"
         if event.get("type") == "result" and event.get("is_error"):
             text = str(event.get("result") or "")
-            if "authenticate" in text.lower() or "api key is invalid" in text.lower():
+            if any(words in text.lower() for words in AUTH_WORDS):
                 return text[:200]
     return None
 
@@ -141,6 +143,7 @@ class ClaudeAgent:
         env = {k: v for k, v in os.environ.items() if k not in dropped}
         env["PATH"] = os.pathsep.join([str(work / ".venv/bin"), str(work / "node_modules/.bin"), env.get("PATH", "")])
         session_id: str | None = None
+        so_far = 0.0  # Claude Code reports the session's running total; each prompt's own cost is the increase
         log_dir.mkdir(parents=True, exist_ok=True)
         for i, prompt in enumerate(prompts, start=1):
             cmd = ["claude", "-p", prompt, "--model", self.model, "--output-format", "stream-json", "--verbose",
@@ -166,8 +169,16 @@ class ClaudeAgent:
             if failure:
                 raise AuthFailed(f"Claude Code could not authenticate: {failure}. Check the key, then rerun. Stopping.")
             final = parse_stream(stdout.splitlines())
+            if final.get("is_error") and not float(final.get("total_cost_usd") or 0) and not final.get("num_turns"):
+                # An error before any model call: every further prompt would fail the same way, and a
+                # scored run of nothing would read as "no violations".
+                raise StopBatch(
+                    f"Claude Code failed before doing anything: {str(final.get('result'))[:200]}. Stopping."
+                )
             usage = final.get("usage") or {}
-            result.cost_usd = float(final.get("total_cost_usd") or 0.0)
+            total = float(final.get("total_cost_usd") or 0.0)
+            result.cost_usd = max(0.0, total - so_far)  # calibration 2026-10-18: summing the totals overstated cost
+            so_far = max(so_far, total)
             result.turns = int(final.get("num_turns") or 0)
             result.duration_ms = int(final.get("duration_ms") or 0)
             result.input_tokens = int(usage.get("input_tokens") or 0) + int(usage.get("cache_read_input_tokens") or 0)

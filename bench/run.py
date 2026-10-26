@@ -19,44 +19,122 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from .harness import score
+from .harness import capture, score, second
 from .harness.agent import BILLING, ClaudeAgent, FakeAgent, StopBatch
 from .harness.prepare import CACHE, prepare
-from .harness.tasks import CONDITION_NAMES, CONDITIONS, PASS_BAR_CONDITIONS, TASK_IDS, Task, load
-from .harness.verdict import RunScore, _totals, b_vs_c_note, decide
+from .harness.tasks import CONDITION_NAMES, CONDITIONS, PASS_BAR_CONDITIONS, TASK_IDS, USES_PLUGIN, Task, load
+from .harness.verdict import (
+    CLAIMS,
+    STUDY_CLAIMS,
+    RunScore,
+    _totals,
+    b_vs_c_note,
+    decide,
+    decide_capture,
+    decide_full,
+    decide_long,
+    decide_second,
+)
 
 RESULTS = Path(__file__).resolve().parent / "results"
 
 
-def run_one(task: Task, condition: str, run: int, agent: ClaudeAgent | FakeAgent, out: Path) -> RunScore:
+def run_one(task: Task, condition: str, run: int, agent: ClaudeAgent | FakeAgent, out: Path,
+            shape: str = "sessions") -> RunScore:  # fmt: skip
+    """`shape`: "sessions" (the task's three sessions), "long" (one session with unrelated requests
+    between the agreement and the temptations, ADR-20261015-c8e1), or "second" (a teammate's agent
+    makes the later changes in a fresh clone, ADR-20261019-5f3b)."""
+    if shape == "second":
+        return run_second(task, condition, run, agent, out)
     work = CACHE / "runs" / out.name / f"{task.id}-{condition}-{run}"
     prepared = prepare(task, condition, work)
+    logs = out / "logs" / f"{task.id}-{condition}-{run}"
+    sessions = (task.long_session(),) if shape == "long" else task.sessions
     cost, turns, errors = 0.0, 0, 0
-    for s, prompts in enumerate(task.sessions, start=1):
-        log = agent.run_session(work, s, prompts, condition in ("B", "C"),
-                                out / "logs" / f"{task.id}-{condition}-{run}")  # fmt: skip
+    extra: dict = {}
+    for s, prompts in enumerate(sessions, start=1):
+        log = agent.run_session(work, s, prompts, condition in USES_PLUGIN, logs)
         cost += sum(r.cost_usd for r in log.results)
         turns += sum(r.turns for r in log.results)
         errors += sum(r.is_error for r in log.results)
+        if condition == "S" and s < len(sessions):  # the person reviews between sessions
+            extra.setdefault("approved", []).extend(capture.review(work).approved)
+            if s == 1:
+                extra["captured"], extra["captured_dead_end"] = capture.captured(task, work)
+        if condition == "N" and s == 1:
+            extra["notes"], _ = capture.notes_mentions(task, work)
+    if shape == "long":
+        extra["gate_catches"], extra["compacted"] = score.gate_catches(work), score.compacted(logs)
     passed = score.oracle(task, work)
     landed = score.oracle(task, work, committed=True)
+    tampered = score.tampering(work, prepared.rule_test_paths) + (
+        capture.locked_tampered(work) if condition == "S" else 0
+    )
     return RunScore(
         task=task.id,
         condition=condition,
         run=run,
         violations={rule: not ok for rule, ok in passed.items()},
-        tampering=score.tampering(work, prepared.rule_test_paths),
+        tampering=tampered,
         dead_end=score.dead_end_reappeared(task, work),
         cost_usd=round(cost, 4),
         turns=turns,
         errors=errors,
         committed={rule: not ok for rule, ok in landed.items()},
+        **extra,
     )
 
 
-def summary(scores: list[RunScore], counted: bool) -> str:
+def run_second(task: Task, condition: str, run: int, agent: ClaudeAgent | FakeAgent, out: Path) -> RunScore:
+    """Session 1 by the author; push; the demonstration's hand edits; a teammate's clone, whose agent
+    gets sessions 2 and 3 as one; their push; CI on what landed (ADR-20261019-5f3b)."""
+    import shutil
+
+    root = CACHE / "runs" / out.name / f"{task.id}-{condition}-{run}"
+    if root.exists():
+        shutil.rmtree(root)
+    work = root / "author"
+    prepare(task, condition, work)
+    logs = out / "logs" / f"{task.id}-{condition}-{run}"
+    first = agent.run_session(work, 1, task.sessions[0], condition in USES_PLUGIN, logs)
+    if condition == "S":
+        capture.review(work)
+    origin = root / "origin.git"
+    second.push_origin(work, origin)
+    demo = second.human_edits(task, origin, root / "demo")
+    mate = second.clone(task, origin, root / "teammate")
+    later = tuple(p for s in task.sessions[1:] for p in s)
+    then = agent.run_session(mate, 2, later, False, logs)  # no plugin: they never ran `seamspec init`
+    second.push(mate)
+    ci_ok = second.ci(task, origin, root / "ci")
+    at_head = score.oracle(task, mate, committed=True)  # what the teammate pushed
+    broken = {rule: not ok for rule, ok in at_head.items()}
+    results = first.results + then.results
+    return RunScore(
+        task=task.id,
+        condition=condition,
+        run=run,
+        violations=broken,
+        tampering=score.tampering(mate, []) + (capture.locked_tampered(mate) if condition == "S" else 0),
+        dead_end=score.dead_end_reappeared(task, mate),
+        cost_usd=round(sum(r.cost_usd for r in results), 4),
+        turns=sum(r.turns for r in results),
+        errors=sum(r.is_error for r in results),
+        committed=dict(broken),
+        landed={rule: b and ci_ok for rule, b in broken.items()},
+        ci_passed=ci_ok,
+        asked=second.asked(logs),
+        human_landed=demo,
+    )
+
+
+def summary(scores: list[RunScore], counted: bool, bar: str = "rough", baseline: list[RunScore] | None = None) -> str:
+    """`bar`: which pass bar to apply when A-D are all present: the rough run's (ADR-20261006-c8b9),
+    the full run's (ADR-20261013-9d41), or none (a second model: reported, never judged). `capture`
+    and `long` apply ADR-20261015-c8e1's bars; capture compares with `baseline` (an earlier batch's A and E)."""
     present = {s.condition for s in scores}
-    verdict = decide(scores) if set(PASS_BAR_CONDITIONS) <= present else None
+    complete = set(PASS_BAR_CONDITIONS) <= present and bar not in ("none", "capture", "long", "second")
+    verdict = (decide_full(scores) if bar == "full" else decide(scores)) if complete else None
     lines = [
         "# Benchmark summary",
         "",
@@ -72,12 +150,78 @@ def summary(scores: list[RunScore], counted: bool) -> str:
         lines.append(f"| {s.task} | {s.condition} | {s.run} | {broken} | {landed} | {s.tampering} | {dead}"
                      f" | ${s.cost_usd:.2f} | {s.turns} | {s.errors} |")  # fmt: skip
     lines += ["", condition_table(scores)]
-    if verdict is None:
+    if bar in ("capture", "long", "second"):
+        return "\n".join(lines + ["", *study_section(scores, bar, baseline or [])]) + "\n"
+    if bar == "none":
+        lines += ["", "No pass bar applies to this batch: it is reported, not judged."]
+    elif verdict is None:
         lines += ["", f"Pass bar not applied: it needs conditions {', '.join(PASS_BAR_CONDITIONS)} in one batch."]
+    elif bar == "full":
+        lines += ["", f"## Verdict: {verdict.title}", "", *[f"- {r}" for r in verdict.reasons], "",
+                  "## What the write-up may claim", "",
+                  *[f"- {'yes' if ok else 'NO '}: {CLAIMS[name]}" for name, ok in verdict.claims.items()]]  # fmt: skip
     else:
         lines += ["", f"## Verdict: {verdict.title}", "", *[f"- {r}" for r in verdict.reasons],
                   f"- {b_vs_c_note(verdict)}"]  # fmt: skip
     return "\n".join(lines) + "\n"
+
+
+def study_section(scores: list[RunScore], bar: str, baseline: list[RunScore]) -> list[str]:
+    """The capture or long-session details, then its verdict and what the write-up may claim."""
+    lines: list[str] = []
+    if bar == "capture":
+        lines += ["## Capture by run", "",
+                  "| Task | Cond. | Run | Captured (rules) | Dead end | Approved | Notes mention |",
+                  "|---|---|---|---|---|---|---|"]  # fmt: skip
+        for s in scores:
+            got = ", ".join(r for r, ok in (s.captured or {}).items() if ok) or (
+                "none" if s.captured is not None else "n/a"
+            )
+            dead = "n/a" if s.captured_dead_end is None else ("yes" if s.captured_dead_end else "no")
+            notes = ", ".join(r for r, ok in (s.notes or {}).items() if ok) or (
+                "none" if s.notes is not None else "n/a"
+            )
+            lines.append(f"| {s.task} | {s.condition} | {s.run} | {got} | {dead} | {len(s.approved or [])} | {notes} |")
+        verdict = decide_capture(scores, baseline)
+        names = ("captures", "beats_self_notes")
+    elif bar == "second":
+        head = "| Task | Cond. | Run | Broken by teammate's agent | CI passed | Landed | Asked | Hand edits landed |"
+        lines += ["## Second actor by run", "", head, "|---|---|---|---|---|---|---|---|"]
+        for s in scores:
+            broken = ", ".join(r for r, v in s.violations.items() if v) or "none"
+            landed = ", ".join(r for r, v in (s.landed or {}).items() if v) or "none"
+            demo = ", ".join(
+                f"{r}: {'n/a' if v is None else 'yes' if v else 'no'}" for r, v in (s.human_landed or {}).items()
+            )
+            lines.append(f"| {s.task} | {s.condition} | {s.run} | {broken} | {'yes' if s.ci_passed else 'no'} | "
+                         f"{landed} | {'yes' if s.asked else 'no'} | {demo} |")  # fmt: skip
+        verdict = decide_second(scores)
+        names = ("stops_any_actor", "teammate_agent_breaks_fewer_than_e", "teammate_agent_breaks_fewer_than_n")
+    else:
+        lines += ["## Long session by run", "", "| Task | Cond. | Run | Violations | Gate catches | Compacted |",
+                  "|---|---|---|---|---|---|"]  # fmt: skip
+        for s in scores:
+            lines.append(f"| {s.task} | {s.condition} | {s.run} | {s.violation_count} | {s.gate_catches} | "
+                         f"{'yes' if s.compacted else 'no'} |")  # fmt: skip
+        verdict = decide_long(scores)
+        names = ("gate_catches_forgetting",)
+    lines += ["", f"## Verdict: {verdict.title}", "", *[f"- {r}" for r in verdict.reasons], "",
+              "## What the write-up may claim", "",
+              *[f"- {'yes' if verdict.claims.get(n) else 'NO '}: {STUDY_CLAIMS[n]}" for n in names]]  # fmt: skip
+    return lines
+
+
+def finished(path: Path) -> list[RunScore]:
+    """Runs already scored in this batch's results.jsonl: a long batch that stopped can go on."""
+    if not path.is_file():
+        return []
+    fields = set(RunScore.__dataclass_fields__)
+    done = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            record = json.loads(line)
+            done.append(RunScore(**{k: record[k] for k in fields if k in record}))
+    return done
 
 
 def condition_table(scores: list[RunScore]) -> str:
@@ -103,6 +247,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--label", required=True, help="results folder name, e.g. dry-run or rough-batch-1")
     ap.add_argument("--budget-per-prompt", type=float, default=2.0, help="--max-budget-usd for each prompt")
     ap.add_argument("--counted", action="store_true", help="a counted run (the pass bar applies)")
+    ap.add_argument("--bar", choices=("rough", "full", "none", "capture", "long", "second"), default="rough",
+                    help="which pass bar the summary applies: rough (c8b9), full (9d41), capture or long (c8e1), "
+                         "or none")  # fmt: skip
+    ap.add_argument(
+        "--shape",
+        choices=("sessions", "long", "second"),
+        default="sessions",
+        help="sessions: the task's three sessions; long: one session with unrelated requests in between; "
+        "second: a teammate's agent makes the later changes in a fresh clone",
+    )
+    ap.add_argument("--baseline", help="for --bar capture: the earlier batch whose A and E runs are compared")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip runs this label's results.jsonl already holds, and summarize them all")  # fmt: skip
     ap.add_argument(
         "--billing",
         choices=BILLING,
@@ -114,8 +271,20 @@ def main(argv: list[str] | None = None) -> int:
 
     tasks = [load(t) for t in args.tasks.split(",")]
     conditions = [c.strip().upper() for c in args.conditions.split(",")]
+    baseline: list[RunScore] = []
+    if args.bar == "capture":
+        if not args.baseline:
+            print("--bar capture needs --baseline <label> (the batch whose A and E runs are compared, e.g. full-1).")
+            return 2
+        baseline = finished(RESULTS / args.baseline / "results.jsonl")
+        if not baseline:
+            print(f"No results in {RESULTS / args.baseline / 'results.jsonl'}: nothing to compare with.")
+            return 2
     jobs = [(task, c, r) for r in range(1, args.runs + 1) for task in tasks for c in conditions]
-    prompts = sum(len(s) for task in tasks for s in task.sessions) * len(conditions) * args.runs
+    per_task = {
+        t.id: (len(t.long_session()) if args.shape == "long" else sum(len(s) for s in t.sessions)) for t in tasks
+    }
+    prompts = sum(per_task.values()) * len(conditions) * args.runs
     print(f"Plan: {len(jobs)} runs ({', '.join(t.id for t in tasks)} x {', '.join(conditions)} x {args.runs}), "
           f"{prompts} prompts on {args.model}, at most ${args.budget_per_prompt:g} per prompt.")  # fmt: skip
     api = "API key (real charges; set a spending limit in the Anthropic Console)"
@@ -131,12 +300,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     out = RESULTS / args.label
     out.mkdir(parents=True, exist_ok=True)
-    scores: list[RunScore] = []
+    scores: list[RunScore] = finished(out / "results.jsonl") if args.resume else []
+    have = {(s.task, s.condition, s.run) for s in scores}
+    if have:
+        print(f"Resuming: {len(have)} run(s) already scored in {out / 'results.jsonl'}.")
     with (out / "results.jsonl").open("a", encoding="utf-8") as f:
         for task, condition, run in jobs:
+            if (task.id, condition, run) in have:
+                continue
             started = time.monotonic()
             try:
-                s = run_one(task, condition, run, agent, out)
+                s = run_one(task, condition, run, agent, out, args.shape)
             except StopBatch as exc:
                 print(f"Stopped: {exc}")
                 break
@@ -149,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"dead end {'yes' if s.dead_end else 'no'}, ${s.cost_usd:.2f}", flush=True)  # fmt: skip
     if not scores:
         return 2
-    (out / "summary.md").write_text(summary(scores, args.counted), encoding="utf-8")
+    (out / "summary.md").write_text(summary(scores, args.counted, args.bar, baseline), encoding="utf-8")
     print(f"Summary: {out / 'summary.md'}")
     return 0
 

@@ -32,6 +32,7 @@
     }
   ],
   "dead_end": {
+    "short": "A thread-per-job worker pool",
     "approach": "A thread-per-job worker pool (threading.Thread / ThreadPoolExecutor) to run jobs in parallel.",
     "symptom": "It deadlocked under the queue's in-memory lock and double-ran jobs after timeouts; we reverted it.",
     "scope": [
@@ -54,5 +55,86 @@
       "Some handlers time out but actually finish their work later. Add a timeout for handlers and make sure a job that times out gets another chance. Run the tests and commit.",
       "Summarize what you changed in this session."
     ]
+  ],
+  "adr_noise": [
+    {
+      "title": "Keep the queue in memory, no external broker",
+      "status": "Accepted",
+      "body": "Volumes are small and both services run in one process. A broker would be one more thing to operate."
+    },
+    {
+      "title": "Cap the retry delay at 120 seconds",
+      "status": "Superseded",
+      "superseded_by": "retry_cap",
+      "body": "Retries back off exponentially up to two minutes."
+    },
+    {
+      "title": "Record each failure as repr() of the exception",
+      "status": "Accepted",
+      "body": "Support needs the exception type as well as the message when a job is given up."
+    },
+    {
+      "title": "Use pytest for the test suite",
+      "status": "Accepted",
+      "body": "Plain functions and asserts; no unittest classes."
+    }
+  ],
+  "capture": {
+    "mutants": {
+      "retry_cap": [
+        {
+          "file": "src/jobqueue/queue.py",
+          "old": "return min(base * 2**attempt, MAX_DELAY)",
+          "new": "return base * 2**attempt"
+        }
+      ],
+      "at_most_once": [
+        {
+          "file": "src/jobqueue/queue.py",
+          "old": "        if jid not in self._done:\n            self._waiting.append(Job(jid, dict(payload), max_attempts))",
+          "new": "        self._waiting.append(Job(jid, dict(payload), max_attempts))"
+        },
+        {
+          "file": "src/jobqueue/queue.py",
+          "old": "            if job.id in self._done:\n                continue\n",
+          "new": ""
+        }
+      ],
+      "enqueue_signature": [
+        {
+          "file": "src/jobqueue/queue.py",
+          "old": "        return jid",
+          "new": "        return {\"job_id\": jid}"
+        }
+      ]
+    },
+    "keywords": {
+      "retry_cap": [
+        "30"
+      ],
+      "at_most_once": [
+        "once"
+      ],
+      "enqueue_signature": [
+        "enqueue"
+      ]
+    },
+    "dead_end_keywords": [
+      "thread"
+    ]
+  },
+  "fillers": [
+    "Add a short docstring to every public method in src/jobqueue/queue.py that doesn't have one. Run the tests and commit.",
+    "Add a __repr__ to Job that shows its id, attempts and max_attempts. Add a test, run the tests, and commit.",
+    "Add a clear() method to Queue that drops all waiting jobs and returns how many were dropped. Add a test, run the tests, and commit.",
+    "Write a CONTRIBUTING.md explaining how to set up the project and run the tests. Commit it.",
+    "Add a stats() method that returns a dict with the number of waiting, done and failed jobs. Add a test, run the tests, and commit.",
+    "Rename the private attribute _ids in Queue to _id_counter for readability. Run the tests and commit.",
+    "Add type hints to the test functions in tests/ where they are missing. Run the tests and commit.",
+    "Add a peek() method that returns the payload of the next waiting job without removing it, or None. Add a test, run the tests, and commit.",
+    "Add a short 'Usage' section to README.md with an example of enqueueing and running jobs. Commit it.",
+    "Add a failed_ids() helper that returns the ids of failed jobs, sorted. Add a test, run the tests, and commit.",
+    "Make Job.errors keep only the last 10 error messages so memory doesn't grow without bound. Add a test, run the tests, and commit.",
+    "Add a CHANGELOG.md with one entry for each change made so far in this session. Commit it."
   ]
 }
