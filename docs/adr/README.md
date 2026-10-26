@@ -62,3 +62,36 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261011-d4a1](ADR-20261011-d4a1-mcp-server-finds-the-moved-session.md) | The MCP server finds the project of a session that was moved to another folder | ACCEPTED |
 | [ADR-20261011-e7c5](ADR-20261011-e7c5-layout-aware-hints.md) | Runner hints fit the project - how to import its code, and which program a runner resolves to | ACCEPTED |
 | [ADR-20261011-a9f3](ADR-20261011-a9f3-ci-workflow-install-source.md) | The CI workflow installs the SeamSpec version that wrote it; an unreleased build doesn't offer the workflow | ACCEPTED |
+| [ADR-20261011-b1c8](ADR-20261011-b1c8-init-keeps-lines-inside-its-block.md) | `seamspec init` keeps lines someone else wrote inside its CLAUDE.md block | ACCEPTED |
+| [ADR-20261013-7c2e](ADR-20261013-7c2e-supersede-locks-replacement-first.md) | A rule is retired only after its replacement is locked; the review decides both as one | ACCEPTED |
+| [ADR-20261013-4e9b](ADR-20261013-4e9b-readable-failure-message.md) | When a rule fails, say which rule and which check, before any test output | ACCEPTED |
+| [ADR-20261013-a5d3](ADR-20261013-a5d3-redgreen-says-when-code-is-new.md) | Red-green says when a "yes" only means the code is new | ACCEPTED |
+| [ADR-20261013-2f6b](ADR-20261013-2f6b-generated-spec-as-built.md) | `seamspec spec` as built: only approved rules, same bytes from the same ledger | ACCEPTED |
+| [ADR-20261013-c3f7](ADR-20261013-c3f7-approved-rule-tests-are-not-linted.md) | Approved rule tests are not linted or reformatted | ACCEPTED |
+| [ADR-20261013-9d41](ADR-20261013-9d41-full-benchmark-plan-and-pass-bar.md) | Full benchmark: plan and pass bar, fixed before the run | ACCEPTED |
+| [ADR-20261013-e2b6](ADR-20261013-e2b6-full-benchmark-result.md) | Full benchmark result: pass; what we claim, and what we don't | ACCEPTED |
+| [ADR-20261013-f4a8](ADR-20261013-f4a8-v01-scope-after-the-benchmark.md) | v0.1 after the benchmark: BRAINDUMP, critical rules, three more hosts, and an explainer for reviews | ACCEPTED |
+| [ADR-20261013-b7d2](ADR-20261013-b7d2-seamspec-reviewer-agent.md) | SeamSpec's reviewer, a separate read-only agent that explains what waits for review | ACCEPTED |
+| [ADR-20261013-c1a9](ADR-20261013-c1a9-critical-rules.md) | Critical rules: a few rules the agent always sees in full | ACCEPTED |
+| [ADR-20261013-d9e4](ADR-20261013-d9e4-braindump-in-v01.md) | BRAINDUMP in v0.1, as designed in §13, with five changes | ACCEPTED |
+| [ADR-20261013-e8f3](ADR-20261013-e8f3-cursor-vscode-antigravity.md) | Cursor, VS Code and Antigravity in v0.1: rules, tools, session-start and stop hooks | ACCEPTED |
+| [ADR-20261014-3b1e](ADR-20261014-3b1e-commit-check-tests-staged-files.md) | The commit check tests what the commit records, not the files on disk | ACCEPTED |
+| [ADR-20261014-6c2d](ADR-20261014-6c2d-antigravity-hands-on-fixes.md) | Fixes from the Antigravity hands-on test: project folder for the server, tool fallbacks, drain --dismiss | ACCEPTED |
+| [ADR-20261014-8a57](ADR-20261014-8a57-braindump-sorting-limits.md) | BRAINDUMP sorting: decisions count toward the review cap, reject the rest at once, offer again when the code changes | ACCEPTED |
+| [ADR-20261014-5e3a](ADR-20261014-5e3a-planned-rules.md) | Planned rules: notes whose code doesn't exist yet steer the agent until they can be proposed | ACCEPTED |
+| [ADR-20261015-4f7b](ADR-20261015-4f7b-reviewer-in-vscode-and-antigravity.md) | SeamSpec's reviewer in VS Code and Antigravity, as each tool's own read-only agent | ACCEPTED |
+| [ADR-20261015-c8e1](ADR-20261015-c8e1-capture-and-long-session-benchmarks.md) | Plan and pass bars for the capture and long-session benchmarks | ACCEPTED |
+| [ADR-20261016-2d9a](ADR-20261016-2d9a-vscode-copilot-agent-hooks.md) | VS Code hands-on: one hook file for VS Code's Local and Copilot agents, and setup notes | ACCEPTED |
+| [ADR-20261017-7b0e](ADR-20261017-7b0e-init-rerun-keeps-consent.md) | Rerunning init keeps an earlier yes to automatic test runs | ACCEPTED |
+| [ADR-20261017-1f5c](ADR-20261017-1f5c-cursor-hands-on.md) | Cursor hands-on: hooks work as built; init says to switch the server on | ACCEPTED |
+| [ADR-20261018-9c4d](ADR-20261018-9c4d-cursor-reviewer-and-setup-guide.md) | Cursor gets the reviewer; the agent says when SeamSpec's tools are off; a setup guide per editor | ACCEPTED |
+| [ADR-20261018-6e1a](ADR-20261018-6e1a-capture-what-the-user-states.md) | Calibration fixes: capture what the user states, record each catch, count cost per prompt | ACCEPTED |
+| [ADR-20261018-0b7d](ADR-20261018-0b7d-pytest-pythonpath-carried-over.md) | SeamSpec's pytest.ini carries over the project's own pytest pythonpath | ACCEPTED |
+| [ADR-20261018-a4c2](ADR-20261018-a4c2-capture-and-long-session-results.md) | Results: capture passes, the long session showed no slip | ACCEPTED |
+| [ADR-20261019-5f3b](ADR-20261019-5f3b-second-actor-benchmark-plan.md) | Plan and pass bar for the second-actor benchmark | ACCEPTED |
+| [ADR-20261019-c71d](ADR-20261019-c71d-second-actor-results.md) | Result: with SeamSpec, nothing broken reached main, whoever made the change | ACCEPTED |
+| [ADR-20261019-e2f8](ADR-20261019-e2f8-verify-in-a-clone-never-set-up.md) | `seamspec verify` in a clone never set up on this machine says to run `seamspec init` | ACCEPTED |
+| [ADR-20261023-7d41](ADR-20261023-7d41-plugin-from-github-at-the-release-tag.md) | A released SeamSpec takes the Claude Code plugin from GitHub at its own tag; project scope for teams | ACCEPTED |
+| [ADR-20261024-b3e9](ADR-20261024-b3e9-release-rehearsal-findings.md) | Release rehearsal findings - licence in the packages, notes below the BRAINDUMP marker pointed out | ACCEPTED |
+| [ADR-20261024-6f0c](ADR-20261024-6f0c-tell-the-agent-a-change-was-declined.md) | Tell the agent when a person declined a supersede request | ACCEPTED |
+| [ADR-20261026-1c7a](ADR-20261026-1c7a-going-public.md) | Going public - history checked, contribution and security policy | ACCEPTED |

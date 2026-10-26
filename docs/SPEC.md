@@ -1,13 +1,12 @@
 # SeamSpec — Design Specification
 
-> **Status:** Draft v1.0 · **Supersedes:** `Idea.md`, `mcp_advantages.md`
+> **Status:** Draft v1.0, kept in step with the code
 > **Tagline:** *Build first; every seam that works gets a spec.*
 
 ---
 
 ## Table of Contents
 
-0. [What Changed From Idea.md](#0-what-changed-from-ideamd)
 1. [The Problem](#1-the-problem)
 2. [What SeamSpec Is](#2-what-seamspec-is)
 3. [Design Principles](#3-design-principles)
@@ -36,32 +35,7 @@
 24. [Positioning & Launch](#24-positioning--launch)
 25. [Risks & Mitigations](#25-risks--mitigations)
 26. [Resolved Decisions](#26-resolved-decisions)
-27. [Appendix A — Idea.md Issue → Fix Map](#appendix-a--ideamd-issue--fix-map)
-28. [Appendix B — Glossary](#appendix-b--glossary)
-
----
-
-## 0. What Changed From Idea.md
-
-| Area | Idea.md | This spec | Why |
-|---|---|---|---|
-| Enforcement | "Architecturally blocked" via MCP | Hooks + git pre-commit + CI enforce; MCP is the interface | MCP tools are only called when the agent chooses to call them; they cannot intercept edits |
-| Developer overhead | "Zero" | **Near-zero**: one-keystroke approval of proposed invariants | Fully autonomous locking produces junk invariants |
-| Invariant lifecycle | `PROPOSED` existed but code jumped to `LOCKED`; no retirement | `PROPOSED → LOCKED → SUPERSEDED`, plus `REJECTED`; human-gated transitions | Without a way to retire rules, the ledger blocks legitimate change |
-| Sandbox | "Isolated Sandbox Loop" with `shell=True` | **Verifier**: fixed commands from config, argv lists, timeouts | Containers add friction and no real security over what the agent can already do |
-| Storage | Single `ledger.json` | **One file per record**; index is generated and local | Avoids git merge conflicts |
-| Schema location | `.seamspec/schema.json` | Schema ships **in the package**; records reference `schema_version` | Schema is a definition, not project data |
-| Scope matching | Substring (`f in scope`) | gitignore-style globs (`pathspec`) + optional tags | Substring matching never matched globs |
-| Tamper detection | `hash()` (randomized per process) | SHA-256 of assertion **and** test file | `hash()` is not stable across runs |
-| BRAINDUMP.md | Agent "read-only" yet also strikes through notes | Human-owned; SeamSpec writes only below a marker; gitignored by default | Resolves the contradiction; protects personal notes |
-| Braindump extraction | Implied separate LLM | The **in-session agent** classifies; SeamSpec validates and stores | SeamSpec stays model-free, needs no API keys |
-| MCP tool count | Growing | **7 small tools + 2 resources** (5 tools in v0.1); every tool has a CLI equivalent | Tool definitions cost context on every session (see §4.3) |
-| Workflow commands | None (only rules-file directives) | **`/seamspec:*` chat slash commands** + MCP prompts, rendered per host from one template set (§15A) | Gives developers explicit "crystallize" moments without leaving the chat |
-| Execution consent | Agent-supplied shell commands run inside the MCP server | **MCP never runs unapproved code**; proposed tests run only via the agent's permission-checked shell tool, MCP elicitation, or the human; one-time auto-run consent; repo trust; env scrubbing (§12.4) | With no sandbox, *who decides when code runs* is the control |
-| Review load | Unbounded agent proposals | Per-run cap + **project-wide pending cap** (`proposals.max_pending = 10`); rejection can record a dead end with one key (§11.1, §26) | Too many proposals for the human to review would kill the approval step |
-| Host support | "Runs identically" everywhere | Explicit per-host matrix; same core, different enforcement strength. **v0.1 ships Claude Code only** (as a plugin); Cursor and Copilot follow in v0.2 | Hosts differ in hook capabilities; a smaller v0.1 tests the core idea sooner |
-| Languages | Implicitly Python (`pytest`, `.seamspec/tests/`) | **Language-agnostic runners**: v0.1 presets for pytest and vitest; jest, Go, Rust and `custom` in v0.2; per-runner test folders; failure attribution via JUnit XML, `go test -json`, or isolated reruns (§12A) | Go and Rust can't run tests from `.seamspec/`; the runner design must allow every language from day one |
-| Positioning | OpenSpec described as manual and heavy | Honest comparison: the difference is *when* the gate happens and *whether the spec runs* | A strawman comparison would be called out by expert readers |
+27. [Appendix — Glossary](#appendix--glossary)
 
 ---
 
@@ -76,7 +50,7 @@ Conversational AI coding ("vibecoding") collapses the time from idea to running 
 | Late turns | Circular regressions: fixing bug A reintroduces bug B; approaches that already failed get retried |
 
 > [!NOTE]
-> The turn numbers in `Idea.md` (1–3 / 4–8 / 9+) are plausible but unmeasured. §23 defines a benchmark to measure this instead of asserting it.
+> Measured since (§23): within one long session, nothing slipped in any setup ([long-1](benchmark/long-1.md)). Agreements were lost **between** sessions, and by a teammate's agent working from a fresh clone ([capture-1](benchmark/capture-1.md), [second-1](benchmark/second-1.md)).
 
 Root causes:
 
@@ -147,7 +121,7 @@ OpenSpec **does not execute code**. Its CLI validates documents and manages thei
 > **Honest trade-off:** Because SeamSpec's spec is backward-looking, it **prevents regressions, not bad designs**. OpenSpec's up-front review can catch a wrong architecture before code exists; SeamSpec can only ensure you don't break what already works. The two are complementary, and a future `import` origin type (§10.1) can ingest OpenSpec requirements as proposed invariants.
 
 > [!NOTE]
-> The developer-overhead difference is smaller than `Idea.md` claimed: in current OpenSpec, the AI drafts proposals and humans review. The defensible difference is **gate timing** and **executability**, not who types.
+> The developer-overhead difference is small: in current OpenSpec, the AI drafts proposals and humans review. The defensible difference is **gate timing** and **executability**, not who types.
 
 ### 4.3 OpenSpec and MCP (Issue #319)
 
@@ -183,7 +157,7 @@ The real baseline is not OpenSpec. It is ordinary tests in `tests/`, a host `Sto
 
 ## 5. The "Pick Two" Resolution
 
-`Idea.md` promised three things that conflict:
+The first design promised three things that conflict:
 
 | Promise | Meaning |
 |---|---|
@@ -345,23 +319,25 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 
 ## 8. Host Support Matrix
 
-| Capability | Claude Code | VS Code (Copilot agent) | Cursor | Cline / Windsurf / other MCP clients |
-|---|---|---|---|---|
-| MCP tools + resources | ✅ | ✅ | ✅ | ✅ |
-| CLI fallback via shell | ✅ | ✅ | ✅ | ✅ |
-| Edit-time context (§7.2) | ✅ `PreToolUse` `additionalContext` | ✅ `PreToolUse` (deny-once fallback: `permissionDecision: "deny"`) | ✅ `preToolUse` (deny-once fallback: `permission: "deny"`) | ❌ |
-| Ledger protection | ✅ | ✅ | ✅ | ❌ |
-| Completion gate | ✅ `Stop` + `decision: block` | ✅ `Stop` + `decision: block` | ✅ `stop` + `followup_message` (auto-continue, capped by `loop_limit`) | ❌ |
-| Session-start agreements summary *(v0.1, ADR-20261007-ac04)* + braindump nudge (§13.9) *(v0.2)* | ✅ `SessionStart` | ✅ `SessionStart` | ✅ `sessionStart` (local agents) | Directive fallback |
-| git pre-commit | ✅ | ✅ | ✅ | ✅ |
-| CI gate | ✅ | ✅ | ✅ | ✅ |
-| **Ships in** | **v0.1** | v0.2 | v0.2 | v0.1 (MCP + CLI + git/CI) |
-| **Tier** | **Full** | **Full** *(hooks API in Preview)* | **Full** | **Commit-time** |
+| Capability | Claude Code | VS Code (Copilot agent) | Cursor | Antigravity | Cline / Windsurf / other MCP clients |
+|---|---|---|---|---|---|
+| Rules (§18) | `CLAUDE.md` block | `AGENTS.md` block | `AGENTS.md` block | `AGENTS.md` block | Directive by hand |
+| MCP tools + resources | ✅ plugin | ✅ `.vscode/mcp.json` | ✅ `.cursor/mcp.json` | ✅ `.agents/mcp_config.json` | ✅ |
+| CLI fallback via shell | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Workflow commands | `/seamspec:<name>` (plugin skills) | `/seamspec-<name>` (prompt files) | `/seamspec-<name>` (commands) | `/seamspec-<name>` (skills) | MCP prompts |
+| SeamSpec's reviewer (§15.3) | ✅ plugin agent | — | — | — | — |
+| Session-start summary + braindump nudge (§13.9) | ✅ `SessionStart` | ✅ `SessionStart` `additionalContext` | ✅ `sessionStart` `additional_context` | ✅ `SessionStart` `injectSteps` | Directive fallback |
+| Completion gate | ✅ `Stop` + `decision: block` | ✅ `Stop` + `decision: block` | ✅ `stop` + `followup_message` (capped by `loop_limit`) | ✅ `Stop` + `decision: continue` | ❌ |
+| Edit-time context (§7.2) and ledger protection | ✅ `PreToolUse` | Planned: needs the host's tool names | Planned: needs the host's tool names | Planned: needs the host's tool names | ❌ |
+| git pre-commit | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CI gate | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Ships in** | **v0.1** | **v0.1** (ADR-20261013-e8f3) | **v0.1** | **v0.1** | v0.1 (MCP + CLI + git/CI) |
+| **Tier** | **Full** | **Session + gate** *(hooks API in Preview)* | **Session + gate** | **Session + gate** | **Commit-time** |
 
 > [!WARNING]
-> Copilot and Cursor capabilities were re-checked against their official hook docs on 2026-10-05 (VS Code agent hooks reference; cursor.com/docs/hooks), **not yet hands-on**. VS Code labels agent hooks as Preview. Cursor's completion gate works by auto-submitting a "fix this" follow-up message rather than refusing to stop, and Cursor cloud agents don't run every hook (e.g. `sessionStart`). Every adapter is a thin config file over the shared CLI and must be re-verified before each release. `seamspec doctor` reports the detected tier per host.
+> Re-checked against each host's public documentation on 2026-10-13 (VS Code hooks reference, cursor.com/docs/agent/hooks, antigravity.google/docs/hooks, rules and MCP pages), **not yet hands-on**; the owner's first check in each tool is the first real run. VS Code labels agent hooks as Preview. Cursor's completion gate works by auto-submitting a "fix this" follow-up message rather than refusing to stop, and Cursor cloud agents don't run every hook (e.g. `sessionStart`). Every adapter is a thin config file over the shared CLI and must be re-verified before each release. `seamspec doctor` reports the detected tier per host.
 
-**Launch strategy:** **v0.1 ships Claude Code only**, as a Claude Code plugin (§16.1), because it has the most mature hooks and keeps the first release small enough to finish and measure. Copilot and Cursor adapters follow in **v0.2**, soon after, since they are thin config files over the same CLI (§22). Other MCP clients get commit-time enforcement until they add hooks.
+**Launch strategy (changed 2026-10-13, ADR-20261013-f4a8, ADR-20261013-e8f3):** v0.1 ships Claude Code as a plugin (§16.1) and, through `seamspec init --hosts`, Cursor, VS Code (Copilot) and Antigravity as project files: the protocol in `AGENTS.md`, SeamSpec's MCP server, session-start and stop hooks, and `/seamspec-*` commands. Edit-time context and ledger protection on those hosts wait for their tool names, which their docs don't list; the commit gate and CI cover every host already.
 
 ---
 
@@ -374,7 +350,7 @@ The agent should see the relevant rules and dead ends *before* it edits a govern
 ├── BRAINDUMP.md                      # human-owned scratchpad (gitignored by default) — v0.2
 ├── CLAUDE.md                         # SeamSpec directive block between markers, written by init (§18)
 ├── .claude/
-│   └── settings.json                 # enables the seamspec Claude Code plugin for the team (§16.1; key names to verify)
+│   └── settings.json                 # with `--plugin-scope project`: the seamspec plugin for the team (§16.1)
 ├── .github/
 │   ├── hooks/seamspec.json           # VS Code Copilot hooks (generated) — v0.2
 │   ├── prompts/seamspec-*.prompt.md  # Copilot workflow commands (generated, §15A) — v0.2
@@ -481,7 +457,7 @@ paths = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
 gate_mode = "context"          # context | deny_once | off (§7.2)
 fail_closed = false            # strict mode defaults to true
 
-[braindump]                     # v0.2
+[braindump]                     # v0.1 (ADR-20261013-d9e4)
 path = "BRAINDUMP.md"
 marker = "<!-- seamspec:processed -->"
 redact_secrets = true
@@ -496,7 +472,7 @@ hosts = ["auto"]               # auto | claude | cursor | vscode (v0.1: claude)
 max_proposals_per_run = 3      # cap for /seamspec:checkpoint and /seamspec:drain
 
 [proposals]
-max_pending = 10               # project-wide cap on PROPOSED invariants awaiting review
+max_pending = 10               # project-wide cap on what awaits review: proposed rules + proposed decisions
 
 [execution]                    # §12.4 Execution Consent
 run_proposed = "auto"          # auto | host | ask | never — how proposed (unapproved) tests may run (v0.1: host | never; ask = v0.2)
@@ -578,7 +554,8 @@ chat_approvals = false         # approve, reject and supersede in a chat dialog 
     "approved_by": { "type": ["string", "null"] },
     "superseded_by": { "type": ["string", "null"], "pattern": "^inv_[a-f0-9]{8}$" },
     "status_reason": { "type": ["string", "null"], "description": "Why rejected or superseded" },
-    "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human made the decision that set the status; null means the terminal (ADR-20261006-c300)" }
+    "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human made the decision that set the status; null means the terminal (ADR-20261006-c300)" },
+    "critical": { "type": "boolean", "default": false, "description": "Always shown to the agent in full, however many rules there are; set by a human (ADR-20261013-c1a9)" }
   },
   "allOf": [
     {
@@ -677,6 +654,7 @@ chat_approvals = false         # approve, reject and supersede in a chat dialog 
     "failure_symptom": { "type": "string", "maxLength": 1000, "description": "Why it failed (truncated traceback or reason)" },
     "source": { "enum": ["verifier", "braindump", "manual", "agent"] },
     "related_invariant": { "type": ["string", "null"], "pattern": "^inv_[a-f0-9]{8}$" },
+    "origin_ref": { "type": ["string", "null"], "description": "Where it came from, e.g. braindump item bd_77aa0c12 (ADR-20261013-d9e4)" },
     "status": { "enum": ["ACTIVE", "RETIRED"] },
     "retired_reason": { "type": ["string", "null"], "description": "e.g. 'Fixed upstream in redis-py 6.2'" },
     "decided_via": { "enum": ["terminal", "chat", null], "description": "Where a human retired it; null means the terminal (ADR-20261006-c300)" },
@@ -749,13 +727,13 @@ stateDiagram-v2
 
 | Transition | Actor | Preconditions | Effects |
 |---|---|---|---|
-| → `PROPOSED` | Agent or human | Valid schema; runner exists; harness written by SeamSpec; fewer than `proposals.max_pending` invariants already `PROPOSED` (agent only; humans and `replace_id` updates are exempt). **Nothing is executed**; verification is `pending` until run through a consented path (§12.4) | Record + harness + draft ADR created |
+| → `PROPOSED` | Agent or human | Valid schema; runner exists; harness written by SeamSpec; fewer than `proposals.max_pending` items already awaiting review: `PROPOSED` invariants plus proposed decisions with no rule of their own (agent only; humans and `replace_id` updates are exempt; ADR-20261014-8a57). **Nothing is executed**; verification is `pending` until run through a consented path (§12.4) | Record + harness + draft ADR created |
 | `PROPOSED` → `PROPOSED` | Agent | `replace_id` points to a `PROPOSED` record | Harness/assertion updated; verification reset to `pending` |
 | `PROPOSED` → `LOCKED` | **Human only** | Interactive TTY, or the human's answer in a SeamSpec chat dialog (§11.5); human has been shown the full harness **and its red-green result** (§11.4); harness passes when run at approval | Harness moved from `.seamspec/proposed/` into the runner's `harness_dir`; hashes computed; runner config fingerprints confirmed (§12.2); `approved_at/by` set; ADR → `ACCEPTED` |
 | `PROPOSED` → `REJECTED` | Human | Reason given | `review` then asks *"Also record as dead end? [y/N]"* (default **No**); `reject --dead-end` does the same non-interactively. Never automatic |
-| `LOCKED` → `SUPERSEDED` | **Human only** | Pending supersede request or explicit command; replacement invariant (may be `null` for pure retirement, with reason) | Old record keeps history; excluded from verification; ADR → `SUPERSEDED` |
+| `LOCKED` → `SUPERSEDED` | **Human only** | Pending supersede request or explicit command; replacement invariant, which must already be `LOCKED` (may be `null` for pure retirement, with reason) | Old record keeps history; excluded from verification; ADR → `SUPERSEDED` |
 
-**Pending-proposal cap.** When `proposals.max_pending` is reached, `propose_invariant` returns `{ "error": "queue_full", "pending": 10, "message": "Review queue is full. Ask the user to run `seamspec review`." }` and writes nothing. The cap applies to the review backlog, not to a single session, because the backlog is what overwhelms the human. Dead ends are not capped (they need no approval).
+**Pending-proposal cap.** The backlog counts `PROPOSED` invariants and proposed decisions with no rule of their own (one long plan once became 20 decisions in a single sort; ADR-20261014-8a57). When `proposals.max_pending` is reached, `propose_invariant` and `propose_decision` return `{ "error": "queue_full", "pending": 10, "message": "Review queue is full. Ask the user to run `seamspec review`." }` and writes nothing. The cap applies to the review backlog, not to a single session, because the backlog is what overwhelms the human. Dead ends are not capped (they need no approval).
 
 **Why rejection doesn't auto-create a dead end.** People reject proposals for different reasons: bad wording, wrong scope, or a genuinely wrong approach. Only the last one is a dead end, so the human decides with one key. When they say yes, the dead end gets the proposal's scope, `approach` = the assertion, and `failure_symptom` = the rejection reason.
 
@@ -781,6 +759,9 @@ When the agent's change legitimately breaks a `LOCKED` invariant:
 2. Agent calls `request_supersede` → request saved to `.seamspec/.local/requests/`.
 3. Stop hook sees a pending request for that failing invariant → **allows stop** (no infinite loop) and emits a user-facing message.
 4. Pre-commit and CI still fail until the human runs `seamspec review` and approves the supersede.
+5. **If the human declines** (ADR-20261024-6f0c), the request is dropped and a note is kept in `.seamspec/.local/declined/<id>.json` (when, the person's reason in a chat review, what the agent had asked). While the rule is still `LOCKED`, the agent is told: *"A person declined the request to retire inv_… (title) on <date>. Keep the behavior it protects: restore it if your change broke it, and don't ask to change it again unless the user asks for that change."* It appears in the Stop hook's block (whose last line becomes *"Fix the regression: a person already decided to keep these rules."* when every failing rule was declined), in `get_constraints` / `seamspec context` (`declined`) for the files it covers, and in the session-start text under *"SeamSpec: changes a person declined; the rules stay in force:"*. A new request for the same rule replaces the note. Found in the release rehearsal: without it, the agent kept saying its request was pending and asked for approval instead of restoring the rule.
+
+**The old rule is never retired in favor of a rule that is still only proposed** (ADR-20261013-7c2e). `lifecycle.supersede` refuses while the replacement is `PROPOSED`, so every path locks the replacement first. In `seamspec review` a request and its replacement are **one item and one decision**: the reviewer sees the rule that would stop running, then its replacement (whose card says what it replaces), and one answer locks the replacement and only then retires the old rule. If the replacement's test fails, the old rule stays locked. Stopping at any point leaves both waiting together; the replacement is never offered on its own in the proposals list. Declining keeps the old rule and offers to reject the replacement. A request with no replacement can still be approved, under the line *"No replacement: after this, no rule protects this behavior."* If both rules are briefly locked (after a crash between the two steps), the old one fails loudly, which is the safe side.
 
 This is the escape hatch that keeps the ratchet from becoming a cage.
 
@@ -802,7 +783,8 @@ An agent grading its own work is the core weakness of agent-written tests, and r
 - **How:** the proposed test runs on the **working tree first**, then against **`HEAD`** in a temporary detached `git worktree`. That worktree gets SeamSpec's *current* `config.toml` and runner config files (so both runs use the same runner) and links to the project's `.venv` / `venv` / `node_modules`, since a fresh worktree has none. It works when `.seamspec/` sits in a subfolder of the git repo, and the worktree is always removed.
 - **The HEAD run imports HEAD's code** (ADR-20261011-3c7e). A project installed in editable mode (`uv sync`, `pip install -e`) has its virtualenv point at the working tree, so the linked `.venv` alone would hand the HEAD run today's code and give a false "no". The HEAD run therefore starts the runner through a copy of its start script, first on `PATH`, that moves every import path inside the repository to the worktree. `PATH` stays the only variable SeamSpec sets (§12.4.7). Where the copy can't be made (a binary, a Windows launcher, a command given as a path) and an editable install is present, the answer is `n/a`. It is also `n/a` when the copy was made but didn't start: a failed start must never read as "fails without your change".
 - **Result:** *"Fails without your change: YES | NO | COULDN'T TELL (why)"* on its own line (verdicts `yes`, `no`, `n/a`):
-  - `yes`: passes on the working tree and fails on `HEAD`.
+  - `yes`: passes on the working tree and fails on `HEAD`. The line also says what failed there, from the runner's report: *"YES (it fails on HEAD and passes with your change; on HEAD: assert 30.0 == 60)"*.
+  - `yes`, **but only because the code is new** (`new_code`, ADR-20261013-a5d3): every failure on `HEAD` is the test being unable to import or find what it tests (`ModuleNotFoundError`, `ImportError`, a module or class without the attribute, `FileNotFoundError`; in JavaScript *"is not a function"*, *"Failed to resolve import"*). Any test of new code fails that way, a test that checks nothing included, so the line reads *"YES, BUT ONLY BECAUSE THE CODE IS NEW (the last commit doesn't have what this test needs: …)"*, followed by what the reviewer can do: *"To see this test catch something: break the new code on purpose, run `seamspec verify --proposed <id>`, and check that it fails."*
   - `no`: passes on both. That's fine for a characterization test of behavior that already existed; on a brand-new feature it's a strong hint the test checks nothing.
   - `n/a`: the check couldn't give an answer: the test fails on the working tree (approval would be refused anyway), there's no git repo or no commit yet, the runner is missing, the HEAD copy couldn't be prepared, or the project is installed in editable mode and the test couldn't be pointed at HEAD's code.
 - It is **information, not a gate.** v0.1 supports pytest and vitest.
@@ -812,12 +794,12 @@ An agent grading its own work is the core weakness of agent-written tests, and r
 > [!IMPORTANT]
 > **Off by default** (`[review] chat_approvals = false`, ADR-20261008-5d1e). In the owner's click-through, Claude Code's terminal CLI folded the dialog to about three lines and hid the test, and the desktop app showed no dialog and declined each one. A second try in a full-screen terminal folded it the same way. Until a client shows the whole dialog, approvals happen in `seamspec review`; the agent offers to open it for the user in a terminal tab beside the chat (§15A.1 rule 8). A project can turn this on, accepting what its client shows; everything below describes it when it's on.
 
-The human can review in the chat instead of a terminal. The agent calls the MCP tool `open_review(ids?)` (usually after the human says yes to *"review it here?"*). SeamSpec then shows **one form dialog per item**, in the same order as `seamspec review`: dead ends recorded since the last review, supersede requests, proposed rules. The agent passes only ids, never the text shown, and it can't answer the dialogs; it gets back only the outcomes (e.g. *"inv_… approved (LOCKED)"*, *"inv_… rejected (reason)"*).
+The human can review in the chat instead of a terminal. The agent calls the MCP tool `open_review(ids?)` (usually after the human says yes to *"review it here?"*). SeamSpec then shows **one form dialog per item**, in the same order as `seamspec review`: dead ends recorded since the last review, supersede requests (a proposed replacement right before its request, §11.2), proposed rules. The agent passes only ids, never the text shown, and it can't answer the dialogs; it gets back only the outcomes (e.g. *"inv_… approved (LOCKED)"*, *"inv_… rejected (reason)"*).
 
 | Item | Choices | Needs a reason | Result |
 |---|---|---|---|
 | Proposed rule | skip / approve / reject / redgreen | reject (the agent sees it); *also record as dead end* box | approve runs the test and locks the rule, as `seamspec approve` does; redgreen asks before running (§11.4) |
-| Supersede request | skip / supersede / decline | decline (the agent sees it) | supersede retires the rule; a PROPOSED replacement is offered next, for its own approval |
+| Supersede request | skip / supersede / decline | decline (the agent sees it) | supersede retires the rule. Its proposed replacement gets its own dialog **first**; while that replacement isn't locked, *supersede* isn't offered and the dialog says why (ADR-20261013-7c2e) |
 | New dead end | skip / keep / wrong | wrong | wrong retires it; keep and wrong mark it as seen |
 
 - **Dialog text** comes from the ledger: the rule, scope, runner, quoted origin, the **full test**, the red-green result, and for a supersede the old rule, the request's reason and the replacement. Every dialog starts *"From SeamSpec, not the agent. The agent can't answer this dialog."*, and agent-written text is marked line by line (`│`) so it can't pass for SeamSpec's own words.
@@ -945,6 +927,7 @@ Allow automatic test runs in this repository? [y/N]
 - Not a terminal and no `--accept-auto-run`: **nobody was asked**. A new setup stays in `advisory` mode and records nothing; an answer recorded earlier on this machine is **kept**, never overwritten with a "no" nobody gave (dogfooding finding #7, ADR-20261006-0f6e).
 - **Changing your mind later:** re-running `seamspec init` with consent switches an advisory config to `enforced` (or the given `--mode`), rewriting only the `mode` line. Entering or leaving `strict` also sets the `fail_closed` / `trust_level` lines that `init` itself wrote; values a human edited are left alone (ADR-20261005-8e80). Lowering the mode needs a human at a terminal (§7.3, ADR-20261007-1b4c).
 - `init` also **trusts the clone** when it creates `config.toml` (whoever runs it just wrote those runner commands).
+- **A rerun keeps a yes** (ADR-20261017-7b0e). When this machine already allowed automatic runs here and the clone is trusted, `init` doesn't ask again: it prints *"Automatic test runs: already allowed on this machine (`seamspec init --mode advisory` stops them)."* Asking again with *No* as the default meant one Enter, while rerunning `init` to add an editor, could switch the checks off.
 - **A fresh clone gets one question** (ADR-20261005-9b8f). When `config.toml` already exists and this machine hasn't trusted it, the consent screen also lists the runner commands, env passthrough and number of locked tests (what `seamspec trust` shows) and asks *"Allow automatic test runs with these commands in this repository?"*. Yes records consent and trust; no records neither. The trust is **bound to what was shown**: if the runner settings on disk no longer hash the same when it is granted (e.g. `--mode strict` switched `trust_level`, or an edit while the prompt was open), nothing is trusted and `init` says to run `seamspec trust`. Committed config values are printed **escaped** on both trust screens (anything beyond plain characters is JSON-quoted), so a clone's config can't hide or repaint text with newlines or terminal escapes. `--accept-auto-run` is consent only: a scripted setup never trusts someone else's committed commands, so run `seamspec trust` at a terminal.
 
 #### 12.4.6 Repo Trust (Trust-on-First-Use)
@@ -1080,6 +1063,25 @@ One command runs many harnesses. Without attribution, one failure would mark eve
 2. **`go-test-json`:** every event carries the `Package`, and each harness package path ends in the invariant ID. The JSON is turned into plain text before it is shown to the agent.
 3. **Isolated reruns (fallback):** used when `report = "none"`, or when the report is missing or doesn't cover every harness (e.g. the test crashed before writing it). If the group failed and has at most `verify.isolate_on_failure` (10) harnesses, each one is rerun alone. Reruns only happen on failure and only for `LOCKED` tests that already have consent. Above the limit, the whole group is reported.
 
+**What the human reads when a rule fails** (ADR-20261013-4e9b). Every failure report has one short block per failing rule, built from the ledger and the JUnit report, never by parsing terminal output:
+
+```
+SeamSpec: commit blocked.
+
+1 rule fails:
+  inv_246b5fb8 · The gateway gives up after exactly 5 attempts by default
+    line 29: assert len(backend.requests) == 5
+      AssertionError: assert 4 == 5  (3 test cases)
+    Test: .seamspec/tests/test_inv_246b5fb8.py
+
+Fix the regression, or if the change is intentional, supersede the rule (`seamspec supersede <id> --reason ...`).
+Full test output: `seamspec verify --all`
+```
+
+- **The rule:** its id and title. **The check:** the line of the rule's own test file where the failure happened (its text read from disk) and the first line of what the runner reported. Identical failures are counted, not repeated: a parametrized test that fails three times is one line with *"(3 test cases)"*. A pytest collection error shows its reason (for example the `ImportError`), not the words "collection failure".
+- **Where it goes:** at a refused commit (`verify --gate`) the block replaces the runner's output for every failure it explains, and the last line says how to get the full output. A plain `seamspec verify` and CI keep the runner's output and put the block after it, where the eye lands. The Stop hook puts the block first and the runner's output after it, because the agent needs both and Claude Code keeps the start of a long hook message.
+- **A summary never hides a failure.** A rule whose failure the report can't explain is still listed, with the reason (*"its test timed out"*, *"the runner's report doesn't say where"*, *"harness modified since approval"*, *"ran no tests, or skipped every test"*), and the runner's output for that group is shown in every mode.
+
 ### 12A.5 Where Tests Live
 
 When `harness_dir` is outside `.seamspec/`, LOCKED harnesses sit in the project's normal test tree:
@@ -1093,14 +1095,14 @@ When `harness_dir` is outside `.seamspec/`, LOCKED harnesses sit in the project'
 
 | Language | Setup |
 |---|---|
-| Python | `init` writes `.seamspec/pytest.ini` with `pythonpath = ..`, i.e. the repo root (§12.3) |
+| Python | `init` writes `.seamspec/pytest.ini` with `pythonpath = ..`, i.e. the repo root (§12.3), plus the folders the project's own pytest settings add (`pythonpath` in `pyproject.toml`'s `[tool.pytest.ini_options]`, `pytest.ini`, `setup.cfg`'s `[tool:pytest]` or `tox.ini`), as `../<folder>` (ADR-20261018-0b7d) |
 | TypeScript / JavaScript | Relative imports from `tests/seamspec/`; SeamSpec's own `vitest.config.mjs` (aliases added there if needed) |
 | Go | Each harness is its own package inside the module and imports project packages by module path (from `go.mod`). Tests exercise exported behavior, which suits behavior-level invariants |
 | Rust | Integration tests import the crate by name, which needs a library target. Binary-only crates are tested by running the binary via `env!("CARGO_BIN_EXE_<name>")` |
 
 `get_constraints` includes, per runner, the harness location, an import hint and where the runner's program comes from, so the agent writes harnesses that compile on the first try (ADR-20261011-e7c5):
 
-- **The Python import hint follows the project's layout.** `src/` is itself a package (`src/__init__.py`): `from src.queue import …`. Packages under `src/`: import the package by its name, never `src.<package>` (that loads a second copy); it's importable because the project is installed in its virtualenv. Packages at the root: `from <package> import …`. The example names a real package, preferring the one that matches `[project] name`.
+- **The Python import hint follows the project's layout.** `src/` is itself a package (`src/__init__.py`): `from src.queue import …`. Packages under `src/`: import the package by its name, never `src.<package>` (that loads a second copy). It's importable because SeamSpec's pytest.ini adds `src/` (when the project's pytest settings do, ADR-20261018-0b7d), or else because the project is installed in its virtualenv. `doctor` warns when the project's pytest settings add a folder that `.seamspec/pytest.ini` doesn't (an older setup): rule tests could then fail to import what the project's own tests can. Packages at the root: `from <package> import …`. The example names a real package, preferring the one that matches `[project] name`.
 - **`command`** says which program the runner resolves to, e.g. *"`pytest` resolves to .venv/bin/pytest"*, found the way the verifier finds it (§12.4.7): the project's `.venv`, `venv` and `node_modules/.bin` first, without activation, then `PATH`. **An activated virtualenv (`VIRTUAL_ENV`) wins over the project's `.venv` and `venv`**, and the note then says so. A command written as a path (`./scripts/run-tests.sh`) isn't looked up: the note says it is run as written from the project root, or that it doesn't exist or isn't executable. So an agent that finds no `pytest` on its own `PATH` doesn't conclude the config is wrong. `init` writes the lookup, with the `VIRTUAL_ENV` exception, as a comment above the pytest runner's `cmd`.
 
 ### 12A.7 Language Detection at `init`
@@ -1139,6 +1141,8 @@ When `harness_dir` is outside `.seamspec/`, LOCKED harnesses sit in the project'
 
 Developers already keep a messy scratchpad next to their IDE. BRAINDUMP.md makes it a first-class, low-friction input: **capture is decoupled from structure.** Write chaotic thoughts; SeamSpec helps distill them into proposed invariants, decisions, and dead ends.
 
+**Built in v0.1** (ADR-20261013-d9e4; moved up by ADR-20261013-f4a8). It is the other half of "you never write the list": the agent proposes rules from working code, and from the person's own notes. Where the build differs from the design below, the ADR says why: `init` creates the file once with its examples inside a comment (so they are never read as notes) and git-ignores it only then; `braindump_pending` dismisses with a mapping; proposed decisions with no rule of their own are accepted or rejected in `seamspec review`.
+
 ### 13.2 Ownership Rules
 
 1. **The human owns everything above the marker.** SeamSpec never rewrites, reorders, or strikes through it.
@@ -1154,16 +1158,24 @@ Developers already keep a messy scratchpad next to their IDE. BRAINDUMP.md makes
 
 ### 13.4 Template
 
+The packaged template, [`seamspec/templates/BRAINDUMP.md`](../seamspec/templates/BRAINDUMP.md), which `init` writes once:
+
 ```markdown
 # BRAINDUMP.md
-<!-- Write anything. Bullets, paragraphs, pasted snippets. SeamSpec only reads above the marker. -->
 
-- Thinking about swapping the in-memory queue for SQLite with WAL mode.
-- Tenant isolation must not leak if `org_id` is missing from the header — reject with 400.
-- Look at how Stripe handles idempotent webhooks; maybe an `Idempotency-Key` header check?
-- Error format should be RFC 7807 problem details everywhere.
-- Tried caching JWT validation per-request in a global dict — leaked across tenants. Don't.
-- TODO benchmark Redis pipelining under load.
+<!--
+Your scratchpad. Write anything here: half-formed rules, decisions, things that didn't work,
+pasted snippets. Bullets or paragraphs, in any order. For example:
+
+  - Tenant isolation must never leak if org_id is missing from the header.
+  - Error format should be RFC 7807 problem details everywhere.
+  - Tried caching JWT validation in a global dict: it leaked across tenants. Don't.
+
+When you want, ask the agent to sort it (/seamspec:drain, or just "sort my braindump"). Rules it
+proposes still wait for your approval in `seamspec review`. SeamSpec only reads above the marker
+below and never changes what you wrote, unless you run `seamspec drain --tidy`.
+This file is git-ignored, so it stays yours; remove it from .gitignore to share it with your team.
+-->
 
 <!-- seamspec:processed -->
 ## Processed (managed by SeamSpec)
@@ -1183,13 +1195,22 @@ The **in-session agent** classifies each pending item; SeamSpec stores the resul
 
 | Classification | Example | Result |
 |---|---|---|
-| **Constraint** | "Tenant isolation must not leak if `org_id` is missing" | `propose_invariant` (with harness) → `PROPOSED` |
+| **Constraint** | "Tenant isolation must not leak if `org_id` is missing" | `propose_invariant` (with harness) → `PROPOSED`, when its code exists and works; otherwise set aside as `planned` (§13.6a) |
 | **Decision** | "RFC 7807 errors everywhere" | `propose_decision` (ADR) and/or `propose_invariant` |
 | **Failed approach** | "Global dict JWT cache leaked across tenants" | `log_dead_end` → `ACTIVE` |
 | **Exploration / question** | "Look at how Stripe handles idempotency" | Dismissed as `exploration` (stays in braindump) |
 | **Task** | "Benchmark Redis pipelining" | Dismissed as `todo` (stays in braindump) |
 
 Every write uses `origin.type = "braindump"` and `origin.ref = <item id>`. Dismissals are recorded via `braindump_pending(dismiss=[...])`. **Nothing from a drain is ever `LOCKED` without human approval.**
+
+### 13.6a Planned Rules (ADR-20261014-5e3a)
+
+A rule can't be proposed before its code exists: its test has to pass, and review shows it failing without the change. Notes like that used to sit in BRAINDUMP.md doing nothing until the code arrived, and nothing told the agent about them while it built that code (owner's Antigravity test, 2026-10-14). Now:
+
+- **Set aside as `planned`.** The drain sets such a note aside as `planned` (`braindump_pending(dismiss={id: "planned"})`, or `seamspec drain --dismiss ID=planned`). It stays in the file and stops being pending, so it doesn't trigger the nudge (§13.9).
+- **Shown to the agent, labelled as not enforced.** Planned notes still in the file are listed after the rules in the session-start text, under *"SeamSpec: rules the user planned in their notes (not enforced, no test yet). Build to them. When the code for one exists and works, propose it as a rule…"* (at most 15, then a count). They also appear in `get_constraints` (`planned: {note, rules}`, project-wide, since a note has no scope), in `braindump_pending` (`planned`), in `seamspec context`, `seamspec drain` (list and `--json`) and `seamspec status` (`braindump.planned`).
+- **Become rules the usual way.** When the code works, the agent proposes the rule with `origin_ref` = the note's id; the note's state becomes `invariant` and it leaves the planned list. The drain looks at planned notes on every sort. Approval in `seamspec review` is unchanged: nothing is enforced before a human approves a passing test.
+- **Personal, like the file.** The plan lives in `.seamspec/.local/braindump.json`, never in the ledger. Deleting the note drops the plan; `seamspec drain --tidy` leaves planned notes where they are.
 
 ### 13.7 Managed Section Format
 
@@ -1200,6 +1221,8 @@ Every write uses `origin.type = "braindump"` and `origin.ref = <item id>`. Dismi
 - `bd_0c3e91fa` → dead end `de_9f8e7d6c` — "Tried caching JWT validation per-request…"
 - `bd_4b1d22e0` → dismissed (todo) — "TODO benchmark Redis pipelining…"
 ```
+
+**Notes typed below the marker** (ADR-20261024-b3e9). The end of the file is the natural place to type, but it is SeamSpec's log, which is never read for notes. Any line there other than the heading and log lines (`` - `bd_…` → ``) is pointed out: *"2 line(s) in BRAINDUMP.md are below the `<!-- seamspec:processed -->` line, where SeamSpec keeps its log and doesn't read notes. Move them above that line to have them sorted."* `seamspec drain` (text, and `below_marker` in `--json`), `seamspec status` and `braindump_pending` (`below_marker`, adding *"Tell the user; never edit the file yourself."*) show it. SeamSpec never moves the lines itself (§13.2).
 
 ### 13.8 Secret Redaction
 
@@ -1226,7 +1249,7 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 **Rules**
 
 - **Ask, never auto-drain.** Draining spends the user's tokens and records dead ends immediately, so it needs a yes. A yes runs the normal drain (§13.6); every rule it proposes still waits for `seamspec review`.
-- **Nudge only on change.** `.seamspec/.local/nudge.json` stores a hash of the pending item ids at the last nudge. If the user declined and wrote nothing new, later sessions stay quiet. New items → nudge again.
+- **Nudge only on change.** `.seamspec/.local/nudge.json` stores a hash of the pending item ids and the project's files (`tree.tree_fingerprint`: `HEAD` plus changed and untracked, non-ignored files) at the last nudge. If the user declined and neither the notes nor the code changed, later sessions stay quiet. New items, or changed code, → nudge again: an offer can go unanswered in a chat that starts with a task, and a note can wait for code that now exists (hands-on test, ADR-20261014-8a57).
 - **Once per session.** After a no, the agent doesn't offer again in that session (§18 rule 10).
 - **Startup and clear only.** Not on resume or compaction, so it never interrupts a task in progress.
 - **Fail silent.** Any error → no output. The nudge is convenience, never enforcement.
@@ -1239,7 +1262,7 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 
 **7 tools + 2 resources + 7 prompts** when complete (v0.1 ships the 5 tools below and the prompts for its commands). Every tool maps 1:1 to a CLI command. Target: < 1,500 tokens of tool definitions. Prompts power the workflow commands (§15A) and are user-invoked, so they don't add to the model's context until someone runs one.
 
-**v0.1 ships 5 tools:** `get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`. `propose_decision` and `braindump_pending` arrive with BRAINDUMP in v0.2.
+**v0.1 ships 7 tools:** `get_constraints`, `propose_invariant`, `log_dead_end`, `request_supersede`, `verify`, `open_review` (§11.5) and `review_material` (§15.3). `propose_decision` and `braindump_pending` arrive with BRAINDUMP (moved into v0.1, ADR-20261013-f4a8). The tool definitions stay under a token budget that a test checks (about 1,300 of 1,500 tokens with seven).
 
 ### 14.1 Tools
 
@@ -1252,7 +1275,8 @@ SeamSpec: 3 items await human review. Remind the user to run `seamspec review` w
 | `request_supersede(invariant_id, reason, replacement?)` | Ask the human to retire/replace a locked invariant | `seamspec supersede --request` |
 | `verify(scope)` | Run `LOCKED` invariant tests (`changed` / `all`). **Never runs proposed tests** | `seamspec verify` |
 | `open_review(ids?)` | Show the human SeamSpec's review dialogs in the chat; returns only the outcomes (§11.5) | `seamspec review` |
-| `braindump_pending(dismiss?)` | List unprocessed braindump items; optionally dismiss items as `todo` / `exploration` | `seamspec drain` |
+| `review_material(ids?)` | **Read-only, runs nothing.** What waits for review, with SeamSpec's facts about each test and the code changes in each item's scope; for SeamSpec's reviewer agent (§15.3) | — |
+| `braindump_pending(dismiss?)` | List unprocessed braindump items and planned rules; optionally set items aside as `todo` / `exploration` / `planned` (§13.6a) | `seamspec drain [--dismiss ID=todo\|exploration\|planned]` |
 
 **Signatures:**
 
@@ -1270,7 +1294,8 @@ propose_invariant(
     origin_ref: str | None = None,     # e.g. braindump item id
     scope_tags: list[str] = [],
     replace_id: str | None = None,     # update an existing PROPOSED invariant
-    adr: { context: str, decision: str, consequences: list[str] } | None = None
+    adr: { context: str, decision: str, consequences: list[str] } | None = None,
+    critical: bool = False             # a suggestion: shown in review; approving keeps it (§10.1, ADR-20261013-c1a9)
 ) -> { id, status, harness_path, verify: { status: "pending", run: "seamspec verify --proposed <id>" } }
   | { error: "queue_full", pending: int, message: str }   # proposals.max_pending reached; nothing written
 
@@ -1278,8 +1303,8 @@ propose_decision(title: str, context: str, decision: str, consequences: list[str
                  scope_paths: list[str], origin_text: str, origin_ref: str | None = None) -> { adr_id }
 
 log_dead_end(scope_paths: list[str], approach: str, failure_symptom: str,
-             related_invariant: str | None = None) -> { id }
-             # origin_ref (braindump item id) arrives with BRAINDUMP in v0.2; dead ends need an origin field first (ADR-20261005-cc29)
+             related_invariant: str | None = None,
+             origin_ref: str | None = None) -> { id }   # origin_ref: the braindump item it came from (ADR-20261013-d9e4)
 
 request_supersede(invariant_id: str, reason: str, replacement_id: str | None = None) -> { request_id }
 
@@ -1289,7 +1314,8 @@ open_review(ids: list[str] | None = None)
   -> { reviewed: list[str], still_waiting: int, message?: str }     # after the dialogs; the agent never answers them
   | { error: "chat_approvals_off" | "no_dialogs", message: str }   # fall back to `seamspec review`
 
-braindump_pending(dismiss: list[{ item_id: str, as: "todo" | "exploration" }] = []) -> { pending: list[Item] }
+braindump_pending(dismiss: { <item id>: "todo" | "exploration" } | None = None)
+  -> { file, pending: list[{ id, text }], dismissed?: list[str], note? }     # a mapping keeps the definition small
 ```
 
 ### 14.2 Resources
@@ -1353,18 +1379,20 @@ The server exposes the 7 workflow commands (`lock`, `dead-end`, `drain`, `checkp
 
 | Command | Purpose |
 |---|---|
-| `seamspec init [--mode advisory\|enforced\|strict] [--hosts auto\|claude,vscode,cursor] [--ci\|--no-ci] [--accept-auto-run] [--plugin\|--no-plugin]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install (asks first; `--plugin`/`--no-plugin` for scripts, §16.1), pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
+| `seamspec init [--mode advisory\|enforced\|strict] [--hosts cursor,vscode,antigravity\|none] [--ci\|--no-ci] [--accept-auto-run] [--plugin\|--no-plugin] [--plugin-scope local\|project]` | Scaffold `.seamspec/` (incl. SeamSpec's own runner config), config, `.gitignore` entries, the SeamSpec block in `CLAUDE.md` (§18), the Claude Code plugin install (asks first, and whether the team gets it too; `--plugin`/`--no-plugin` and `--plugin-scope` for scripts, §16.1), Cursor / VS Code / Antigravity project files (`--hosts`; asks for each host whose folder exists, §16.2–§16.3a), `BRAINDUMP.md` (§13), pre-commit, CI workflow (offered in enforced mode, `--ci`/`--no-ci`; always in strict, §7.3), (strict) CODEOWNERS; BRAINDUMP template and other hosts in v0.2. Shows the auto-run consent screen in enforced/strict mode (§12.4.5). Merges into existing files; never clobbers |
 | `seamspec status [--json]` | Counts by status, pending reviews, new braindump notes, last verify result, detected host tiers |
 | `seamspec context <files...>` | Human/agent-readable constraints for files (MCP-free fallback) |
-| `seamspec review` | Interactive pass over everything waiting for a human, in this order (ADR-20261005-b7e2): **runner config changes** (shown in full; until confirmed, approvals are blocked), **dead ends recorded since the last review** (`k`eep / `w`rong, retire it), **supersede requests** (`a`pprove / `d`ecline / `s`kip), **proposed invariants** oldest first: full test code, then the optional red-green check (§11.4), then `a`pprove / `r`eject / `s`kip. `q` stops at any point; undecided items stay waiting. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"*. Proposed ADRs without invariants arrive with `propose_decision` in v0.2 |
+| `seamspec review` | Interactive pass over everything waiting for a human, in this order (ADR-20261005-b7e2): **runner config changes** (shown in full; until confirmed, approvals are blocked), **dead ends recorded since the last review** (`k`eep / `w`rong, retire it), **supersede requests** (`a`pprove / `d`ecline / `s`kip; a request and its proposed replacement are shown together and decided as one, §11.2), **proposed invariants** oldest first: full test code, then the optional red-green check (§11.4), then `a`pprove / `r`eject / `s`kip. `q` stops at any point; undecided items stay waiting. After `r`, asks for a reason, then *"Also record as dead end? [y/N]"*. Then **proposed decisions** (ADRs with no rule of their own, e.g. from `propose_decision`): `a`ccept / `r`eject / `s`kip, and while more than one is left, `x` rejects this one and every one after it, after listing them and asking *"Reject all N?"*; accepting records the decision and enforces nothing (ADR-20261013-d9e4, ADR-20261014-8a57) |
 | `seamspec approve <id>` / `reject <id> --reason [--dead-end]` | Non-batch equivalents (human only). `approve` shows the full test; if runner config changed, it shows the changed files and asks to confirm them too, otherwise it refuses (ADR-20261005-b7e2) |
 | `seamspec supersede <id> --reason [--replacement <id>]` | Human-initiated supersede, or approve a pending request |
+| `seamspec critical <id> [--off]` | Mark a proposed or locked rule **critical**, or clear the mark (human only). A critical rule is always shown to the agent in full, however many rules there are; it is enforced exactly like any other. Journaled as a note (`critical_marked` / `critical_cleared`), not a status change (ADR-20261013-c1a9) |
 | `seamspec retire-dead-end <id> --reason` | Retire a dead end |
 | `seamspec propose --json -` / `dead-end --json -` | Agent writes via shell when MCP is unavailable |
-| `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
-| `seamspec drain [--json] [--tidy]` *(v0.2)* | List pending braindump items; `--tidy` moves processed items below the marker |
-| `seamspec doctor [--ci] [--base <ref>] [--json]` | Validate config, record schemas, hashes, runner config fingerprints, approval provenance and scopes. Locally it also checks the approval journal, `CLAUDE.md` directive drift (§18), the git pre-commit hook, and hosts allowlisting SeamSpec commands (§12.4.3). `--ci` replaces the local-state checks with ledger forward-only checks against the base branch and the retirement summary (§16.5). Exits 1 on any error; warnings never fail. v0.1 scope: ADR-20261006-9623 |
-| `seamspec spec [--out FILE] [--check FILE]` *(planned, week 5)* | Print the spec the code has earned: a readable document generated from the ledger (§15.2, ADR-20261011-0995) |
+| `seamspec verify [--changed\|--all\|--proposed <id> [--proposed <id> ...]] [--gate] [--ci] [--json]` | Run invariant tests; **exits 1 whenever anything fails** (any mode). `--all` (default) and `--changed` run `LOCKED` tests and save `last_verify.json`; `--proposed` copies each proposed test into place for one run (meant for the human, or the agent's permission-checked shell, §12.4). Untrusted clone: an interactive run offers `seamspec trust` first, a non-interactive run fails. `--gate` (pre-commit): never prompts, also requires auto-run consent, adds the journal check (§11.1) and prints the pending-review reminder; on failure it prints *"SeamSpec: commit blocked."* and the short block per failing rule (§12A.4) in place of the runner's output. `--ci`: skips trust, consent and the journal (CI has no local journal; `doctor --ci` covers status changes) (ADR-20261005-8e80) |
+| `seamspec drain [--json] [--tidy] [--dismiss ID=todo\|exploration\|planned]…` | List the BRAINDUMP.md notes not yet sorted (sorting is the agent's, `/seamspec:drain`); `--tidy` (human only) moves sorted notes below the marker as one log line each; `--dismiss` sets notes aside as a task, an idea or a planned rule (§13.6a), for agents without SeamSpec's tools (ADR-20261014-6c2d); planned rules are listed first; notes typed below the marker are pointed out (§13.7) |
+| `seamspec propose-decision --json -` | Propose a decision record with no test of its own (agents without MCP); a human decides in `seamspec review` |
+| `seamspec doctor [--ci] [--base <ref>] [--json]` | Validate config, record schemas, hashes, runner config fingerprints, approval provenance and scopes. Locally it also checks the approval journal, `CLAUDE.md` directive drift (§18; it says so when lines inside the block aren't SeamSpec's, and that `init` keeps them), the git pre-commit hook, and hosts allowlisting SeamSpec commands (§12.4.3). `--ci` replaces the local-state checks with ledger forward-only checks against the base branch and the retirement summary (§16.5). Exits 1 on any error; warnings never fail. v0.1 scope: ADR-20261006-9623 |
+| `seamspec spec [--out FILE] [--check FILE]` | Print the spec the code has earned: every approved rule as one readable Markdown document, generated from the ledger (§15.2). `--out` writes a copy marked as generated; `--check` exits 1 when that copy is out of date. Read-only: anyone can run it, the agent included |
 | `seamspec mcp` | Run the MCP server (stdio) |
 | `seamspec trust [--show]` | Trust this clone for automatic test runs (interactive); `--show` prints the current trust state (§12.4.6) |
 | `seamspec hook <host> <event>` | Internal: host hook entry point (reads JSON on stdin) |
@@ -1408,21 +1436,67 @@ Run it now to check it fails without your change? [Y/n]:
 - **In chat:** the `lock` and `supersede` skills tell the user what the test does **not** cover before offering the review. That is the agent's view, said in the chat, never stored or shown by `seamspec review`.
 - Chat dialogs (§11.5) put the summary, the facts and the check list first, with the agent's code under the quote bar, then the full test. A supersede dialog shows the same for the test that would stop running.
 
+- **A replacement says what it replaces:** a *"Replaces: inv_… · title (still locked; retired when its supersede request is approved)"* line on its card, or *"(retired)"* afterwards. A supersede request is two blocks, *"the rule that would stop running"* and *"its replacement"*, with one prompt (§11.2).
+
 Later: old and new side by side for replaced proposals and supersedes, and the review page in the browser (ADR-20261006-c300 option B).
 
-### 15.2 The Generated Spec *(planned, week 5, ADR-20261011-0995)*
+### 15.2 The Generated Spec (ADR-20261011-0995, ADR-20261013-2f6b)
 
-SeamSpec writes no specs up front. The spec **builds up from what a human chose to protect**: `seamspec spec` prints it as one readable document, generated from the ledger every time.
+SeamSpec writes no specs up front. The spec **builds up from what a human chose to protect**: `seamspec spec` prints it as one readable Markdown document, generated from the ledger every time.
 
-- **Grouped by area** of the code (the area rule of the session-start summary, §16.1).
-- **Each LOCKED rule:** title, the rule's own text, where it applies, who approved it and when, where it was decided, its test file and, when it has one, its linked decision record.
-- **Retired rules:** SUPERSEDED ones with the reason and, when there is one, the replacement. **Tried and failed:** active dead ends with why they failed.
-- **PROPOSED rules are not in it,** only counted: the spec is what a human approved.
-- **Single source (ADR-20261007-ac04):** it prints to the terminal by default. `--out FILE` writes it with a "generated, do not edit" line. `--check FILE` exits 1 when a written copy is out of date, for teams that commit one. `init` writes no spec file, and agents don't read one.
+```markdown
+# Spec: what this code guarantees
+
+13 rules in force. A person approved each one, and each has a test that must keep passing. This document is generated from the SeamSpec ledger: it lists what was approved, and nothing else.
+
+## Rules in force
+
+### `src/gateway` (4 rules)
+
+#### The gateway gives up after exactly 5 attempts by default
+
+When the provider fails with a transport error on every attempt, a gateway created with default settings sends the request exactly 5 times and then raises TransportFailure.
+
+- **Applies to:** `src/gateway/client.py`
+- **Approved by:** Maya Rao, 2026-10-12, in the terminal
+- **Test:** `.seamspec/tests/test_inv_246b5fb8.py` (pytest)
+- **Replaces:** The gateway gives up after exactly 4 attempts by default (`inv_e4089fed`)
+- **Id:** `inv_246b5fb8`
+
+## Retired rules
+…
+## Tried and failed
+…
+```
+
+- **Grouped by area** of the code, the same area rule as the session-start summary (§16.1; `core/area.py`), areas in alphabetical order, rules oldest approval first. One difference: the area comes from the scope text alone. The summary also checks whether a scope written without a glob or trailing slash is a folder on disk; the spec never does, because an ignored or untracked folder would then change the document from one machine to the next.
+- **Each LOCKED rule:** title, the rule's own text, where it applies, who approved it (the name only, never the email address: the document may be published), when and where (terminal or chat dialog), its test file and runner, what it replaced and, when it has one, its linked decision record. If the test file is missing or was changed since approval, a **Problem** line says so: the document must not claim a test that isn't there.
+- **Retired rules:** SUPERSEDED ones with the reason and what replaced them (or *"Not replaced."*). **Tried and failed:** active dead ends by area, with why they failed.
+- **Only what a human approved.** PROPOSED and REJECTED rules are not in the document. When rules are waiting, the command says so beside the document (*"Not in the spec: 2 proposed rules waiting for review"*), never inside it, so a written copy doesn't go stale each time the agent proposes something.
+- **Same ledger, same bytes.** The document is built from the committed records and the rule tests they point to, and nothing else: no time of the run, no local journal, no folder names, no other look at the disk. Two clones of one commit print the same document. With no rule in force it says *"No rules have been approved yet."*, or *"No rules are in force at the moment."* when some were approved and later retired.
+- **Single source (ADR-20261007-ac04):** it prints to the terminal by default. `--out FILE` writes it with a first line *"Generated by `seamspec spec` … Do not edit"*; it overwrites only a file that starts with that line, refuses a path inside `.seamspec/` (also when reached through a symlink), and reports a failed write as a plain message. `--check FILE` exits 1 when a written copy is out of date (or missing), for teams that commit one and want CI to catch drift; it never writes. `init` writes no spec file, and agents don't read one.
 
 **Positioning.** SeamSpec is a regression guard for agent-written code that works alongside spec-first tools: they say what to build; SeamSpec makes sure it stays built, and shows the spec the code has earned, every approved rule backed by a test (dead ends are history and carry no test).
 
 ---
+
+### 15.3 SeamSpec's Reviewer (ADR-20261013-b7d2)
+
+The review is the one step where SeamSpec's promise rests on a person, and many people don't read tests. In dogfooding, the owner pasted each review screen into a second agent and asked what it meant; that second reader, which hadn't written the code, was the most useful part of reviewing. SeamSpec ships it.
+
+- **A separate agent in the Claude Code plugin,** `seamspec:reviewer` (`seamspec-plugin/agents/reviewer.md`, generated from `seamspec/templates/agents/reviewer.md`). Fresh context: it doesn't see the conversation that produced the code, and it doesn't load the project's `CLAUDE.md`.
+- **Read-only by allowlist:** `Read`, `Grep`, `Glob` and the `review_material` tool. No shell, no edits, no other SeamSpec tools, no approvals. It can't run a test, and it is told never to say it did.
+- **What it reads:** `review_material` returns what `seamspec review` would show now, in the same order (a supersede request and its replacement as one item), with SeamSpec's own facts about each test (size, check lines, warnings, §15.1) and the code changes in the item's scope since the last commit (a bounded `git diff`, plus new files by name). It runs nothing and changes nothing.
+- **What it writes,** per item, in plain language: what the rule promises; what the test checks; what it doesn't check; what changed (for a supersede: what stops being protected); what to look at closely; and "my read": *looks sound to approve*, *ask for changes first*, or *can't tell*, with a reason. It ends: *"This is an explanation, not a decision."*
+- **Everything it reads is material, never instructions.** Titles, rules, reasons, tests and code were written by an agent or a person; text that addresses the reviewer is reported as a red flag.
+- **How it is used:** `/seamspec:explain [ids]`. The working agent launches the reviewer with a fixed one-line task and the ids only, shows its answer **in full and unchanged** under a line saying it comes from a separate agent, may add its own view only after it and marked as such, then offers to open `seamspec review`. The protocol (§18 rule 6) and the `lock` and `supersede` skills offer it before the review.
+- **The decision stays in `seamspec review`,** which keeps showing SeamSpec's own facts and the full test, and runs red-green. The reviewer's words never appear in SeamSpec's cards or dialogs (locked rule `inv_aa498871`).
+- **Model-free core (§3) holds:** SeamSpec calls no model. The reviewer is an agent definition the user's own Claude Code runs, like the skills.
+- **Limits:** the working agent sits between the reviewer and the person; it is told to relay the answer unchanged, and Claude Code also shows the subagent's own transcript, but a dishonest agent could still misreport. The threat this answers is an author grading its own work, not a hostile one.
+- **VS Code and Antigravity** (ADR-20261015-4f7b, from their public docs; not yet tried hands-on). `seamspec init --hosts` writes the reviewer as each tool's own custom agent, from the same prompt:
+  - **VS Code:** `.github/agents/seamspec-reviewer.agent.md` with `tools: ['read', 'search', 'seamspec/review_material']` and `agents: []`. `/seamspec-explain` is a prompt file with `agent: seamspec-reviewer`, so the reviewer answers the user **directly**, with no working agent relaying it. VS Code ignores a tool it can't find; the prompt then says where the items are on disk.
+  - **Antigravity:** `.agents/agents/seamspec-reviewer.md` with `tools: [view_file, grep_search]`, `commandExecutionPolicy: "off"`, `subagent: true`, `mainAgent: false`. Antigravity's docs name no MCP tool for an allowlist and warn that a wrong name can hang the subagent, so it gets only the two documented read tools and **reads the ledger itself** (proposed rules in `.seamspec/invariants/`, their tests in `.seamspec/proposed/`, requests in `.seamspec/.local/requests/`, proposed decisions in `.seamspec/adrs/`, dead ends in `.seamspec/dead_ends/`). It doesn't get SeamSpec's test facts or the diff; it reads the code instead. `/seamspec-explain` is a skill telling the working agent to start it with `invoke_subagent` and relay its answer unchanged, the same as Claude Code.
+  - **Cursor** (ADR-20261018-9c4d): `.cursor/agents/seamspec-reviewer.md` with `readonly: true` (no file edits, no state-changing shell commands; Cursor has no tool allowlist) and `model: inherit`. Like Antigravity's, it reads the ledger itself if `review_material` isn't available to it. `/seamspec-explain` is a command telling the working agent to use the subagent and relay its answer unchanged; the user can also type `/seamspec-reviewer`. Cursor's forum reports bugs with read-only subagents, so it needs a hands-on try. `AGENTS.md` offers the reviewer (`/seamspec-explain`) to all three tools.
 
 ## 15A. Workflow Commands
 
@@ -1453,10 +1527,11 @@ SeamSpec has **two command surfaces**:
 |---|---|---|---|---|
 | `/seamspec:lock` | `<behavior>` (required) | "This works. Protect it." | `get_constraints`, `propose_invariant` | One `PROPOSED` invariant + passing test + optional draft ADR |
 | `/seamspec:dead-end` | `[note]` (optional) | "That approach failed. Don't retry it." | `get_constraints`, `log_dead_end` | One `ACTIVE` dead end |
-| `/seamspec:drain` *(v0.2)* | — | After writing in BRAINDUMP.md | `braindump_pending`, `propose_invariant`, `propose_decision`, `log_dead_end` | Items proposed, logged, dismissed, or left pending |
+| `/seamspec:drain` | — | After writing in BRAINDUMP.md | `braindump_pending`, `propose_invariant`, `propose_decision`, `log_dead_end` | Items proposed, logged, dismissed, or left pending |
 | `/seamspec:checkpoint` | `[focus]` (optional) | End of a session or before a commit | `verify`, `get_constraints`, `propose_invariant`, `log_dead_end` | Verification result + up to N proposals + dead ends |
 | `/seamspec:supersede` | `<invariant_id> <reason>` | A requirement genuinely changed | `get_constraints`, `propose_invariant`, `request_supersede` | Replacement `PROPOSED` invariant + supersede request |
 | `/seamspec:context` | `[files...]` (optional) | Before a big change | `get_constraints` | Plain-language explanation of what applies |
+| `/seamspec:explain` | `[ids]` (optional) | Before `seamspec review` | `review_material`, through the `seamspec:reviewer` agent | The reviewer's plain-language explanation of each pending item, shown unchanged; then the offer to open `seamspec review` (§15.3) |
 | `/seamspec:status` | — | Anytime | MCP prompt renders status server-side; host files run `seamspec status --json` | Counts, pending reviews, last verify, host tiers |
 
 The signature commands are **`/seamspec:lock`** and **`/seamspec:checkpoint`**: the explicit moments where the spec hardens behind you.
@@ -1525,7 +1600,8 @@ Protect this behavior as a SeamSpec invariant: {{args}}
 6. Tell the user the rule is only proposed: it is locked when they approve it in `seamspec review`.
    Before that, tell the user in a line or two what the test does NOT cover (cases, inputs
    or parts of the rule it leaves out), so they can judge it; say so if you see no gap.
-   Offer to open the review for them … (the packaged template is the source of truth)
+   Offer an explanation from SeamSpec's reviewer (`/seamspec:explain`) and to open the review
+   for them … (the packaged template is the source of truth)
 ```
 
 #### `dead-end.md`
@@ -1553,22 +1629,42 @@ Record a failed approach as a SeamSpec dead end. User note (may be empty): {{arg
 ```markdown
 ---
 name: drain
-description: Turn pending BRAINDUMP.md items into proposals, dead ends, or dismissals
+description: Sort the user's BRAINDUMP.md notes into proposed rules, decisions, dead ends or dismissals. Use when the user says "sort my braindump", "drain", or says yes when SeamSpec reports new notes.
+argument-hint: "[note ids]"
 ---
-Process pending items from BRAINDUMP.md.
+Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 
-1. Call `braindump_pending()`.
-2. Classify each item as exactly one of: constraint, decision, failed_approach, exploration, task.
+1. Call `braindump_pending()` (or run `seamspec drain --json`). If nothing is pending or planned, say so
+   and stop.
+   If SeamSpec's tools are missing or fail, use its commands instead: `seamspec propose`,
+   `seamspec propose-decision`, `seamspec dead-end`, each reading the tool's fields as JSON on stdin.
+   Never search outside this project for SeamSpec's settings.
+2. Classify each note as exactly one of:
+   - **constraint**: a behavior the code must keep ("X must never…", "always…");
+   - **decision**: a choice of approach or convention, not a single testable behavior;
+   - **failed_approach**: something tried that didn't work, and why;
+   - **exploration**: an idea or question to look into;
+   - **task**: something to do.
    If unsure between constraint and exploration, choose exploration.
-3. constraint:
-   - If the code it governs exists, write a behavior-level test and call `propose_invariant`
-     with origin_type="braindump", origin_ref=<item id>, origin_text=<item text>.
-   - If the code does not exist yet, leave the item pending and say so.
-4. decision → `propose_decision` with origin_ref; also `propose_invariant` if it is testable now.
-5. failed_approach → `log_dead_end` with origin_ref.
-6. exploration and task → dismiss them all in one call: `braindump_pending(dismiss=[...])`.
-7. Create at most {{max_proposals}} invariant proposals; leave the rest pending and say so.
-8. Never modify BRAINDUMP.md.
+3. **constraint:** if the code it governs exists and works, write a focused behavior-level test and
+   call `propose_invariant` with `origin_type="braindump"`, `origin_ref=<note id>` and
+   `origin_text=<the note>`; then run `seamspec verify --proposed <id>`. If the code doesn't exist
+   yet, set the note aside as **planned** (step 6): you'll be shown it as a rule the user wants, and
+   you propose it once its code works. Also look at the notes already planned (`planned` in the
+   result of step 1): propose any whose code now exists and works.
+4. **decision:** `propose_decision` with `origin_ref=<note id>`. If part of it is testable now, also
+   propose that part as a rule.
+5. **failed_approach:** `log_dead_end` with `origin_ref=<note id>`.
+6. **exploration**, **task** and **planned:** set them aside in one call:
+   `braindump_pending(dismiss={"<note id>": "exploration", "<note id>": "todo", "<note id>": "planned"})`,
+   or without the tools `seamspec drain --dismiss <note id>=exploration --dismiss <note id>=planned`.
+   They stay in the file.
+7. Propose at most 3 rules and decisions together in one sort (or `commands.max_proposals_per_run`
+   from `.seamspec/config.toml`); leave the rest pending and say so. If a tool answers `queue_full`,
+   stop proposing and ask the user to review what's waiting first.
+8. Never edit BRAINDUMP.md: the notes are the user's. `seamspec drain --tidy` is theirs to run.
+9. Tell the user what each note became. Rules and decisions wait for them in `seamspec review`;
+   offer an explanation from SeamSpec's reviewer (`/seamspec:explain`) first.
 ```
 
 #### `checkpoint.md`
@@ -1652,13 +1748,40 @@ for the user's review, and the result of the last verify. If something is waitin
 what the user should run next (usually `seamspec review`).
 ```
 
+#### `explain.md`
+
+Launches SeamSpec's reviewer (§15.3); the agent definition is in `seamspec/templates/agents/reviewer.md`.
+
+```markdown
+---
+name: explain
+description: Have SeamSpec's reviewer, a separate read-only agent that didn't write the code, explain in plain language what is waiting for review (proposed rules, supersede requests, dead ends) before the user decides. Use when the user asks what is pending, what a rule means, or whether to approve it.
+argument-hint: "[ids]"
+---
+Get an independent explanation of what is waiting for SeamSpec review. Ids, if any: {{args}}
+
+1. Launch the `seamspec:reviewer` agent. Give it exactly this task and nothing more:
+   "Explain the items waiting for SeamSpec review." followed by the ids above, if any.
+   Don't add your own account of the work, what you meant to build, or what you think of the
+   tests: the point is a reader who didn't write them.
+2. Show the user the reviewer's answer in full and unchanged, under the line
+   "From SeamSpec's reviewer (a separate agent that read the rules and tests; it didn't write them):".
+   Don't shorten, reorder or soften it. If you disagree with part of it, say so after it, marked
+   as your own view.
+3. If you can't launch the reviewer, tell the user so. Don't write the explanation yourself as if
+   it came from the reviewer.
+4. Offer to open `seamspec review` for the user in a terminal they type into (never in your own
+   shell, never answer its prompts). The decision is the user's, made there.
+```
+
 ### 15A.4 Host Rendering
 
 | Host | Generated file | Invoked as | Argument mapping |
 |---|---|---|---|
 | Claude Code *(v0.1)* | Skill inside the **seamspec plugin**: `skills/lock/SKILL.md` | `/seamspec:lock` | `$ARGUMENTS` |
-| Cursor *(v0.2)* | `.cursor/commands/seamspec-lock.md` | `/seamspec-lock` | Text typed after the command *(to verify)* |
-| VS Code Copilot *(v0.2)* | `.github/prompts/seamspec-lock.prompt.md` | `/seamspec-lock` | `${input:behavior}` *(to verify)* |
+| Cursor *(v0.1)* | `.cursor/commands/seamspec-lock.md` (plain Markdown) | `/seamspec-lock` | "anything the user typed after the command" in the text |
+| Antigravity *(v0.1)* | `.agents/skills/seamspec-lock/SKILL.md` (`name`, `description`) | `/seamspec-lock` | as for Cursor |
+| VS Code Copilot *(v0.1)* | `.github/prompts/seamspec-lock.prompt.md` (`description`, `agent: agent`, `argument-hint`) | `/seamspec-lock` | as for Cursor |
 | Any MCP client | MCP prompt `lock` | Host-dependent (e.g. `/mcp__seamspec__lock`) | Prompt argument |
 
 > [!NOTE]
@@ -1828,9 +1951,10 @@ SeamSpec ships its Claude Code integration as a **Claude Code plugin** that bund
 seamspec-plugin/
 ├── .claude-plugin/plugin.json      # name: "seamspec" (namespaces /seamspec:<skill>)
 ├── hooks/hooks.json                # hook config below
-├── skills/                         # generated from seamspec/templates/commands/ (v0.1: lock, dead-end)
+├── skills/                         # generated from seamspec/templates/commands/ (lock, dead-end, supersede, checkpoint, context, status, explain)
 │   ├── lock/SKILL.md
-│   └── dead-end/SKILL.md
+│   └── …
+├── agents/reviewer.md              # SeamSpec's reviewer (§15.3), generated from seamspec/templates/agents/
 ├── .mcp.json                       # starts the MCP server through scripts/seamspec-mcp (§14.3)
 └── scripts/
     ├── seamspec-hook               # hook wrapper: silent when the CLI is missing
@@ -1838,17 +1962,19 @@ seamspec-plugin/
 ```
 
 - **Wrappers live in `scripts/`, not `bin/`:** a plugin's `bin/` folder is put on the agent's Bash `PATH`, and plugins with `bin/` aren't installable on claude.ai or Cowork (ADR-20261005-5675).
-- **Install** (ADR-20261005-428a): the repository root is also a plugin **marketplace** (`.claude-plugin/marketplace.json`, name `seamspec`, one plugin with source `./seamspec-plugin`). `seamspec init` offers to install it for the current repository by running Claude Code's own CLI, never by editing its settings files:
+- **Install** (ADR-20261005-428a, ADR-20261023-7d41): the repository root is also a plugin **marketplace** (`.claude-plugin/marketplace.json`, name `seamspec`, one plugin with source `./seamspec-plugin`). `seamspec init` offers to install it for the current repository by running Claude Code's own CLI, never by editing its settings files:
 
 ```text
-claude plugin marketplace add <seamspec checkout> --scope local
-claude plugin install seamspec@seamspec --scope local
+claude plugin marketplace add <source> --scope local|project
+claude plugin install seamspec@seamspec --scope local|project
 ```
 
-  - **`local` scope** enables the plugin in `<repo>/.claude/settings.local.json`: just this user, just this repository. Claude Code also records the marketplace and the install in its config directory (normally `~/.claude/plugins/`, or under `CLAUDE_CONFIG_DIR` when set); that turns nothing on in other projects. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it holds this machine's checkout path. The plugin loads in place from the checkout, so plugin edits apply at the next session or `/reload-plugins`.
-  - **Asks first.** In a terminal, `init` shows both commands and asks *"Install the SeamSpec plugin for Claude Code in this repository? [Y/n]"*. `--plugin` installs without asking; `--no-plugin` skips. Without a terminal and without a flag it calls nothing and prints `seamspec init --plugin`.
-  - **Skipped** with a note when `claude` isn't on `PATH`, or when the CLI isn't running from a checkout (a wheel install has no marketplace until the release). **Unchanged** when `claude plugin list` already shows it enabled for this repository (or at `user` scope).
-  - Until the release (week 6, after the owner's go-ahead) the marketplace is the local checkout. A published GitHub marketplace, and with it `project` scope (committed `.claude/settings.json`, so teammates are prompted), comes with the release.
+  - **The source** is, in order: `$SEAMSPEC_PLUGIN_MARKETPLACE` when set (any source `claude plugin marketplace add` accepts; for release rehearsals); the checkout the CLI runs from (an editable install; the plugin loads in place, so plugin edits apply at the next session or `/reload-plugins`); for a **released** version, this repository on GitHub pinned to that version's tag, `https://github.com/seamspec/seamspec.git#v<version>`, so the plugin always matches the installed CLI. HTTPS, so no GitHub SSH key is needed. An unreleased build installed without a checkout has no tag to pin to and is skipped.
+  - **`local` scope** (the default) enables the plugin in `<repo>/.claude/settings.local.json`: just this user, just this repository. Claude Code also records the marketplace and the install in its config directory (normally `~/.claude/plugins/`, or under `CLAUDE_CONFIG_DIR` when set); that turns nothing on in other projects. `init` adds that file to `.gitignore` whenever it exists (also after a manual install or a half-finished one), since it can hold this machine's checkout path.
+  - **`project` scope** (`--plugin-scope project`, or *yes* to the team question) writes the committed `<repo>/.claude/settings.json` (`extraKnownMarketplaces` with the git URL and tag, and `enabledPlugins`), so each teammate's Claude Code offers the plugin once they trust the folder. Only a published source (an `https://` URL or `owner/repo`) can go there, never a path on this machine; otherwise it is skipped with a note pointing to `--plugin-scope local`. Teammates also need the `seamspec` command; without it the hook wrapper stays silent (below). Verified with the real CLI against a public GitHub marketplace pinned to a tag (2026-10-23).
+  - **Asks first.** In a terminal, `init` shows both commands and asks *"Install the SeamSpec plugin for Claude Code in this repository? (Skip it if you don't use Claude Code.) [Y/n]"*; the screen above it says the plugin is for Claude Code only (ADR-20261014-6c2d). With a published source and no `--plugin-scope`, it then asks *"Turn it on for everyone who works in this repository? … [y/N]"* and, on yes, shows the `project` commands before running them. `--plugin` installs without asking (at `local` scope unless `--plugin-scope project`); `--no-plugin` skips. Without a terminal and without a flag it calls nothing and prints `seamspec init --plugin`.
+  - **Skipped** with a note when `claude` isn't on `PATH`, or when there is no source (above). **Unchanged** when `claude plugin list` already shows it enabled for this repository (or at `user` scope).
+  - **Upgrades (before 0.1.1):** re-running `init` after upgrading SeamSpec still reports *unchanged*, so the plugin stays pinned to the old tag. Re-adding the same marketplace at the new tag moves the pin (checked with the real CLI); `init` must do that, and update the plugin, before a second release ships.
   - `claude --plugin-dir <repo>/seamspec-plugin` still works for a one-off session.
 - **Directive:** a plugin can't write `CLAUDE.md`, so `seamspec init` writes the directive (§18) into it (ADR-20261005-c41d).
 - **Two wrappers** (ADR-20261005-c41d), because a missing CLI should be silent for hooks but explained for MCP. Both append `$HOME/.local/bin` (where `uv tool` installs) to `PATH` first, since apps started from the Dock often lack it; a `seamspec` already on `PATH` still wins (ADR-20261005-9b8f):
@@ -1912,7 +2038,7 @@ exec seamspec mcp "$@"
 ```
 
 - The matcher is a plain list of tool names. Per the hooks reference (checked 2026-10-05), a matcher made only of letters, digits and `|` is an **exact list**, not a regex, so `Edit` doesn't also match `NotebookEdit`. `MultiEdit` is kept for older Claude Code versions (ADR-20261005-5009).
-- `SessionStart` ships in v0.1 with the **agreements summary** (ADR-20261007-ac04). The braindump nudge (§13.9) joins it in v0.2. `resume` and `fork` are left out because those sessions already carry the earlier context.
+- `SessionStart` ships in v0.1 with the **agreements summary** (ADR-20261007-ac04). The braindump nudge (§13.9) joins it in v0.1 (ADR-20261013-d9e4), on `startup` and `clear` only, never after `compact`. `resume` and `fork` are left out because those sessions already carry the earlier context.
 - `ConfigChange` guards approvals in chat (§11.5, ADR-20261006-c300). `policy_settings` is left out because Claude Code can't block it.
 - The Stop hook's `timeout` (300s) is deliberately larger than `verify.stop_deadline_seconds` (240s): Claude Code **discards the output of a timed-out hook**, so a hook that times out would let the agent stop with no warning. SeamSpec must always finish and decide before that happens.
 
@@ -1923,6 +2049,8 @@ exec seamspec mcp "$@"
 - how many items wait for the user's review.
 
 Only the rules are described as human-approved: dead ends appear under their own heading, *"recorded, not approved"*. Each record's text is collapsed onto one line, so line breaks in a record can't add entries to the summary. It prints nothing when the ledger is empty, or when `source` is `resume` or `fork`. One exception to the empty ledger: a session launched in a *different* SeamSpec project gets the note that its tools still answer for that one (§19.10 `moved_note`, ADR-20261011-d4a1), since a project with no rules yet is exactly where the agent reaches for the tools. The text stays within 8,000 characters, and **detail shrinks before anything is dropped** (no rule silently disappears). The limit sits under Claude Code's own: hook output over 10,000 characters is replaced by a file path and a 2,000-character preview (ADR-20261011-6b2d).
+
+**Critical rules come first, in full, at every level** (ADR-20261013-c1a9): under their own heading, each with its assertion (up to 400 characters) and scope. Only the other rules and the dead ends shrink through the levels below, and the totals then speak of "other rules".
 
 1. **Full:** every rule with its assertion and scope, every dead end with its reason, if that fits.
 2. **Dead ends shortened:** otherwise the rules stay in full, and each dead end becomes its id, its approach (clipped to 120 characters) and *"Why it failed:"* with its reason (clipped to 200), under a heading that says it's shortened.
@@ -1983,13 +2111,13 @@ Only the rules are described as human-approved: dead ends appear under their own
 ```json
 {
   "decision": "block",
-  "reason": "SeamSpec: locked invariant failed.\n[FAIL] inv_1a2b3c4d — Retry delay never exceeds 30s\n<truncated runner output>\nFix the regression. If this behavior change is intentional, call request_supersede('inv_1a2b3c4d', reason, replacement_id) and tell the user. Attempt 2 of 3."
+  "reason": "SeamSpec: locked rule check failed.\n  inv_1a2b3c4d · Retry delay never exceeds 30s\n    line 5: assert backoff_delay(100) <= 30\n      assert 51.2 <= 30\n    Test: .seamspec/tests/test_inv_1a2b3c4d.py\n[FAIL] inv_1a2b3c4d (pytest)\n<truncated runner output>\nFix the regression. If this behavior change is intentional, call request_supersede('inv_1a2b3c4d', reason, replacement_id) and tell the user. Attempt 2 of 3."
 }
 ```
 
 10. **Internal error** (e.g. a corrupt record makes loading fail): default → allow (fail open) with a warning. With `hooks.fail_closed = true` → block, but **through the same retry counter** as step 9: after `max_stop_retries` blocks it allows with a loud warning, so a corrupt record can never trap the agent in an endless Stop loop.
 
-### 16.2 VS Code (Copilot Agent) — v0.2
+### 16.2 VS Code (Copilot Agent) — v0.1 (session start + stop; ADR-20261013-e8f3)
 
 **`.github/hooks/seamspec.json`** *(per the VS Code agent hooks reference, 2026-10-05; hooks API is Preview)*:
 
@@ -2017,7 +2145,11 @@ The `vscode` adapter normalizes the payload and maps decisions to the host's out
 - **Fail open carefully:** an error or non-zero exit from a `PreToolUse` hook may deny the tool call in VS Code, so on internal errors the adapter must exit 0 with an explicit allow (unless `hooks.fail_closed = true`).
 - Tier: **Full** (per docs; confirm hands-on before release).
 
-### 16.3 Cursor — v0.2
+**Hands-on (2026-10-16, ADR-20261016-2d9a).** In the owner's VS Code the hook file, as built, ran only in VS Code's **Local** agent (`SessionStart` ran: the rules summary reached the chat). Chats in the **Copilot** agent (VS Code's default "Copilot" sessions, the same agent as the Copilot CLI) never loaded it: that agent reads `.github/hooks/*.json` too but rejects a file with no `"version"`, and it accepts VS Code's PascalCase events and payload ("VS Code-compatible payload format") while reading its own reply fields at the top level. So the file `init` writes now has `"version": 1` and both `timeout` and `timeoutSec`, and the `vscode` adapter answers in both shapes: top-level `additionalContext` / `decision` + `reason` for the Copilot agent, `hookSpecificOutput` for the Local one, and it reads `sessionId` / `stopHookActive` as well as the snake_case names. A rerun of `init` upgrades an older file (adds `version` and `timeoutSec`, keeps a hand-tuned `timeout`). The Copilot agent's `preToolUse` names its tools (`view`, `bash`, `rg`, … seen in the logs); its edit tools weren't seen yet, so edit-time context and ledger protection still wait.
+
+**What a person has to do in VS Code** (`init` prints it; SeamSpec doesn't and mustn't do it): start SeamSpec's server once (`MCP: List Servers` → seamspec → Start), trust the folder, and on Copilot Business or Enterprise have an org admin enable the Copilot policies **"Editor preview features"** (hooks are a preview feature) and **"MCP servers in Copilot"**; both are off by default and showed as *"Managed by organization"* in the owner's VS Code.
+
+### 16.3 Cursor — v0.1 (session start + stop; ADR-20261013-e8f3)
 
 **`.cursor/hooks.json`** *(per cursor.com/docs/hooks, 2026-10-05)*:
 
@@ -2038,6 +2170,22 @@ The `vscode` adapter normalizes the payload and maps decisions to the host's out
 - `after-file-edit`: records edited files into session state (for scoped verify).
 - `stop`: runs the verifier on `LOCKED` invariants. On failure it returns `{ "followup_message": "SeamSpec: locked invariant failed … Fix it, or call request_supersede and tell the user." }`; Cursor auto-submits that as the next message, so the agent keeps working. `loop_limit` is set to `verify.max_stop_retries` (default 3). If `status` is `aborted` (the user pressed stop), it does nothing.
 - Tier: **Full** (per docs; confirm hands-on before release). The visible difference from Claude Code: the "fix it" message appears in the chat as an automatic follow-up.
+
+**Tools off** (ADR-20261018-9c4d). Cursor and VS Code leave a project's MCP server off until the person allows it. Their session-start text always ends with a line telling the agent, if SeamSpec's tools aren't available, to begin its first reply with a given sentence, word for word: *"SeamSpec's tools are switched off here. To turn them on: Cursor Settings → MCP (or Tools) → switch seamspec on."* (VS Code: *Command Palette → MCP: List Servers → seamspec → Start*), once per chat, and to use the `seamspec` commands meanwhile; it is sent even when the ledger is empty. A first wording only asked it to "tell the user how to turn them on", and in the owner's Cursor test the agent said the tools were missing but not how to fix it. The per-editor setup is written up for users in [`docs/editors.md`](editors.md).
+
+**Hands-on (2026-10-17, Cursor 3.21, ADR-20261017-1f5c).** Hooks ran with no setup: `sessionStart` returned the rules summary, `stop` ran after every turn (about 0.5–0.8 s, silent while green), and with `total()` broken by hand the agent finished an unrelated task, got SeamSpec's report as a follow-up (*"Attempt 1 of 3"*), fixed exactly the broken line and didn't request a supersede. Cursor starts the MCP server in the project folder (no `SEAMSPEC_ROOT` needed), but **leaves a project's servers off until the person switches them on** (Cursor Settings → MCP / Tools): until then the agent used the shell fallback of protocol rule 5 (`seamspec context`), as intended; `init --hosts cursor` now says to switch it on. Tool names in Cursor's transcript: `StrReplace` (edit), `Read`, `Shell`, and MCP calls through `CallDynamicTool`; the names Cursor's hooks receive are still to be confirmed before `pre-tool-use` is built.
+
+**As built in v0.1 (ADR-20261013-e8f3), for VS Code, Cursor and Antigravity:** `seamspec init --hosts cursor,vscode,antigravity` (asked for each host whose folder exists, never done without a yes or the option) writes project files only, merged into what is there and never overwriting a value someone else set: the protocol in `AGENTS.md` (worded with `/seamspec-<name>`), the read-only reviewer as each tool's own agent (§15.3), SeamSpec's MCP server, the **session-start** and **stop** hooks above, and `/seamspec-<name>` commands rendered from the same templates as the Claude Code skills (§15A.4). `adapters/hosts.py` translates each host's hook input into the Claude Code handlers' and their answer back; SeamSpec keeps its own retry budget (`verify.max_stop_retries`). The **`pre-tool-use` and `after-file-edit` hooks designed above are not installed yet**: they need each host's edit-tool names and argument names, which the docs don't list. They come after the owner's hands-on check, which can read them from the host's logs. The hooks call `seamspec` from the PATH.
+
+### 16.3a Antigravity — v0.1 (session start + stop; ADR-20261013-e8f3)
+
+Per antigravity.google/docs (hooks, rules, MCP, skills; read 2026-10-13) and the owner's hands-on test (2026-10-14, ADR-20261014-6c2d):
+
+- **Rules:** `AGENTS.md` (read at every directory level), as for the other hosts.
+- **MCP:** `.agents/mcp_config.json`, `{"mcpServers": {"seamspec": {"command": "seamspec", "args": ["mcp"], "env": {"SEAMSPEC_ROOT": "<this project's absolute path>"}}}}`. Antigravity starts MCP servers in `/` and fails on the server's `roots/list` question ("unexpected end of JSON input" on every tool call), and its config has no `${workspaceFolder}`, so `init` writes the absolute path. A rerun of `init` updates the path in SeamSpec's own entry (same command and args) and keeps anything else in it; `doctor` warns when the path isn't this folder (a clone elsewhere). After a change, the server has to be restarted in Antigravity's MCP settings (or the window reloaded); `init` says so.
+- **Hands-on (2026-10-14):** session-start summary, tools (with the path set), sorting BRAINDUMP notes, `/seamspec-status`, the agent declining a change that breaks a locked rule, and the Stop check blocking one all work.
+- **Hooks:** `.agents/hooks.json`, a named group `"seamspec"` with `SessionStart` and `Stop` command handlers (timeout in seconds). `SessionStart` answers `{"injectSteps": [{"systemMessage": {"systemMessage": "<summary>"}}]}`. `Stop` runs only when `fullyIdle` is true and, on a failing locked rule, answers `{"decision": "continue", "reason": "<what failed and what to do>"}`, which puts the agent back in its loop with the reason as a system message. Antigravity doesn't say whether a stop follows our own block, so the retry budget is kept until a green check resets it.
+- **Commands:** skills in `.agents/skills/seamspec-<name>/SKILL.md` (`name`, `description`), invoked as `/seamspec-<name>`.
 
 ### 16.4 git pre-commit
 
@@ -2080,7 +2228,9 @@ exec seamspec verify --all --gate
 
 The hook is installed in `.git/hooks`, so it runs on **every branch** of the clone. A branch where SeamSpec was never set up, with no config in the working tree or in `HEAD`, passes with a note. A config that is in `HEAD` but missing from the working tree still runs the gate, which fails. If `git` can't be found or can't read `HEAD`, the hook fails closed instead of guessing (dogfooding #6, ADR-20261006-0f6e; Copilot, PR #22).
 
-`--gate` behavior: exit non-zero if any `LOCKED` invariant fails, an integrity or fingerprint check fails, or an invariant's status changed without a journal entry (§11.1); print `N items awaiting review` as a non-blocking reminder. Pre-commit has **no deadline**: it always runs the full set. In an untrusted clone it fails with "Run `seamspec trust`" instead of running anything (§12.4.6). In `advisory` mode it runs nothing and exits 0. `init` removes SeamSpec's hook when switching to advisory, and `doctor` warns if one is left (ADR-20261007-1b4c).
+`--gate` behavior: exit non-zero if any `LOCKED` invariant fails, an integrity or fingerprint check fails, or an invariant's status changed without a journal entry (§11.1); print `N items awaiting review` as a non-blocking reminder. Pre-commit has **no deadline**: it always runs the full set.
+
+**It tests what the commit records** (ADR-20261014-3b1e). `git commit` records the staged files, not the files on disk. When the two differ (unstaged changes, or untracked non-ignored files), the gate copies the index into a temporary folder (`git checkout-index --all`) and runs the locked tests there: code from the index, SeamSpec's ledger (`.seamspec/` without `.local/`) from disk, so a rule approved but not staged still applies. Tracked ledger files whose staged copy differs from disk are refused before anything runs. The copy links `.venv` / `venv` / `node_modules`, and a Python runner starts through red-green's start-script copy (§11.4) so an editable install can't hand it the working tree's code; if that redirect can't be made and an editable install is present, the gate fails closed and says to stage the changes or `git stash --keep-index --include-untracked`. A pass then reads *"N invariant(s) passed (on the staged files)."* and a refusal adds *"Checked what this commit records (your staged files), which differs from the files on disk. If you fixed something after `git add`, stage it again."* Files on disk and the index are never touched; the copy is always removed. When the index matches the disk, the gate runs in place as before. In an untrusted clone it fails with "Run `seamspec trust`" instead of running anything (§12.4.6). In a clone this machine never set up (no consent and no trust, e.g. a teammate's fresh clone), `verify` says instead that SeamSpec isn't set up here, to run `seamspec init` in a terminal (it shows what would run and asks), and, for agents, to tell the user so and that CI still checks the rules on every push (ADR-20261019-e2f8). In `advisory` mode it runs nothing and exits 0. `init` removes SeamSpec's hook when switching to advisory, and `doctor` warns if one is left (ADR-20261007-1b4c).
 
 ### 16.5 CI (enforced: offered at init; strict: always)
 
@@ -2146,7 +2296,7 @@ The base branch is `--base <ref>`, defaulting to `origin/$GITHUB_BASE_REF` on pu
 
 ## 17. The Self-Healing Loop
 
-The "self-healing loop" from `Idea.md` is now **host-enforced** rather than trusted to the model:
+The "self-healing loop" (the agent fixes what it broke before it finishes) is **host-enforced** rather than trusted to the model:
 
 ```mermaid
 flowchart LR
@@ -2177,7 +2327,11 @@ Written to `CLAUDE.md` in v0.1; `.cursor/rules/seamspec.mdc`, `.github/copilot-i
 <!-- seamspec:end -->
 ```
 
-Re-running `init` updates only the block. `seamspec doctor` reports drift between the block and the packaged template. Rules marked *(v0.2)* below are left out of the v0.1 block, because the tools and hooks they refer to (`braindump_pending`, the session-start nudge) don't exist yet. The packaged text, [`seamspec/templates/directive.md`](../seamspec/templates/directive.md), is the source of truth; the v0.1 block numbers the remaining rules consecutively.
+Re-running `init` updates only the block. `seamspec doctor` reports drift between the block and the packaged template.
+
+**A line someone else wrote inside the block is kept** (ADR-20261011-b1c8). A marker comment doesn't stop an agent from typing in the wrong place: in dogfooding one put the owner's own instruction right after the begin marker. So before replacing the block, `init` moves every line in it that SeamSpec never shipped to just above the block, in order, and lists those lines in its output. SeamSpec recognises its own lines, including older wording, from `seamspec/templates/directive_known_lines.txt`: one hash per line the block has ever contained, append-only, so an upgrade moves nothing. An *edited* SeamSpec line counts as someone else's: the block gets the packaged wording back and the edited line is kept above it, visibly.
+
+The packaged text, [`seamspec/templates/directive.md`](../seamspec/templates/directive.md), is the source of truth; with BRAINDUMP in v0.1 (ADR-20261013-d9e4) the block has no "later" rules left. Today it reads:
 
 ```markdown
 # SeamSpec Protocol
@@ -2187,28 +2341,35 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 
 1. Before editing a file, call `get_constraints(files)` (or run `seamspec context <files>`).
    Respect every LOCKED invariant. Approaches listed as previously failed (dead ends) failed for
-   the stated reason; don't reuse them unless that reason no longer applies (§11.3).
-2. When you establish a new behavior worth protecting, call `propose_invariant` with a focused,
-   behavior-level test (not implementation details). The tool does not run the test: run
+   the stated reason; don't reuse them unless that reason no longer applies.
+2. When the user states an agreement or a rule the code must keep, or you establish a behavior
+   worth protecting, capture it right away: call `propose_invariant` with a focused,
+   behavior-level test (not implementation details). If its code doesn't exist yet, say so and
+   propose it once the code works. The tool does not run the test: run
    `seamspec verify --proposed <id>` with your shell tool and fix the test until it passes.
-3. When an approach fails, call `log_dead_end` with what you tried and why it failed.
+   If the project keeps a list of rules it intends to lock (for example a section of its
+   plan), propose each one when its code exists and works.
+3. When an approach fails, or the user tells you about one that failed before, call
+   `log_dead_end` with what was tried and why it failed.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
-5. Never edit files under `.seamspec/` directly; use SeamSpec tools.
-6. *(v0.2)* When asked to "drain the braindump", call `braindump_pending`, classify each item as
-   constraint / decision / failed approach / exploration / task, and use the matching tool.
-   Dismiss explorations and tasks via `braindump_pending(dismiss=[...])`.
-7. Only humans approve invariants. Remind the user to run `seamspec review` when proposals are pending.
+5. Never edit files under `.seamspec/` directly; use SeamSpec tools. If they are missing or fail,
+   use the matching `seamspec` command in your shell (`seamspec --help`). Never search outside
+   this project for SeamSpec's settings; if neither works, stop and tell the user.
+6. BRAINDUMP.md holds the user's own notes. Never edit it. When asked to sort it, follow
+   `/seamspec:drain`. When SeamSpec reports new notes at the start of a session, ask the user once
+   whether to sort them; don't sort without a yes, and don't ask again this session after a no.
+7. Only humans approve invariants. When proposals are pending, offer an explanation from
+   SeamSpec's reviewer (`/seamspec:explain`), and offer to open `seamspec review` for the user in a
+   terminal they type into (never in your own shell; never answer its prompts), or remind them to
+   run it.
 8. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
    the SeamSpec summary block.
 9. Users don't have to type commands. Treat plain requests as the matching workflow command:
-   "sort my braindump" → drain *(v0.2)*; "protect this" / "lock that" → lock; "that didn't work" → dead-end;
+   "sort my braindump" → drain; "protect this" / "lock that" / an agreement the user states → lock;
+   "that didn't work" / a failure the user describes → dead-end;
    a changed requirement for a LOCKED rule → supersede; "what applies here?" → context;
    "wrap up" → checkpoint.
-10. *(v0.2)* At the start of a session, if SeamSpec reports new braindump notes (via the session-start hook,
-    or `seamspec status --json` on hosts without one), ask the user once whether to sort them.
-    Do not drain without a yes, and don't ask again this session after a no. If items await
-    review, mention `seamspec review` once.
 ```
 
 ---
@@ -2272,6 +2433,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - `constraints_for(store, files, limit=20)` returns a `ConstraintSet` of LOCKED and PROPOSED invariants and ACTIVE dead ends whose scope matches any of the files. Files outside the repo are ignored.
 - `ConstraintSet.empty` ignores PROPOSED invariants: they don't gate anything.
 - Matches beyond `limit` are counted in `omitted` and rendered as *"... and N more"*, never cut silently.
+- `declined` holds `requests.declined_lines` for the LOCKED rules listed; `render()` ends with them and `to_dict()` includes them (§11.2 step 5).
 - `render()` returns the **body only**; callers add their own header (e.g. *"SeamSpec: src/queue/redis.py is governed by:"*, §16.1), so the header is never doubled. Dead ends render as history, not orders (§11.3): *"- de_x: tried <approach>; failed previously because: <symptom> (recorded 2026-10-03)"*.
 - `to_dict()`: the JSON shape shared by `seamspec context --json` and the MCP `get_constraints` tool (§14).
 
@@ -2279,14 +2441,15 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 - [`schemas.py`](../seamspec/core/schemas.py): loads the packaged schemas (§9.4); `validation_errors(name, data)` checks with Draft 2020-12 and a format checker. `doctor` (week 4) builds on it.
 - [`runners.py`](../seamspec/core/runners.py): v0.1 presets live as commented TOML in `templates/runners/{pytest,vitest}.toml`, used both to write `config.toml` and to build `RunnerCfg`s. `detect(root)` implements §12A.7; jest, go and cargo are detected and reported as *"support arrives in v0.2"*.
-- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, writes `.seamspec/.local/.gitignore` (`*`) so machine-local state stays out of git even on a branch whose `.gitignore` predates SeamSpec (dogfooding #8), and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file. `init(root, mode=None, …)`: `mode=None` uses `default_mode(current)`, which keeps enforced or strict and otherwise gives enforced. On an existing config, a different mode is written by `_set_mode` when it lowers the mode, or when it raises it with `auto_run`; otherwise the config is kept. Switching to advisory calls `git_hooks.uninstall_pre_commit` (only SeamSpec's hook). `MODE_RANK` lets the CLI refuse a non-interactive lowering (ADR-20261007-1b4c). `init(..., auto_run, trust_shown)` grants trust when it creates the config, or, with consent, when `trust_shown` (the trust hash of what the human said yes to on a clone's combined consent-and-trust screen, §12.4.5) still matches the config on disk. `merge_gitignore(root, lines)` adds missing ignore lines (also used for the plugin's `.claude/settings.local.json`).
+- [`scaffold.py`](../seamspec/installers/scaffold.py): `seamspec init` (§15). Creates the ledger folders, writes `config.toml` and each runner's config file (`.seamspec/pytest.ini`, `.seamspec/vitest.config.mjs`) only if missing, adds `.seamspec/.local/` and `.seamspec/**/__pycache__/` (bytecode from pytest runs of rule tests) to `.gitignore`, writes `.seamspec/.local/.gitignore` (`*`) so machine-local state stays out of git even on a branch whose `.gitignore` predates SeamSpec (dogfooding #8), and writes the `CLAUDE.md` block. Re-running never clobbers; it reports `created` / `updated` / `kept` / `unchanged` per file, and `InitReport.kept_lines` holds the lines it moved out of the `CLAUDE.md` block instead of deleting them (ADR-20261011-b1c8). `init(root, mode=None, …)`: `mode=None` uses `default_mode(current)`, which keeps enforced or strict and otherwise gives enforced. On an existing config, a different mode is written by `_set_mode` when it lowers the mode, or when it raises it with `auto_run`; otherwise the config is kept. Switching to advisory calls `git_hooks.uninstall_pre_commit` (only SeamSpec's hook). `MODE_RANK` lets the CLI refuse a non-interactive lowering (ADR-20261007-1b4c). `init(..., auto_run, trust_shown)` grants trust when it creates the config, or, with consent, when `trust_shown` (the trust hash of what the human said yes to on a clone's combined consent-and-trust screen, §12.4.5) still matches the config on disk. `merge_gitignore(root, lines)` adds missing ignore lines (also used for the plugin's `.claude/settings.local.json`).
 - [`ci.py`](../seamspec/installers/ci.py): the CI workflow and CODEOWNERS (§7.3, §16.5; ADR-20261006-d16b). `released(version=None)` says whether this SeamSpec is a published version (final, `a`/`b`/`rc` or post-release; not `.dev` or `+local`); `install_step()` gives the workflow's install lines: the pinned version for a release, the repository at `main` with an explanatory comment otherwise (ADR-20261011-a9f3).
   - `render_workflow(root, cfg)` fills `templates/seamspec.yml` with toolchain steps chosen from the runners and lockfiles.
   - `install_workflow()` returns `created`, or `kept` (an existing file is never overwritten).
   - `install_codeowners()` returns `created`, `updated` or `unchanged`. It manages only a block between `# seamspec:begin` and `# seamspec:end`, owning `/.seamspec/` and each runner's harness folder, with the placeholder owner `@your-team/leads`.
   - The CLI's `init --ci/--no-ci` follows §7.3: advisory never adds CI; enforced asks, or adds nothing without a terminal or flag; strict always adds it plus CODEOWNERS, and says when `--no-ci` is ignored.
-- [`claude_plugin.py`](../seamspec/installers/claude_plugin.py): the Claude Code plugin install (§16.1). `precheck(root)` returns `skipped` (no `claude`, no checkout marketplace) or `unchanged` (already enabled here or at `user` scope), else `None`; `commands(source)` lists the two `claude plugin` invocations for the prompt; `enable(root)` runs them with `--json` and `--scope local`, reports `installed` / `failed` (with Claude Code's message). Whenever `.claude/settings.local.json` exists (installed, a manual install reported `unchanged`, or a `failed` install whose `marketplace add` already wrote it), it is added to `.gitignore`. `install(root)` = `precheck` then `enable`. Tests use a fake `claude`, plus one real `claude` run in a throwaway `CLAUDE_CONFIG_DIR` (every test gets one, so no test can touch the developer's Claude Code settings).
-- [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`.
+- [`hosts.py`](../seamspec/installers/hosts.py) (ADR-20261013-e8f3): `install(root, host)` for `cursor`, `vscode`, `antigravity` returns one `Change(path, status)` per file: the `AGENTS.md` block (`directive.install_keeping(root, "AGENTS.md")`, the `agents` variant), the MCP server entry (added if missing; a different existing `seamspec` entry is `kept (yours)`; a file that isn't a JSON object is `skipped`), the session-start and stop hook entries (added unless an entry with the same command exists; other hooks untouched), and the `/seamspec-<name>` command files (`core/commands.render(name, host)`, owned by SeamSpec, rewritten to match). `detect(root)` lists hosts whose folder exists. [`adapters/hosts.py`](../seamspec/adapters/hosts.py): `main(host, event, stdin)` for `session-start` and `stop`, translating each host's input and output around `claude.main`; fail open.
+- [`claude_plugin.py`](../seamspec/installers/claude_plugin.py): the Claude Code plugin install (§16.1). `marketplace_source()` is `$SEAMSPEC_PLUGIN_MARKETPLACE`, else the checkout (`checkout()`), else for a released version `release_source()` (`https://github.com/seamspec/seamspec.git#v<version>`, using `ci.released()`), else `None`; `shareable(source)` is true for an `https://` URL or an `owner/repo` that isn't a local folder. `precheck(root, scope)` returns `skipped` (no `claude`, no source, or `project` scope with a source that isn't shareable) or `unchanged` (already enabled here or at `user` scope), else `None`; `commands(source, scope)` lists the two `claude plugin` invocations for the prompt; `enable(root, scope)` runs them with `--json` and `--scope local|project`, reports `installed` / `failed` (with Claude Code's message). Whenever `.claude/settings.local.json` exists (installed, a manual install reported `unchanged`, or a `failed` install whose `marketplace add` already wrote it), it is added to `.gitignore`. `install(root, scope)` = `precheck` then `enable`. Tests use a fake `claude`, plus one real `claude` run in a throwaway `CLAUDE_CONFIG_DIR` (every test gets one, so no test can touch the developer's Claude Code settings).
+- [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`. Lines inside the old block that SeamSpec never shipped are kept: `merge_keeping(text)` and `install_keeping(root)` return them and place them above the block; `foreign_in(root)` lists them for `doctor`. `known_lines()` reads `templates/directive_known_lines.txt` (a SHA-256 prefix per line ever shipped) and adds the current template's lines; `python -m seamspec.installers.directive` appends new ones after `directive.md` changes, and a test fails if the file is behind (ADR-20261011-b1c8).
 
 ### 19.7 `seamspec/core/verifier.py` and `reports.py` — implemented (week 2)
 
@@ -2298,6 +2461,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - **Environment:** `build_env(cfg, environ=None, root=None, overrides=None, first_on_path=())` keeps only `BASE_ENV_KEYS`, `LC_*` and `execution.env_passthrough`, applies `overrides` (the runner's `env`), and adds **no** "under verification" flag. With `root`, `local_bin_dirs()` (the existing `LOCAL_BIN_DIRS`, minus `.venv` / `venv` when `VIRTUAL_ENV` is set) then go ahead of the resulting `PATH`, including a runner's own `PATH`; `argv[0]` is resolved against that `PATH` (§12.4.7). `first_on_path` (also on `run()`) goes ahead of those folders; only red-green passes it, for its copy of the runner's start script (§11.4). `PATH` is still the only variable set.
 - **Fingerprints:** `current_fingerprints()` / `read_fingerprints()` / `check_fingerprints(confirmed=None)`. A missing runner config file is a failure. `approve` passes the hashes it is confirming (§19.8).
 - `RunnerResult.could_not_run` marks results where no test ran at all (missing runner executable, unknown runner), so callers never have to parse output.
+- **What failed:** `reports.junit_checks(report_path, ids)` gives, per invariant, `FailedCheck(line, message, cases)` entries read from the JUnit report (the line inside the rule's own test file, the failure's first line, how many test cases failed that way). `RunnerResult.checks` carries them for failing results (also in `--json` and `last_verify.json`). [`failtext.py`](../seamspec/core/failtext.py) turns a report into the block of §12A.4: `summary(store, report) -> (lines, unexplained results)`, `raw(result)`, `count(report)`. The CLI and the Stop hook both use it (ADR-20261013-4e9b).
 - `save_last(root, report)` writes `.seamspec/.local/last_verify.json` (`at`, `passed`, `failing_ids`, `incomplete`, results) for `status` and the Stop hook.
 - Tested against **real pytest and vitest runs** (`tests/test_verifier.py`, `tests/test_verifier_vitest.py`): attribution, collection errors, empty and all-skipped harnesses, planted conftests, project `setupFiles`, scrubbed env, process-group kill, deadline, isolated reruns (ADR-20261005-4b1e).
 
@@ -2306,12 +2470,13 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 [`lifecycle.py`](../seamspec/core/lifecycle.py), [`journal.py`](../seamspec/core/journal.py), [`requests.py`](../seamspec/core/requests.py), [`adr.py`](../seamspec/core/adr.py), [`redact.py`](../seamspec/core/redact.py). Behavior is §11; the contract:
 
 - **Agent-side** (no terminal needed):
-  - `propose_invariant(...)` writes the harness to `.seamspec/proposed/<id>/<runner filename>` and the record as `PROPOSED`, and **runs nothing**. It returns `queue_full` at `proposals.max_pending` (`replace_id` updates and `by_human=True` are exempt). An optional `adr_draft` creates a `PROPOSED` ADR and links it.
+  - `propose_invariant(...)` writes the harness to `.seamspec/proposed/<id>/<runner filename>` and the record as `PROPOSED`, and **runs nothing**. It returns `queue_full` at `proposals.max_pending` (`replace_id` updates and `by_human=True` are exempt). `pending_count(store)` is the backlog: proposed rules plus proposed decisions with no rule of their own; `propose_decision` returns `queue_full` at the same cap and writes nothing. An optional `adr_draft` creates a `PROPOSED` ADR and links it.
   - `log_dead_end(...)` creates an `ACTIVE` dead end; `failure_symptom` is cut to 1,000 characters.
   - `request_supersede(...)` saves a request in `.seamspec/.local/requests/<inv_id>.json`. Only for `LOCKED` invariants; it changes no record.
-- **Human-only:** `approve`, `reject`, `supersede`, `retire_dead_end` call `require_interactive(via)` (stdin and stdout must be a TTY; `SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE=1` overrides it for scripts and tests, a speed bump, not a boundary). `retire_dead_end` is journaled too (`ACTIVE → RETIRED`). They take `via="terminal" | "chat"`: only the chat review (§11.5) passes `"chat"`, which skips the TTY check because the human answered SeamSpec's dialog. `via` is written to the record's `decided_via` and, with the chat `client`, to the journal. `journal.note(store, event, **fields)` records events that aren't status changes.
+  - `requests.decline(store, id, reason)` (both reviews' *decline*) drops the request and keeps a note in `.seamspec/.local/declined/<inv_id>.json`; `requests.declined(store)` lists the notes whose rule is still `LOCKED`, and `requests.declined_lines(store, ids)` is what the agent is told (§11.2 step 5). Saving a new request for the rule removes its note.
+- **Human-only:** `approve`, `reject`, `supersede`, `retire_dead_end` call `require_interactive(via)` (stdin and stdout must be a TTY; `SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE=1` overrides it for scripts and tests, a speed bump, not a boundary). `retire_dead_end` is journaled too (`ACTIVE → RETIRED`). They take `via="terminal" | "chat"`: only the chat review (§11.5) passes `"chat"`, which skips the TTY check because the human answered SeamSpec's dialog. `via` is written to the record's `decided_via` and, with the chat `client`, to the journal. `journal.note(store, event, **fields)` records events that aren't status changes. `set_critical(store, inv_id, critical, …)` (human-only, proposed or locked rules) sets or clears `critical` and writes a `critical_marked` / `critical_cleared` note (ADR-20261013-c1a9).
 - `approve`: computes runner config fingerprints, moves the harness from `proposed/` into the runner's `harness_dir`, and runs it with those fingerprints. On failure the harness moves back and **nothing is written**. On success it records hashes, `LOCKED`, `approved_at`, `approved_by` (the identity git records, `git var GIT_AUTHOR_IDENT`, §11.1), writes `fingerprints.json`, journals `PROPOSED → LOCKED` and sets the ADR to `ACCEPTED`.
-- `reject` / `supersede` move the harness to `.seamspec/retired/<id>/` (the record keeps its hash) and journal the change. `reject(as_dead_end=True)` also records a dead end. `supersede` takes its reason and replacement from a pending request when none is given, and clears the request. The replacement still needs its own approval.
+- `reject` / `supersede` move the harness to `.seamspec/retired/<id>/` (the record keeps its hash) and journal the change. `reject(as_dead_end=True)` also records a dead end. `supersede` takes its reason and replacement from a pending request when none is given, and clears the request. It raises `LifecycleError` while the replacement is still `PROPOSED` (or missing, or rejected): callers approve the replacement first (ADR-20261013-7c2e).
 - `harness_in_place(...)`: context manager that copies a `PROPOSED` harness to its runner location for one run (`verify --proposed`, red-green) and removes it afterwards.
 - `journal.unjournaled_changes(store)` implements the rules in §11.1 against `git HEAD` (works when `.seamspec/` sits in a subfolder of the git repo). No git or no commit means "everything is new".
 - `origin.text` and `failure_symptom` pass through `redact()` (§13.8) when `braindump.redact_secrets` is on (the default), for every origin, not only braindump.
@@ -2332,113 +2497,38 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 [`redgreen.py`](../seamspec/core/redgreen.py), [`review.py`](../seamspec/review.py)
 
-- `redgreen.check(store, cfg, inv) -> RedGreen(verdict: "yes" | "no" | "n/a", detail)`, per §11.4. It never writes to the ledger; the proposed test is placed temporarily and removed. "Couldn't run" is decided by `RunnerResult.could_not_run` (missing runner executable or unknown runner), never by matching test output; filesystem errors while preparing the `HEAD` copy give `n/a`. For the HEAD run, `_shim_runner()` finds the runner's start script with the same environment the verifier starts it with (`verifier.runner_env()`, so a runner's own `PATH` counts), and `write_shim()` copies it into a temporary folder with a short redirect inserted (`_insert_at()` finds the place; a script with a `from __future__` import anywhere, or a copy that wouldn't compile, isn't copied). That folder goes first on `PATH`; the redirect rewrites `sys.path` entries and `__editable__` import-hook tables from the repository to the worktree and leaves a marker file. `editable_install(root, top, environ)` reads the project's virtualenvs (`.venv`, `venv`, `$VIRTUAL_ENV`) for a `.pth` line, an `__editable__` hook or an editable `direct_url.json` pointing inside the repository; if one exists and the marker is missing, the verdict is `n/a`. It is also `n/a` when a copy was made but its marker is missing: a runner that didn't get through the redirect says nothing about the test (ADR-20261011-3c7e).
+- `redgreen.check(store, cfg, inv) -> RedGreen(verdict: "yes" | "no" | "n/a", detail)`, per §11.4. It never writes to the ledger; the proposed test is placed temporarily and removed. "Couldn't run" is decided by `RunnerResult.could_not_run` (missing runner executable or unknown runner), never by matching test output; filesystem errors while preparing the `HEAD` copy give `n/a`. For the HEAD run, `shim_runner()` finds the runner's start script with the same environment the verifier starts it with (`verifier.runner_env()`, so a runner's own `PATH` counts), and `write_shim()` copies it into a temporary folder with a short redirect inserted (`_insert_at()` finds the place; a script with a `from __future__` import anywhere, or a copy that wouldn't compile, isn't copied). That folder goes first on `PATH`; the redirect rewrites `sys.path` entries and `__editable__` import-hook tables from the repository to the worktree and leaves a marker file. `editable_install(root, top, environ)` reads the project's virtualenvs (`.venv`, `venv`, `$VIRTUAL_ENV`) for a `.pth` line, an `__editable__` hook or an editable `direct_url.json` pointing inside the repository; if one exists and the marker is missing, the verdict is `n/a`. It is also `n/a` when a copy was made but its marker is missing: a runner that didn't get through the redirect says nothing about the test (ADR-20261011-3c7e).
+- **The generated spec** ([`specdoc.py`](../seamspec/core/specdoc.py), §15.2): `render(store, generated_line=False) -> str` builds the document from the committed ledger alone (deterministic); `counts(store)` gives rules in force, retired, dead ends and proposals waiting; `is_generated(text)` tells whether a file was written by `--out`. [`area.py`](../seamspec/core/area.py) holds `area(paths, root=None)`, shared with the session-start summary so both group rules the same way; only the summary passes `root`, which adds the "is it a folder on disk?" check (ADR-20261013-2f6b).
 - `testview.analyze(code, runner) -> TestView` ([`testview.py`](../seamspec/core/testview.py)): the test's lines, its `checks` (line number and one-line text), whether they come from a parse (`parsed`), `facts()` and `warnings` (§15.1). Python is parsed with `ast`; vitest is a plain scan for `expect(`.
-- `review.show_invariant(store, inv, position=None)` prints the block of §15.1; `review.cut(text, limit)` shortens with a visible `…`; `RedGreen.line()` gives *"Fails without your change: YES / NO / COULDN'T TELL (detail)"*.
+- `review.replaces(store, inv)` lists what a rule replaces as `(id, title, note)`; `review.paired_replacements(store, reqs)` gives the proposed rules that are decided with a pending supersede request, which `run` keeps out of the proposals list and `chat_review` places right before their request (ADR-20261013-7c2e).
+- `review.show_invariant(store, inv, position=None)` prints the block of §15.1; `review.cut(text, limit)` shortens with a visible `…`; `RedGreen.line()` gives *"Fails without your change: YES / NO / COULDN'T TELL (detail)"*; with `RedGreen.new_code` the label is *"YES, BUT ONLY BECAUSE THE CODE IS NEW"* and `RedGreen.hint()` returns the line shown under it (§11.4). `redgreen.MISSING_CODE` is the pattern matched against the first line of each HEAD failure in the runner's report (`RunnerResult.checks`).
 - `review.run(store, cfg)`: the flow in §15. It is prompt-driven (one-letter answers, re-asked on anything else) rather than a full-screen TUI, so it works in any terminal and can be tested end to end. Items appear oldest first (proposals and dead ends by `created_at`, supersede requests by `requested_at`; ties broken by id). It records `.seamspec/.local/review.json` (`last_review_at`), which decides which dead ends count as new. The cursor is the time the review **started**, so dead ends created during the review stay new. If you quit part-way through the dead-end list, it only advances past the ones you actually answered. A chat review marks the dead ends it showed and the human answered (`mark_dead_end_seen`, `seen_dead_ends` in the same file), and `pending()` leaves them out.
 - `lifecycle.approve(..., confirm_config=None)` refuses when runner config fingerprints don't match. To confirm, a caller passes the fingerprints of **exactly the bytes it showed the human** (`review.show_config_changes()` returns them); if the files changed again after display, approval is refused. `review`'s own confirmation step applies the same check before writing `fingerprints.json`.
+
+- **The commit check's copy** ([`snapshot.py`](../seamspec/core/snapshot.py), §16.4, ADR-20261014-3b1e): `differs(root)` is true when the index and the working tree differ (unstaged tracked changes or untracked non-ignored files; false outside git); `ledger_differs(root)` checks tracked `.seamspec/` files only. `staged(root, cfg)` is a context manager yielding `Snapshot(root, shims, redirected, must_redirect, first_on_path)`: the index copied with `git checkout-index`, the ledger from disk, the env folders linked and every runner's start script shimmed with `redgreen.shim_runner()`. It raises `SnapshotError` (the gate prints it and refuses) when git can't answer, the staged ledger differs from disk, the copy fails, or an editable install can't be redirected; `Snapshot.trustworthy()` is false when an editable install is present and the redirect's marker is missing after the run. `cli._verify_staged()` runs the locked tests there without `save_last`.
+
+- **Catches** ([`catches.py`](../seamspec/core/catches.py), ADR-20261018-6e1a): `record(store, kind, ids)` appends `{at, kind: "stop" | "commit", ids}` to `.seamspec/.local/catches.jsonl` (per machine, never committed) and never raises; `load` skips broken lines; `counts` gives `{stop, commit}`. `adapters/claude._block` records a `stop` catch for a real failing check (not for a hook error); `seamspec verify --gate` records a `commit` catch when it refuses. `seamspec status` prints *"caught N at the end of a task, M at a commit (this machine)"* and `--json` has `catches`.
 
 ### 19.8c `seamspec/core/commands.py` — implemented (weeks 3–4)
 
 [`commands.py`](../seamspec/core/commands.py)
 
-- `V01_COMMANDS = ("lock", "dead-end", "supersede", "checkpoint", "context", "status")` (the last four added in week 4, ADR-20261007-8663). `drain` arrives with the braindump in v0.2.
+- `V01_COMMANDS = ("lock", "dead-end", "supersede", "checkpoint", "context", "status", "explain")` (four added in week 4, ADR-20261007-8663; `explain` with the reviewer, ADR-20261013-b7d2). `drain` arrives with BRAINDUMP.
+- `V01_AGENTS = ("reviewer",)` and `render_agent(name)`: plugin agent definitions from `seamspec/templates/agents/`, written to `seamspec-plugin/agents/<name>.md` by the same command; a test fails if they drift. `render_agent(name, host)` also renders the reviewer for `REVIEWER_HOSTS = ("vscode", "antigravity")` as each tool's custom agent (`AGENT_FILES`), and `has_reviewer(host)` / `commands_for(host)` give those hosts `explain` (rendered from `_explain-vscode.md` / `_explain-antigravity.md`) and keep the reviewer lines in their other commands; Cursor gets neither (ADR-20261015-4f7b). `installers/hosts.install_agents` writes the files as generated, SeamSpec-owned files.
+- [`brief.py`](../seamspec/brief.py): `material(store, ids=None)` builds what `review_material` returns (§15.3). Read-only: it never runs a test and never writes review state.
 - `render(name, host="claude")` returns the full `SKILL.md`: the template's frontmatter (Claude Code keys in v0.1), a generated-file header, the body with `{{args}}` → `$ARGUMENTS`, and the shared `_footer.md`. Other hosts raise until v0.2.
 - `write_plugin_skills(plugin_dir)` writes `skills/<name>/SKILL.md`; `uv run python -m seamspec.core.commands` regenerates the committed plugin skills. `tests/test_plugin.py` fails if they drift from the templates.
 
-### 19.9 `seamspec/core/braindump.py`
+### 19.9 `seamspec/core/braindump.py` — implemented (ADR-20261013-d9e4)
 
-```python
-from __future__ import annotations
-
-import re
-from dataclasses import dataclass
-
-from .hashing import normalize_text, sha256_bytes
-
-ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?(.*\S)\s*$")
-FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
-
-SECRET_PATTERNS = [
-    re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}"),
-    re.compile(r"\bghp_[A-Za-z0-9]{30,}"),
-    re.compile(r"(?i)bearer\s+[A-Za-z0-9._-]{20,}"),
-    re.compile(r"(?i)(password|passwd|secret|api[_-]?key)\s*[:=]\s*\S+"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
-]
-
-
-@dataclass(frozen=True)
-class BraindumpItem:
-    id: str
-    text: str
-
-
-def redact(text: str) -> str:
-    for pattern in SECRET_PATTERNS:
-        text = pattern.sub("[REDACTED]", text)
-    return text
-
-
-def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
-    """Split the human section into items (§13.5):
-    - a list item continues only over *indented* lines;
-    - a plain paragraph continues until a blank line;
-    - a fenced code block is kept whole, inside the item or paragraph it belongs to."""
-    human = markdown.split(marker, 1)[0]
-    blocks: list[list[str]] = []
-    current: list[str] | None = None
-    current_is_item = False
-    in_comment = False
-    fence: str | None = None  # opening fence while inside a code block
-
-    for raw in human.splitlines():
-        line = raw.rstrip()
-        stripped = line.strip()
-        if fence is not None:  # inside a code block: keep every line, verbatim
-            current.append(line)
-            if stripped and set(stripped) == {fence[0]} and len(stripped) >= len(fence):
-                fence = None
-            continue
-        fm = FENCE_RE.match(line)
-        if fm:
-            fence = fm.group(1)
-            if current is None:
-                current, current_is_item = [], False
-                blocks.append(current)
-            current.append(line)
-            continue
-        if stripped.startswith("<!--"):
-            in_comment = not stripped.endswith("-->")
-            current = None
-            continue
-        if in_comment:
-            in_comment = not stripped.endswith("-->")
-            continue
-        if not stripped or stripped.startswith("#") or stripped == "---":
-            current = None
-            continue
-        m = ITEM_RE.match(line)
-        if m:
-            current, current_is_item = [m.group(1)], True
-            blocks.append(current)
-        elif current is not None and (not current_is_item or raw[:1] in (" ", "\t")):
-            current.append(stripped)
-        else:  # unindented text after a list item starts a new paragraph
-            current, current_is_item = [stripped], False
-            blocks.append(current)
-
-    items: list[BraindumpItem] = []
-    seen: set[str] = set()
-    for block in blocks:
-        text = "\n".join(block)  # ids hash normalized text, so line breaks don't change them
-        item_id = "bd_" + sha256_bytes(normalize_text(text).encode("utf-8"))[:8]
-        if item_id not in seen:
-            seen.add(item_id)
-            items.append(BraindumpItem(item_id, text))
-    return items
-```
+- `parse_items(markdown, marker) -> list[Item(id, text)]`: §13.5. List items continue over indented lines; a paragraph runs to the next blank line, list entry or heading; fenced code stays whole with its item (or is one); headings, rules and HTML comments are skipped; text below the marker is never read; duplicate ids are listed once.
+- `item_id(text)`: `bd_` + 8 hex of SHA-256 of the whitespace-normalized, lowercased text.
+- `state(store)` / `record(store, id, as, ref, text)`: `.seamspec/.local/braindump.json`, what each item became (`invariant`, `dead_end`, `decision`, `todo`, `exploration`) with the record id. `lifecycle.propose_invariant` (origin type `braindump`), `log_dead_end(origin_ref=…)` and `propose_decision(origin_ref=…)` call it. The preview is the note's own text from the file (redacted when `redact_secrets` is on), not the agent's rewording.
+- `pending(store, path, marker)`; `dismiss(store, path, marker, [{item_id, as}])` (only `todo` / `exploration` / `planned`, only pending items), also reached by `seamspec drain --dismiss ID=todo|exploration|planned`. `planned(store, path, marker)` lists notes set aside as planned that are still in the file; `planned_lines(...)` is their session-start text (never raises); `note_text(...)` finds a note's own text by id. `tidy` leaves planned notes in place (§13.6a).
+- `should_nudge` / `remember_nudge`: `.seamspec/.local/nudge.json` holds a hash of the pending ids at the last nudge (§13.9); `adapters/claude._braindump_nudge` uses them on `startup` and `clear`, and is silent on any error.
+- `below_marker(markdown, marker) -> list[str]`: lines a person wrote below the marker (anything but blank lines, the managed heading and `tidy`'s log lines); `below_marker_note(root, path, marker)` is the sentence `drain`, `status` and `braindump_pending` show, or `None` (§13.7).
+- `tidy(store, path, marker) -> int`: moves sorted items from the person's part into the managed part as `- \`bd_…\` → <what> — "<preview>"`, leaving every other line as it was. Only `seamspec drain --tidy` (human only) calls it.
+- Redaction (§13.8) is `core/redact.py`, applied by `lifecycle` to origin text, dead-end approaches and failure reasons.
 
 ### 19.10 `seamspec/adapters/claude.py`, `core/session.py` — implemented (weeks 3–4)
 
@@ -2449,7 +2539,7 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
 - `stop`: auto-run consent + trust (`execution_permitted`) → journal check → skip when the tree fingerprint equals the last green one → run LOCKED rules within `verify.stop_deadline_seconds` (and save `last_verify.json`) → green allows; `incomplete` allows with a warning unless `fail_closed`; failures covered by pending supersede requests allow with a message; anything else blocks, up to `max_stop_retries` per user prompt, then allows with a warning.
 - Errors fail open (`systemMessage` on Stop, nothing on PreToolUse). With `fail_closed`, Stop errors block through the same retry cap.
 - `SessionState` (`.seamspec/.local/sessions/<session>.json`) holds the acknowledged context keys, the retry counts per prompt and the last green fingerprint.
-- `session_start` (week 4, ADR-20261007-ac04): for `source` `startup`, `clear` or `compact`, it returns `additionalContext` with `session_summary(store)`, a summary of LOCKED rules (the only items described as human-approved), active dead ends under a "recorded, not approved" heading, the "ask first" instruction and the number of pending reviews. It stays within `SESSION_MAX_CHARS` (8,000, under Claude Code's 10,000-character hook limit) by shrinking detail in steps, never by dropping records: everything in full; else rules in full and dead ends shortened (approach clipped to 120 characters, reason to 200); else rule titles with at most two scope paths; else titles alone; else counts per area (`_area()`: the whole path segments of the first scope path before the first one holding a glob; with no glob, the path if it's a folder, else its file's folder), with totals only as the last resort. A dead end keeps its reason at every step that lists it (ADR-20261011-6b2d). Record fields are flattened to one line (`_flat()`), so a title, assertion or dead end with line breaks stays one entry. It returns nothing for an empty ledger or for `resume` / `fork`. It runs in every mode; errors fail open with no output.
+- `session_start` (week 4, ADR-20261007-ac04): for `source` `startup`, `clear` or `compact`, it returns `additionalContext` with `session_summary(store)`, a summary of LOCKED rules (the only items described as human-approved), active dead ends under a "recorded, not approved" heading, the "ask first" instruction and the number of pending reviews. It stays within `SESSION_MAX_CHARS` (8,000, under Claude Code's 10,000-character hook limit) by shrinking detail in steps, never by dropping records, with critical rules (`Invariant.critical`) first and in full at every step: everything in full; else rules in full and dead ends shortened (approach clipped to 120 characters, reason to 200); else rule titles with at most two scope paths; else titles alone; else counts per area (`_area()`: the whole path segments of the first scope path before the first one holding a glob; with no glob, the path if it's a folder, else its file's folder), with totals only as the last resort. A dead end keeps its reason at every step that lists it (ADR-20261011-6b2d). Record fields are flattened to one line (`_flat()`), so a title, assertion or dead end with line breaks stays one entry. It returns nothing for an empty ledger or for `resume` / `fork`. It runs in every mode; errors fail open with no output.
 - `moved_note(store)` (ADR-20261011-d4a1): when `CLAUDE_PROJECT_DIR` (the launch folder) lies in a different SeamSpec project than the one the hook is running for, the edit-time context and the session-start summary add that the rules shown are for this project while the MCP tools still answer for the other one, and to use the `seamspec` command until a new session is started here. It doesn't depend on there being rules to show: with an empty ledger the summary is just this note, and the first edit of the session gets it once even when no rule covers the file.
 - `config_change` (week 4, ADR-20261006-c300): when `review.chat_approvals` is on and `source` is user, project or local settings or skills, it checks the changed file with `hookguard.check_file` (or does a full scan without `file_path`) and returns `{"decision": "block"}` for a dialog hook that isn't in `.local/hookguard-baseline.json`, which `session_start` writes. Blocks are journaled. Errors fail open, like the other hooks.
 - `tree.tree_fingerprint(root)`: `HEAD` plus the content of every changed or untracked, non-ignored file; `None` outside git, in which case runs are never skipped.
@@ -2500,6 +2590,7 @@ def parse_items(markdown: str, marker: str) -> list[BraindumpItem]:
 - **Local only:**
   - `journal.unjournaled_changes` (skipped with a warning if a record is broken);
   - `directive.drift` (warning);
+  - Antigravity's server set to another folder (`.agents/mcp_config.json` `env.SEAMSPEC_ROOT`, warning, ADR-20261014-6c2d);
   - a pre-commit hook running the gate in enforced and strict mode, and no leftover SeamSpec hook in advisory mode (warnings);
   - `.claude/settings*.json` allowing `Bash(seamspec…)` (warning).
 - **`--ci` only:**
@@ -2571,12 +2662,14 @@ seamspec/
 │   ├── .claude-plugin/plugin.json
 │   ├── hooks/hooks.json
 │   ├── skills/                     # rendered from templates/commands/ (lock, dead-end, ...)
+│   ├── agents/                     # rendered from templates/agents/ (reviewer, §15.3)
 │   ├── .mcp.json
 │   └── scripts/                    # seamspec-hook, seamspec-mcp (§16.1)
 ├── seamspec/
 │   ├── __init__.py
 │   ├── cli.py                      # typer app: init, status, context, review, verify, doctor, mcp, hook, trust (drain, commands: v0.2)
 │   ├── review.py                   # `seamspec review` flow (§15)
+│   ├── brief.py                    # what SeamSpec's reviewer reads (§15.3)
 │   ├── mcp_server.py               # thin FastMCP wrapper
 │   ├── services.py                 # wires core components for CLI/MCP/adapters
 │   ├── schemas/v1/
@@ -2598,44 +2691,47 @@ seamspec/
 │   │   ├── journal.py              # approval journal + unjournaled-change check (§11.1)
 │   │   ├── redgreen.py             # red-green check in a temporary worktree (§11.4)
 │   │   ├── adr.py
-│   │   ├── braindump.py            # v0.2
+│   │   ├── area.py                 # the folder a rule is about: session summary and generated spec (§16.1, §15.2)
+│   │   ├── specdoc.py              # `seamspec spec`: the document generated from the ledger (§15.2)
+│   │   ├── braindump.py            # BRAINDUMP.md: parse, state, dismiss, tidy, nudge (§13)
 │   │   ├── commands.py             # load templates (+ project overrides), render per host
-│   │   ├── requests.py             # supersede requests
+│   │   ├── requests.py             # supersede requests, and the ones a person declined
 │   │   ├── session.py              # hook session state
 │   │   ├── trust.py                # auto-run consent + repo trust (§12.4)
 │   │   ├── runners.py              # presets, language detection, harness paths + protection globs (§12A)
 │   │   ├── reports.py              # JUnit XML + go test -json parsing, test counts (§12A.4)
+│   │   ├── failtext.py             # the short block a human reads when a rule fails (§12A.4)
 │   │   └── tree.py                 # tree fingerprint (git-visible files only), changed files
 │   ├── adapters/
 │   │   ├── claude.py
-│   │   ├── vscode.py               # v0.2
-│   │   └── cursor.py               # v0.2
+│   │   └── hosts.py                # Cursor, VS Code, Antigravity: their hook formats ↔ claude.py's handlers (§16.2–§16.3a)
 │   ├── installers/                 # init: merge configs without clobbering
 │   │   ├── scaffold.py             # `seamspec init` scaffolding (week 1)
-│   │   ├── directive.py            # marked CLAUDE.md block (§18)
-│   │   ├── claude_plugin.py        # plugin install via `claude plugin` at local scope (§16.1)
-│   │   ├── vscode.py               # v0.2
-│   │   ├── cursor.py               # v0.2
+│   │   ├── directive.py            # marked block in CLAUDE.md and AGENTS.md (§18)
+│   │   ├── claude_plugin.py        # plugin install via `claude plugin`, local or project scope (§16.1)
+│   │   ├── hosts.py                # Cursor, VS Code, Antigravity project files: AGENTS.md, MCP, hooks, commands (§16.2–§16.3a)
 │   │   ├── git_hooks.py
-│   │   ├── commands.py             # write slash-command files per host (v0.2; Claude Code skills ship in the plugin)
 │   │   └── ci.py                   # CI workflow + strict-mode CODEOWNERS block (§16.5)
 │   └── templates/
 │       ├── config.toml             # with {{runners}} filled from templates/runners/*.toml
 │       ├── runners/                # pytest.toml, vitest.toml presets (v0.1)
 │       ├── pytest.ini              # SeamSpec's own pytest config (§12.3)
 │       ├── vitest.config.mjs       # SeamSpec's own vitest config (§12.3)
-│       ├── BRAINDUMP.md            # v0.2
+│       ├── BRAINDUMP.md            # the scratchpad `init` creates (§13.4)
 │       ├── directive.md            # §18
+│       ├── directive_known_lines.txt  # every line the block has shipped, hashed (§18, ADR-20261011-b1c8)
 │       ├── seamspec.yml            # CI workflow
+│       ├── agents/reviewer.md      # SeamSpec's reviewer, rendered into the plugin (§15.3)
 │       └── commands/               # §15A.3 canonical workflow-command templates
 │           ├── _footer.md
 │           ├── lock.md
 │           ├── dead-end.md
-│           ├── drain.md            # v0.2
+│           ├── drain.md            # §13.6
 │           ├── checkpoint.md
 │           ├── supersede.md
 │           ├── context.md
-│           └── status.md
+│           ├── status.md
+│           └── explain.md          # §15.3
 └── tests/
     ├── conftest.py                 # `repo` / `store` fixtures, record factories
     ├── test_root.py
@@ -2654,7 +2750,7 @@ seamspec/
     ├── test_trust_gate.py          # consent, trust, verify CLI, pre-commit end to end with real git
     ├── test_review.py              # review flow via the CLI; red-green against real git worktrees
     ├── fixtures/ts_repo/           # pinned vitest install: npm ci --prefix tests/fixtures/ts_repo
-    ├── test_braindump.py           # v0.2
+    ├── test_braindump.py           # §13
     ├── test_claude_adapter.py      # feed recorded hook payloads, assert outputs
     ├── test_commands_render.py     # snapshot tests of rendered skills/command files
     └── fixtures/sample_repo/       # Python and TypeScript fixtures in v0.1
@@ -2691,6 +2787,8 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 2. Finish dogfooding: get a rule to catch a real mistake, and try the supersede flow.
 3. Week 5: the benchmark, `seamspec spec` (§15.2) and the README, pitched as a regression guard that works alongside spec-first tools.
 
+**Changed after the full benchmark (2026-10-13, ADR-20261013-f4a8).** The benchmark passed (ADR-20261013-e2b6) and showed where SeamSpec's case lies: not in remembering rules, which a well-kept notes file does as well, but in rules nobody has to write, proven by tests and approved by a person. The owner moved these into v0.1: **BRAINDUMP** (§13), the **"critical" rule marking**, and three more hosts, **Cursor, VS Code (Copilot) and Google Antigravity**; and added an **explainer for reviews** (a separate read-only agent that explains each rule and its test in chat, beside `seamspec review`, never inside it) and **two more benchmark tests** (capture from conversation; a long session). Proposed order: the benchmark write-up, the explainer, the critical marking, BRAINDUMP, the three hosts, the two tests, then the README and release. The week table above no longer describes v0.1; rough estimate from here, 4 to 5 weeks.
+
 ### v0.2 — soon after v0.1
 
 Competing tools already support several hosts, so v0.2 follows quickly. The adapter layer stays thin so new hosts are cheap to add.
@@ -2698,8 +2796,8 @@ Competing tools already support several hosts, so v0.2 follows quickly. The adap
 In this order (ADR-20261011-0995):
 
 - **OpenSpec importer** (`origin.type = "import"`), moved up from "Later": SeamSpec works alongside spec-first tools, so reading their requirements as proposed rules comes first.
-- **Cursor and VS Code Copilot** adapters (§16.2, §16.3) and per-host command rendering (§15A.4).
-- A **"critical" rule marking**: such rules always show in full in the session-start summary (ADR-20261007-ac04).
+- ~~Cursor and VS Code Copilot adapters~~, ~~the "critical" rule marking~~ and ~~BRAINDUMP~~: **moved into v0.1** (ADR-20261013-f4a8); the marking (ADR-20261013-c1a9) and BRAINDUMP (ADR-20261013-d9e4) are built. In v0.2 what remains of the hosts: in-session blocking wherever v0.1 shipped only the rules, the tools and the commit gate.
+- **Rules from an existing notes file** (new, from the benchmark): read a project's `CLAUDE.md` or similar and propose one tested rule per agreement.
 - **BRAINDUMP**: parse/drain/tidy + redaction, `/seamspec:drain`, session-start nudge (§13); `propose_decision` and `braindump_pending` tools. Until then, the agent proposes rules from a project's own list of intended rules, such as a section of a plan (v0.1, ADR-20261011-0995).
 - **More presets**: jest, Go, Rust (cargo), `custom` (§12A.2).
 - MCP **elicitation** for `run_proposed = "ask"`. (`trust_level = "harness"` moved into v0.1, ADR-20261005-8e80.)
@@ -2729,6 +2827,11 @@ In this order (ADR-20261011-0995):
 | Conditions | (A) baseline; (B) `advisory` mode (rules + MCP); (C) `enforced` mode (plugin hooks + pre-commit); **(D) plain tests + a Stop hook that runs them**: the same tests as (C), written in `tests/`, with no SeamSpec; **(E) the same rules as plain notes in `CLAUDE.md`**, with no SeamSpec (ADR-20261006-b270, ADR-20261007-e1a7); **(F) decisions in ADRs only**: the agreements as ADRs in `docs/adr/`, with realistic noise and no pointer to them. In the full run (week 5), C includes the session-start hook (ADR-20261007-ac04) |
 | Runs | Rough run in **week 3**: 2 tasks × 4 conditions × 3 runs on Claude Sonnet 5.5, after a Haiku dry run that only checks the harness. Full run in week 5: ≥ 5 runs per condition per task, same model and settings |
 | Scoring | A **hidden oracle** test suite, which the agent never sees, checks every rule against the final code. The pass, change-the-pitch and kill thresholds are fixed in ADR-20261006-c8b9 **before** any run |
+| Full run (week 5) | **Plan and pass bar: ADR-20261013-9d41** (accepted by the owner on 2026-10-13, with the many-rules variant added). 3 tasks × 8 conditions × 5 runs = 120 runs on Sonnet 5.5. **G and H repeat E and C with 36 more agreed rules** about two helper packages, because a notes file is plainly enough for three rules; only the task's own rules are scored, and G is read against H.  Then a smaller batch on a less careful model that is reported, not judged. The bar scales the rough run's thresholds to the number of runs and asks C to beat D by a margin, not by one. E and F are read against C (clearly worse / matches / unclear) and decide **which claims the write-up may make**, a table fixed in that ADR. Built without any model call: task T3 (an export tool, with requests that have both a rule-keeping and a rule-breaking way to do them), condition F, `decide_full`, `--bar`, `--resume` |
+| **Full run result** | **PASS** (ADR-20261013-e2b6, [`docs/benchmark/full-1.md`](benchmark/full-1.md)): 120 runs on Sonnet 5.5, $45.37 (first reported as $111.94: the harness added up Claude Code's running totals; ADR-20261018-6e1a). Rules broken in 15 runs each: A 22, B 0, C 0, D 10, E 0, F 7, G 0, H 0. With plain tests the agent rewrote the rule tests (12 changes; 0 with SeamSpec) and repeated the dead end (5 runs; 0). **A notes file matched SeamSpec, with 3 rules and with 39; advisory matched enforced; in 30 enforced runs the gates never had to fire.** Allowed claims: halves broken agreements against nothing; plain tests get rewritten and SeamSpec's don't; fewer broken agreements than plain tests. Not allowed: better than notes, than ADRs, or enforced better than advisory. **Second model** (Haiku 5.5, 36 runs, reported not judged, [`full-1-haiku.md`](benchmark/full-1-haiku.md)): A 13, C 0, D 9, E 0 in 9 runs each; the same picture, with plain tests rewritten more often. Then: capture and a long session, each with its own pre-set bar |
+| **Capture result** | **PASS** (ADR-20261018-a4c2, [`capture-1.md`](benchmark/capture-1.md)): 30 runs, $12.69. Agreements only said in chat; broken: **SeamSpec (empty ledger) 0**, agent keeping its own notes 8, nothing 22, person-written notes 0 (the last two from `full-1`). SeamSpec captured 39 of 40 rules as locked tests that catch their agreement's violation, and 15 of 15 dead ends. The notes-keeping agent wrote the agreements down, then rewrote its notes to follow conflicting requests; SeamSpec's agent filed supersede requests instead. Allowed: *turns agreements only said in chat into approved, enforced rules*; *fewer broken agreements than an agent keeping its own notes* |
+| **Second-actor result** | **PASS** (ADR-20261019-c71d, [`second-1.md`](benchmark/second-1.md)): 36 runs, $13.58. A teammate's fresh clone (no local SeamSpec) and their agent made the tempting changes; CI ran on the push. Broken / landed on `main`: nothing 12 / 12, person-written notes 0 / 0, the author's agent's notes 6 / 6, **SeamSpec 2 / 0**. Hand edits (a demonstration) landed 11, 11, 10 and 0 of 21. SeamSpec also blocked 2 pushes the hidden tests call fine (captured rules pin details the user stated). Allowed: *with SeamSpec, a broken agreement doesn't reach `main`, whoever made the change* |
+| **Long-session result** | **No slip to catch** (ADR-20261018-a4c2, [`long-1.md`](benchmark/long-1.md)): 27 runs, $18.29. One 21-prompt session per task; nothing, person-written notes and SeamSpec all broke 0, nothing compacted. Not claimed: that the checks catch forgetting in a long session. Finding: agreements are lost between sessions, not within a long one |
 | Rough run result (week 3) | **PASS**: V(A)=9, V(B)=1, V(C)=2, V(D)=6. C beat plain tests on violations, tampering and dead ends, at 1.29× the cost. SeamSpec agents surfaced all 12 conflicts with `request_supersede`; with plain tests, the agent rewrote the tests. See ADR-20261006-b270 and `docs/benchmark/rough-1.md` |
 | Metrics | Locked-invariant violations at end; regressions introduced and not fixed; tests edited, skipped or deleted by the agent; dead-end retries; turns to completion; tokens/cost; human interventions |
 | Output | Published scripts, raw logs, and a single chart: *violations per session by condition* |
@@ -2743,6 +2846,8 @@ In this order (ADR-20261011-0995):
 ### 24.1 Messaging
 
 - **One-liner:** *SeamSpec turns what your AI agent proved into rules it can't silently break.*
+- **What the benchmarks support** (ADR-20261018-a4c2): *Your agent can't quietly renegotiate what your team agreed.* Rules captured from what you said, proven by tests, changed only with your approval.
+- **For teams** (ADR-20261019-c71d): *Whoever changes the code, a teammate, their agent or a person by hand, a broken agreement doesn't reach `main`.* A notes file is advice to whichever agent reads it; SeamSpec's rules are tests CI runs on every push.
 - **Contrast:** *OpenSpec: specify, then build. SeamSpec: build, and the spec hardens behind you.*
 - **Human hook:** *Keep your messy BRAINDUMP.md. SeamSpec distills it into invariants, decisions, and dead ends.*
 
@@ -2771,7 +2876,7 @@ Measured against the real baseline, plain tests + a Stop hook (§4.4), not again
 ### 24.4 Launch Assets
 
 - Demo: prompt → `/seamspec:lock` → `seamspec review` approves (showing red-green) → later prompt edits the governed file → agent is shown the rule before editing → regression blocked at Stop → `/seamspec:supersede` → human approves → commit passes.
-- Write-up: *"Beyond Prompt Compliance: Enforcing AI Coding Invariants with Hooks, Not Hope."*
+- Write-up: built on the allowed claims of the full and capture runs (ADR-20261013-e2b6, ADR-20261018-a4c2): rules you never wrote, captured from what you said (39 of 40 in the capture run), each proven by a test the agent can't quietly rewrite, changed only with a person's approval; fewer broken agreements than an agent keeping its own notes. The person-written-notes tie and the long session's "no slip" are stated openly. The earlier title, *"…with Hooks, Not Hope"*, is dropped: enforcement is what the run did not show.
 - Benchmark chart from §23.
 
 ---
@@ -2782,7 +2887,7 @@ Measured against the real baseline, plain tests + a Stop hook (§4.4), not again
 |---|---|---|
 | **Simple baseline is good enough** (plain tests + a Stop hook) | No reason to adopt SeamSpec | Benchmark condition (D) from week 3; if (C) ≈ (D), lead with capture, approval and dead ends (§4.4, §23) |
 | **Low-quality tests** (trivial, overfit, implementation-coupled) | Ledger becomes noise or blocks refactors | Human approval; directive asks for behavior-level tests; red-green info in review (§11.4); `seamspec review` shows the harness; empty/skipped tests fail |
-| **Rubber-stamping in review** | Weak tests get locked; approval means nothing | Review lists what each test checks above its code and warns about a test with no checks (§15.1), and shows *"Fails without your change: YES / NO / COULDN'T TELL"* next to each proposal; pending cap keeps batches small; easy reject-to-dead-end |
+| **Rubber-stamping in review** | Weak tests get locked; approval means nothing | Review lists what each test checks above its code and warns about a test with no checks (§15.1), and shows *"Fails without your change: YES / NO / COULDN'T TELL"* next to each proposal, and says when a "yes" comes only from the code being new; SeamSpec's reviewer, a separate read-only agent, explains each item in plain language before the decision (§15.3); pending cap keeps batches small; easy reject-to-dead-end |
 | **Review fatigue** | Proposals pile up | Batch review; non-blocking reminders; per-run and project-wide proposal caps |
 | **Slow verification at Stop** | Agent loop latency; hook timeout | Tree-fingerprint caching (git-visible files); `run_on_stop = "auto"`; one overall deadline with an explicit `incomplete` outcome; guidance to keep harnesses fast |
 | **Hook API churn** | Adapters break | Thin adapters; recorded-payload tests; `doctor` tier detection; re-verify per release |
@@ -2792,6 +2897,8 @@ Measured against the real baseline, plain tests + a Stop hook (§4.4), not again
 | **Slash-command format churn** | Commands break or lose arguments on some hosts | Claude Code skills ship inside the plugin; single template source; snapshot tests; MCP prompts as fallback; other hosts in v0.2 |
 | **Competitors move first on more hosts** | Users pick a multi-host tool | Ship the core loop early; Cursor + Copilot in v0.2, soon after v0.1; thin adapter layer |
 | **Narrow runner support at launch** | Limits Go/Rust/jest audience | Runner abstraction from day one; pytest + vitest in v0.1; more presets in v0.2 |
+| **A notes file is enough** (measured: ADR-20261013-e2b6) | With a careful model and a complete, current `CLAUDE.md`, an agent keeps agreed rules as well as with SeamSpec, for less cost | Don't sell memory. Lead with what the notes file in the benchmark was given for free: someone has to write it and keep it true. SeamSpec proposes each rule from working code, proves it with a test, records a human's approval and stops the test being rewritten. BRAINDUMP and the capture test (v0.1) make and measure that case; a notes-file importer (v0.2) meets users where they are |
+| **Empty on day one** | A new user on an existing project gets no value until rules accumulate | The plan's or notes' list of intended rules (§18 rule 2), BRAINDUMP, and in v0.2 the importers |
 | **Ledger ossification** | Rules outlive their purpose | Supersede flow; dead-end retirement; `status` shows stale rules (no scope matches in repo) |
 
 ---
@@ -2810,7 +2917,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 | 6 | Name and schema domain | **SeamSpec** (CLI `seamspec`). *Name history:* drafted as "VibeSpec"; dropped 2026-10-03 because GitHub user/org `vibespec` was taken and `vibespec.dev` resolves. `seamspec` was free everywhere and is now claimed: PyPI (0.0.3), npm (0.0.1) + `@seamspec` org, GitHub org `seamspec`. Schema `$id`s use `https://seamspec.github.io/schemas/v1/` | Names get taken, and a schema `$id` should never move | §9.4, §10, §22 |
 | 7 | `run_proposed` default | New default **`auto`**: `ask` when the MCP client declares elicitation support, else `host`. **In v0.1 elicitation is deferred, so `auto` = `host`** | `ask` shows the human a consent prompt in the IDE, which is stronger than relying on the agent's shell permissions. Falling back is safe while host support is unverified | §9.5, §12.4.2, §12.4.4, §19.2 |
 | 8 | `trust_level` in `strict` | **Yes, defaults to `harness`** (explicit config wins; implemented in v0.1, ADR-20261005-8e80). `fail_closed` follows the same rule | `strict` users opted into rigor; any new upstream test should need re-trust before it runs locally | §7.3, §9.5, §12.4.6, §19.2 |
-| 9 | v0.1 scope | **Claude Code only**; pytest + vitest; ledger, `review`, `verify`, pre-commit, Stop gate, `/lock`, `/dead-end`, 5-tool MCP, CI. Cursor/Copilot, BRAINDUMP, jest/Go/Rust, elicitation and harness trust move to **v0.2** | The original v0.1 was about 3× too big; the biggest risk is whether SeamSpec helps at all, so test the core loop first | §0, §8, §12A.2, §14, §22 |
+| 9 | v0.1 scope | **Claude Code only**; pytest + vitest; ledger, `review`, `verify`, pre-commit, Stop gate, `/lock`, `/dead-end`, 5-tool MCP, CI. Cursor/Copilot, BRAINDUMP, jest/Go/Rust, elicitation and harness trust move to **v0.2** | The original v0.1 was about 3× too big; the biggest risk is whether SeamSpec helps at all, so test the core loop first | §8, §12A.2, §14, §22 |
 | 10 | Claude Code packaging | Ship as a **plugin** (hooks + skills + MCP); commands are plugin skills, e.g. `/seamspec:lock` | Only plugin skills get a namespace; nothing is merged into committed settings, so teammates without SeamSpec are unaffected | §15A.4, §16.1 |
 | 11 | Edit-time gate | **`context`** by default: add constraints with no permission decision. Deny once only for brand-new governed files or `gate_mode = "deny_once"`. Never return `allow` | A denial can push the agent to write through Bash, skipping the gate; `allow` would bypass the user's permission prompts | §7.2, §16.1, §19.10 |
 | 12 | "Under verification" flag | **None.** `SEAMSPEC_VERIFY` removed | A flag lets code behave differently under test (a defeat device) | §12.4.7, §19.7 |
@@ -2827,35 +2934,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 
 ---
 
-## Appendix A — Idea.md Issue → Fix Map
-
-| Idea.md issue | Location (Idea.md) | Fix in this spec |
-|---|---|---|
-| "Architecturally blocked" via MCP | §4, L30 | §7 enforcement layers; MCP is interface only |
-| Agent self-locks invariants | `lock_decision_and_invariants` | `propose_invariant` + human `approve` (§11) |
-| No invariant retirement | — | Supersede flow (§11.2) |
-| Substring scope matching | `audit_intent_against_invariants` | `pathspec` globs + tags (§19.5) |
-| `hash()` for tamper detection | L335 | SHA-256 of harness + assertion (§19.5, §19.7) |
-| Same harness written N times | L322–325 | One harness per invariant, path chosen by SeamSpec |
-| `shell=True`, no timeout | L266 | argv from config, timeouts (§12, §19.7) |
-| CWD-relative paths | L207–210 | `find_root` via env / walk-up (§19.1) |
-| Non-atomic, unlocked ledger writes | L220–223 | Atomic writes + file lock + per-record files (§19.4) |
-| ADR numbering collisions, unsanitized slug | L309, L313 | `ADR-YYYYMMDD-xxxx` IDs; sanitized slugs (§9.3) |
-| `date -u` subprocess | L368 | `datetime.now(timezone.utc)` (§19.3) |
-| Default ledger missing required field | L215 | Per-record schema; no monolithic ledger |
-| `datetime.utcnow()` deprecated | L78 | Timezone-aware datetimes |
-| "Atomic Git Commit" not implemented | Diagram | Removed; git integration is pre-commit + CI |
-| Inconsistent tool names | §4, `.cursorrules`, code | Single tool list (§14) used everywhere |
-| Wrong IDE config paths/keys | §5.3 | Corrected per host (§14.3) |
-| Regression sweep ran whole test directory | L275–279 | Explicit harness list for LOCKED only (§12.2) |
-| BRAINDUMP read-only vs strike-through contradiction | L547 vs L573 | Ownership rules + marker (§13.2) |
-| `drain` locks items directly | L573 | Everything lands `PROPOSED` (§13.6) |
-| Hidden LLM dependency for braindump parsing | L599–601 | In-session agent classifies; model-free core (§3, §13.6) |
-| Duplicated sections, stray `"""`, broken LaTeX | Throughout | Clean single document |
-
----
-
-## Appendix B — Glossary
+## Appendix — Glossary
 
 | Term | Meaning |
 |---|---|

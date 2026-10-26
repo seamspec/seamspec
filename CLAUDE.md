@@ -36,6 +36,8 @@ uv run seamspec --help                    # the CLI
 - **Implemented modules are the source of truth**; SPEC §19 keeps a short contract per module (ADR-20261005-6f2a). If you change a module's behavior, update its §19 contract.
 - `seamspec/schemas/v1/config.json` is generated: after changing `core/config.py`, regenerate it from `config_json_schema()` (a test fails if it's stale).
 - Never run `ruff format` on `docs/` (it's excluded): SPEC code blocks are edited by hand.
+- **Lint a rule test before you propose it** (`ruff format` and `ruff check` on the file): once a human approves it, it is locked by hash and can't be tidied. `.seamspec/` is excluded from ruff for that reason (ADR-20261013-c3f7).
+- After editing `seamspec/templates/directive.md`, run `uv run python -m seamspec.installers.directive`: it adds the new lines to `directive_known_lines.txt`, so `init` keeps telling SeamSpec's own wording from lines a user wrote inside the block (a test fails if the file is behind; ADR-20261011-b1c8).
 - Plugin skills are generated: after editing `seamspec/templates/commands/`, run `uv run python -m seamspec.core.commands` (a test fails if `seamspec-plugin/skills/` is stale). Try the plugin with `claude --plugin-dir seamspec-plugin`, or install it for a repo with `seamspec init --plugin` (local scope). Tests get a throwaway `CLAUDE_CONFIG_DIR`; never run `claude plugin install` against the owner's real settings without asking.
 
 <!-- From week 3, `seamspec init` adds its own marked directive block below (SPEC §18), when SeamSpec starts governing this repo. -->
@@ -49,22 +51,32 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
 1. Before editing a file, call `get_constraints(files)` (or run `seamspec context <files>`).
    Respect every LOCKED invariant. Approaches listed as previously failed (dead ends) failed for
    the stated reason; don't reuse them unless that reason no longer applies.
-2. When you establish a new behavior worth protecting, call `propose_invariant` with a focused,
-   behavior-level test (not implementation details). The tool does not run the test: run
+2. When the user states an agreement or a rule the code must keep, or you establish a behavior
+   worth protecting, capture it right away: call `propose_invariant` with a focused,
+   behavior-level test (not implementation details). If its code doesn't exist yet, say so and
+   propose it once the code works. The tool does not run the test: run
    `seamspec verify --proposed <id>` with your shell tool and fix the test until it passes.
    If the project keeps a list of rules it intends to lock (for example a section of its
    plan), propose each one when its code exists and works.
-3. When an approach fails, call `log_dead_end` with what you tried and why it failed.
+3. When an approach fails, or the user tells you about one that failed before, call
+   `log_dead_end` with what was tried and why it failed.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
-5. Never edit files under `.seamspec/` directly; use SeamSpec tools.
-6. Only humans approve invariants. When proposals are pending, offer to open `seamspec review` for
-   the user in a terminal they type into (never in your own shell; never answer its prompts), or
-   remind them to run it.
-7. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
+5. Never edit files under `.seamspec/` directly; use SeamSpec tools. If they are missing or fail,
+   use the matching `seamspec` command in your shell (`seamspec --help`). Never search outside
+   this project for SeamSpec's settings; if neither works, stop and tell the user.
+6. BRAINDUMP.md holds the user's own notes. Never edit it. When asked to sort it, follow
+   `/seamspec:drain`. When SeamSpec reports new notes at the start of a session, ask the user once
+   whether to sort them; don't sort without a yes, and don't ask again this session after a no.
+7. Only humans approve invariants. When proposals are pending, offer an explanation from
+   SeamSpec's reviewer (`/seamspec:explain`), and offer to open `seamspec review` for the user in a
+   terminal they type into (never in your own shell; never answer its prompts), or remind them to
+   run it.
+8. When the user runs a `/seamspec:*` workflow command, follow its steps exactly and end with
    the SeamSpec summary block.
-8. Users don't have to type commands. Treat plain requests as the matching workflow command:
-   "protect this" / "lock that" → lock; "that didn't work" → dead-end;
+9. Users don't have to type commands. Treat plain requests as the matching workflow command:
+   "sort my braindump" → drain; "protect this" / "lock that" / an agreement the user states → lock;
+   "that didn't work" / a failure the user describes → dead-end;
    a changed requirement for a LOCKED rule → supersede; "what applies here?" → context;
    "wrap up" → checkpoint.
 <!-- seamspec:end -->
