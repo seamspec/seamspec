@@ -175,13 +175,14 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 1. [x] Release blockers in code: the plugin from GitHub at the release tag, team scope, `Idea.md` references removed (ADR-20261023-7d41)
 2. [ ] Release rehearsal: build the wheel, install it in a clean folder (not editable), run `uv init` → `seamspec init` → BRAINDUMP → review → stop hook in Claude Code, plus a quick check in Cursor, VS Code and Antigravity; optionally TestPyPI. **Part 1 done** (everything without an agent, ADR-20261024-b3e9). **Part 2 done** in Claude Code, VS Code and Antigravity (ADR-20261024-6f0c). Still open: Cursor (not yet; its setup was already checked hands-on), and the plugin fetched from GitHub at a tag (needs the public repo and the `v0.1.0` tag, so it moves to step 6)
-3. [ ] Prepare the public repo: scan history for secrets, `CONTRIBUTING.md`, `SECURITY.md`, issue templates, description and topics; the owner makes it public. **Files and scan done** (ADR-20261026-1c7a); left for the owner: the read-through decisions, the description and topics, switching to public, then turning on private vulnerability reporting
-4. [ ] CI and Copilot reviews running again (free on a public repo; else fix billing); CI a required check; re-review #80, #89–#91
+3. [x] Prepare the public repo: scan history for secrets, `CONTRIBUTING.md`, `SECURITY.md`, issue templates, description and topics; the owner makes it public. **Done:** files and scan (ADR-20261026-1c7a), description and topics set, public since 2026-10-26, private vulnerability reporting on
+4. [~] CI and Copilot reviews running again (free on a public repo; else fix billing); CI a required check; re-review the PRs merged without a real review (#80 to #95). **CI and Copilot run again** (#96, free on the public repo). The first run caught the newest uv (0.13.5) building a different source package, so CI now pins uv 0.9.28 (ADR-20261026-d67b). PRs now run the full CI, macOS and Python 3.11–3.14, with macOS in `ci-ok` (ADR-20261026-f4e2). Left: CI a required check, the catch-up review
 5. [ ] Version `0.1.0` (pyproject and plugin), classifiers, project URLs, `CHANGELOG.md`; README and getting-started switch to `uv tool install seamspec`; README links made absolute so they work on pypi.org
 6. [ ] Publish: PyPI trusted publishing (the owner sets it up), tag `v0.1.0`, GitHub Release; then, from a clean machine, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
 7. [ ] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK)
 8. [ ] Launch posts: LinkedIn post and article, a short demo
 - **Before a second release (0.1.1):** `init` (or `doctor`) must notice a plugin pinned to an older tag, move the pin and update the plugin (ADR-20261023-7d41).
+- **After v0.1.0:** upgrade uv in CI on purpose, checking what the built packages contain (ADR-20261026-d67b).
 - npm: nothing to publish for v0.1; the reserved name stays as it is.
 
 ## Open questions (owner's call)

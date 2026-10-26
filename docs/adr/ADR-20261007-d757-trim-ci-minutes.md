@@ -1,12 +1,12 @@
 ---
 id: ADR-20261007-d757
 title: Trim SeamSpec's own CI to fit the Actions minutes of a private repo
-status: ACCEPTED            # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
+status: SUPERSEDED          # PROPOSED | ACCEPTED | SUPERSEDED | REJECTED
 date: 2026-10-07
 scopes: [".github/workflows/tests.yml"]
 invariants: []
 supersedes: null
-superseded_by: null
+superseded_by: ADR-20261026-f4e2
 ---
 
 # ADR-20261007-d757: Trim SeamSpec's own CI to fit the Actions minutes of a private repo
