@@ -73,7 +73,12 @@ def test_pre_commit_blocks_a_regression_naming_the_rule(gated_repo: Path, human:
     (root / "src/queue.py").write_text("def backoff_delay(n):\n    return 0.1 * 2 ** n  # cap removed\n")
     blocked = commit(root, "remove the cap")
     assert blocked.returncode != 0, "pre-commit let a regression through"
-    assert f"[FAIL] {inv_id} (pytest)" in blocked.stderr
+    # Dogfooding #11: the refusal names the rule by title and shows the check that failed, not 80 lines
+    # of runner output.
+    assert "SeamSpec: commit blocked." in blocked.stderr and "1 rule fails:" in blocked.stderr
+    assert f"  {inv_id} · Retry delay is capped\n    line 5: assert backoff_delay(100) <= 30\n" in blocked.stderr
+    assert "Full test output: `seamspec verify --all`" in blocked.stderr
+    assert "short test summary info" not in blocked.stderr and f"[FAIL] {inv_id}" not in blocked.stderr
     assert "supersede" in blocked.stderr
     assert git(root, "log", "--oneline").count("\n") == 2  # the commit didn't happen
 
@@ -108,7 +113,7 @@ def test_untrusted_clone_runs_nothing(gated_repo: Path, human: None, tmp_path_fa
         ["seamspec", "verify", "--all", "--gate"], cwd=clone, capture_output=True, text=True,
         env={k: v for k, v in os.environ.items() if k != "SEAMSPEC_ALLOW_NONINTERACTIVE_APPROVE"},
     )  # fmt: skip
-    assert result.returncode == 1 and "not trusted" in result.stderr
+    assert result.returncode == 1 and "isn't set up for this clone" in result.stderr  # a fresh clone: run init
     assert not marker.exists(), "an untrusted clone ran a test"
 
 
@@ -190,6 +195,20 @@ def test_init_on_a_fresh_clone_asks_once(py_repo: Path, monkeypatch: pytest.Monk
     assert trust.state(store, cfg).trusted is (answer == "y")
     assert trust.execution_permitted(store, cfg)[0] is (answer == "y")
     assert ("run `seamspec trust`" in result.output) is (answer == "n")
+
+
+def test_rerunning_init_keeps_an_earlier_yes(py_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rerunning init (e.g. to add an editor) asked again with "No" as the default: one Enter would have
+    switched the checks off (hands-on test, ADR-20261017-7b0e)."""
+    store = Store(py_repo)
+    assert trust.consent_given(store) and trust.state(store, load_config(py_repo)).trusted
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    result = runner.invoke(
+        app, ["init", "--path", str(py_repo), "--no-claude-md", "--no-plugin", "--no-ci"], input="\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert "Allow automatic test runs" not in result.output and "already allowed on this machine" in result.output
+    assert trust.consent_given(store) and trust.execution_permitted(store, load_config(py_repo))[0]
 
 
 def test_clone_trust_is_bound_to_what_was_shown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -371,9 +390,13 @@ def test_verify_changed_selects_by_scope(in_repo: Path) -> None:
 def test_verify_proposed_runs_in_place_then_cleans_up(in_repo: Path) -> None:
     good = propose(in_repo)["id"]
     bad = propose(in_repo, code="def test_x():\n    assert False\n")["id"]
-    assert runner.invoke(app, ["verify", "--proposed", good]).exit_code == 0
+    passed = runner.invoke(app, ["verify", "--proposed", good])
+    assert passed.exit_code == 0 and "staged" not in passed.output  # it ran the files on disk (rehearsal, 2026-10-24)
     out = runner.invoke(app, ["verify", "--proposed", bad])
-    assert out.exit_code == 1 and f"[FAIL] {bad}" in out.output
+    assert out.exit_code == 1 and f"[FAIL] {bad}" in out.output and "stage it again" not in out.output
+    # A plain `seamspec verify` keeps the runner's output and ends with the short block (dogfooding #11).
+    assert out.output.index("[FAIL]") < out.output.index("1 rule fails:") < out.output.index("line 2: assert False")
+    assert "commit blocked" not in out.output and "Full test output" not in out.output
     assert not list((in_repo / ".seamspec/tests").glob("test_inv_*.py"))
     assert Store(in_repo).get(good).status == InvStatus.PROPOSED
     locked_err = runner.invoke(app, ["verify", "--proposed", "inv_00000000"])
@@ -385,6 +408,16 @@ def test_verify_untrusted_fails_without_a_terminal(in_repo: Path) -> None:
     result = runner.invoke(app, ["verify"])
     assert result.exit_code == 1 and "not trusted" in result.output
     assert runner.invoke(app, ["verify", "--ci"]).exit_code == 0  # CI policy is the consent
+
+
+def test_a_clone_never_set_up_here_is_told_to_run_init(in_repo: Path) -> None:
+    """A teammate's fresh clone: no consent and no trust on this machine. Their agent got a bare "not
+    trusted" and skipped the check (second-actor benchmark, ADR-20261019-e2f8)."""
+    for name in ("trust.json", "consent.json"):
+        (in_repo / ".seamspec/.local" / name).unlink()
+    result = runner.invoke(app, ["verify"])
+    assert result.exit_code == 1 and "Run `seamspec init` in a terminal" in result.output
+    assert "Agents: tell the user this" in result.output and "CI still checks the rules" in result.output
 
 
 def test_gate_reports_pending_reviews(in_repo: Path) -> None:

@@ -11,6 +11,7 @@ import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 
+from seamspec import __version__
 from seamspec.core import lifecycle
 from seamspec.core.config import load_config
 from seamspec.core.models import InvStatus
@@ -19,7 +20,8 @@ from seamspec.mcp_server import mcp
 
 from .test_lifecycle import PASS, propose
 
-TOOLS = ["get_constraints", "propose_invariant", "log_dead_end", "request_supersede", "verify", "open_review"]
+TOOLS = ["get_constraints", "propose_invariant", "log_dead_end", "propose_decision", "braindump_pending",
+         "request_supersede", "verify", "open_review", "review_material"]  # fmt: skip
 TOKEN_BUDGET = 1500  # SPEC §4.3: tool definitions cost context in every session
 
 
@@ -244,10 +246,11 @@ def test_seamspec_mcp_over_stdio(project: Path) -> None:
         async with Client(params) as client:
             names = [t.name for t in (await client.list_tools()).tools]
             result = await client.call_tool("get_constraints", {"files": ["src/queue.py"]})
-            return names, result
+            return names, result, client.server_info
 
-    names, result = anyio.run(go)
+    names, result, info = anyio.run(go)
     assert names == TOOLS and not result.is_error
+    assert (info.name, info.version) == ("seamspec", __version__)  # was empty (release rehearsal, 2026-10-24)
 
 
 def test_get_constraints_includes_decisions(project: Path) -> None:

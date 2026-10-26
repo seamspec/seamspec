@@ -39,6 +39,7 @@ def fake_claude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("FAKE_CLAUDE_LOG", str(log))
     monkeypatch.setenv("FAKE_CLAUDE_LIST", str(tmp_path / "list.json"))
     monkeypatch.setenv("FAKE_CLAUDE_FAIL", "nothing-fails")
+    monkeypatch.delenv(claude_plugin.SOURCE_ENV, raising=False)
     return log
 
 
@@ -53,8 +54,18 @@ def project(tmp_path: Path) -> Path:
     return root
 
 
-def test_marketplace_is_the_checkout() -> None:
-    assert claude_plugin.marketplace_source() == CHECKOUT
+@pytest.fixture
+def released_build(monkeypatch: pytest.MonkeyPatch) -> str:
+    """SeamSpec 0.1.0 installed from PyPI: no checkout to point at."""
+    monkeypatch.setattr(claude_plugin, "checkout", lambda: None)
+    monkeypatch.setattr(claude_plugin, "released", lambda: True)
+    monkeypatch.setattr(claude_plugin, "__version__", "0.1.0")
+    return "https://github.com/seamspec/seamspec.git#v0.1.0"
+
+
+def test_marketplace_is_the_checkout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(claude_plugin.SOURCE_ENV, raising=False)
+    assert claude_plugin.marketplace_source() == str(CHECKOUT)
     market = json.loads((CHECKOUT / ".claude-plugin/marketplace.json").read_text())
     assert market["name"] == "seamspec"  # PLUGIN_ID is <plugin>@<marketplace>
     assert market["plugins"] == [{**market["plugins"][0], "name": "seamspec", "source": "./seamspec-plugin"}]
@@ -113,10 +124,61 @@ def test_no_claude_cli_is_skipped(project: Path, tmp_path: Path, monkeypatch: py
     assert result.status == "skipped" and "not found" in result.message
 
 
-def test_no_checkout_is_skipped(fake_claude: Path, project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(claude_plugin, "marketplace_source", lambda: None)
+def test_an_unreleased_build_without_a_checkout_is_skipped(
+    fake_claude: Path, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(claude_plugin, "checkout", lambda: None)
+    monkeypatch.setattr(claude_plugin, "released", lambda: False)
+    assert claude_plugin.marketplace_source() is None  # no tag to pin the plugin to
     result = claude_plugin.install(project)
-    assert result.status == "skipped" and "ships with the release" in result.message
+    assert result.status == "skipped" and "unreleased build" in result.message and "--editable" in result.message
+    assert calls(fake_claude) == []
+
+
+# --- a released SeamSpec: the plugin from GitHub, pinned to the installed version (ADR-20261023-7d41) ---
+
+
+def test_a_release_pins_the_plugin_to_its_own_tag(fake_claude: Path, released_build: str) -> None:
+    assert claude_plugin.marketplace_source() == released_build
+    assert claude_plugin.release_source("0.2.1") == "https://github.com/seamspec/seamspec.git#v0.2.1"
+
+
+def test_the_environment_variable_overrides_the_source(fake_claude: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(claude_plugin.SOURCE_ENV, " seamspec/seamspec#main ")
+    assert claude_plugin.marketplace_source() == "seamspec/seamspec#main"
+
+
+@pytest.mark.parametrize(
+    ("source", "ok"),
+    [
+        ("https://github.com/seamspec/seamspec.git#v0.1.0", True),
+        ("seamspec/seamspec", True),
+        ("seamspec/seamspec#v0.1.0", True),
+        (str(CHECKOUT), False),
+        ("./seamspec-plugin", False),
+        ("tests/fixtures", False),  # looks like owner/repo, but it's a folder here
+    ],
+)
+def test_only_a_published_source_can_be_shared(source: str, ok: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(CHECKOUT)
+    assert claude_plugin.shareable(source) is ok
+
+
+def test_project_scope_puts_the_published_plugin_in_the_committed_settings(
+    fake_claude: Path, project: Path, released_build: str
+) -> None:
+    result = claude_plugin.install(project, "project")
+    assert result.status == "installed" and ".claude/settings.json (commit it)" in result.message
+    assert calls(fake_claude) == [
+        "plugin list --json",
+        f"plugin marketplace add {released_build} --scope project --json",
+        "plugin install seamspec@seamspec --scope project --json",
+    ]
+
+
+def test_project_scope_never_shares_a_path_on_this_machine(fake_claude: Path, project: Path) -> None:
+    result = claude_plugin.install(project, "project")
+    assert result.status == "skipped" and "--plugin-scope local" in result.message
     assert calls(fake_claude) == []
 
 
@@ -157,6 +219,38 @@ def test_terminal_shows_the_commands_then_asks(
     assert "just you, just this repository" in out
     assert ("Claude Code plugin: installed" in out) is (answer == "y")
     assert len(calls(fake_claude)) == (3 if answer == "y" else 1)
+
+
+def test_plugin_scope_flag_installs_for_the_team(fake_claude: Path, project: Path, released_build: str) -> None:
+    out = init(project, "--plugin", "--plugin-scope", "project")
+    assert "enabled for everyone" in out and "Commit .claude/settings.json" in out
+    assert f"plugin marketplace add {released_build} --scope project --json" in calls(fake_claude)
+
+
+def test_a_wrong_plugin_scope_changes_nothing(fake_claude: Path, project: Path) -> None:
+    result = runner.invoke(app, ["init", "--path", str(project), "--plugin", "--plugin-scope", "team"])
+    assert result.exit_code != 0 and "local or project" in result.output
+    assert not (project / ".seamspec").exists() and calls(fake_claude) == []
+
+
+@pytest.mark.parametrize(("team", "scope"), [("y", "project"), ("n", "local"), ("", "local")])
+def test_terminal_asks_whether_the_team_gets_it_too(
+    fake_claude: Path, project: Path, released_build: str, monkeypatch: pytest.MonkeyPatch, team: str, scope: str
+) -> None:
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    out = init(project, input=f"y\n{team}\n")
+    assert "Turn it on for everyone who works in this repository?" in out
+    assert ("SeamSpec will run these instead:" in out) is (scope == "project")
+    assert f"plugin install seamspec@seamspec --scope {scope} --json" in calls(fake_claude)
+
+
+def test_terminal_never_asks_about_the_team_for_a_checkout(
+    fake_claude: Path, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    out = init(project, input="y\n")
+    assert "Turn it on for everyone" not in out
+    assert "plugin install seamspec@seamspec --scope local --json" in calls(fake_claude)
 
 
 # --- the real Claude Code CLI, in a throwaway CLAUDE_CONFIG_DIR (conftest) -------------------------

@@ -221,6 +221,11 @@ def test_supersede_via_request(git_repo: Path, human: None) -> None:
 
     lifecycle.request_supersede(store, old, "Batch jobs need 60s", new)
     assert requests.pending_supersede_ids(store) == {old}
+    # Dogfooding #10: the old rule is never retired while its replacement is only proposed.
+    with pytest.raises(lifecycle.LifecycleError, match=f"its replacement {new} is still only proposed"):
+        lifecycle.supersede(store, cfg, old)
+    assert store.get(old).status == InvStatus.LOCKED and requests.pending_supersede_ids(store) == {old}
+    lifecycle.approve(store, cfg, new)
     out = lifecycle.supersede(store, cfg, old)
     inv = store.get(old)
     assert out == {"id": old, "status": "SUPERSEDED", "superseded_by": new}
@@ -241,6 +246,8 @@ def test_supersede_rules(py_repo: Path, human: None) -> None:
         lifecycle.supersede(store, cfg, proposed)
     with pytest.raises(lifecycle.LifecycleError, match="replace itself"):
         lifecycle.request_supersede(store, proposed, "x", proposed)
+    with pytest.raises(lifecycle.LifecycleError, match="must be PROPOSED or LOCKED"):
+        lifecycle.supersede(store, cfg, proposed, reason="x", replacement_id="inv_00000000")  # no such rule
     assert lifecycle.supersede(store, cfg, proposed, reason="Feature removed")["superseded_by"] is None
 
 

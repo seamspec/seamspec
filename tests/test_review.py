@@ -52,8 +52,56 @@ def test_new_behavior_fails_on_head(git_repo: Path) -> None:
     inv_id = propose(git_repo, code=JITTER_TEST, assertion="Jitter halves the delay.")["id"]
     result = check(git_repo, inv_id)
     assert result.verdict == "yes", result.detail
+    # Dogfooding #9: HEAD has no `jitter` to import, so any test of it fails there. Say so.
+    assert result.new_code and "ImportError: cannot import name 'jitter'" in result.detail
+    assert result.line().startswith("Fails without your change: YES, BUT ONLY BECAUSE THE CODE IS NEW (the last commit")
+    assert f"`seamspec verify --proposed {inv_id}`" in (result.hint() or "")
     assert worktrees(git_repo) == 1, "temporary worktree was not removed"
     assert not list((git_repo / ".seamspec/tests").glob("test_inv_*.py")), "proposed test left in place"
+
+
+def test_changed_behavior_is_a_plain_yes_that_shows_what_failed_on_head(git_repo: Path) -> None:
+    """The code exists on HEAD and behaves differently there: the strong kind of "yes"."""
+    (git_repo / "src/queue.py").write_text("def backoff_delay(n):\n    return min(0.1 * 2 ** n, 60.0)\n")
+    code = "from src.queue import backoff_delay\n\n\ndef test_cap():\n    assert backoff_delay(100) == 60\n"
+    inv_id = propose(git_repo, code=code, assertion="Retry delay is capped at 60 seconds.")["id"]
+    result = check(git_repo, inv_id)
+    assert result.verdict == "yes" and not result.new_code and result.hint() is None
+    assert result.line() == (
+        "Fails without your change: YES (it fails on HEAD and passes with your change; on HEAD: assert 30.0 == 60)"
+    )
+
+
+@pytest.mark.parametrize(
+    "message,missing",
+    [
+        ("ModuleNotFoundError: No module named 'specagent.phase0.draft'", True),
+        ("ImportError: cannot import name 'jitter' from 'src.queue'", True),
+        ("AttributeError: module 'src.queue' has no attribute 'jitter'", True),
+        ("FileNotFoundError: config/policy.yaml not found above this test", True),
+        ("(0 , jitter) is not a function", True),
+        ('Error: Failed to resolve import "../../src/new" from "tests/seamspec/inv_1.test.ts"', True),
+        ("assert 4 == 5", False),
+        ("AssertionError: assert 'not found' == 'found'", False),
+        ("AttributeError: 'NoneType' object has no attribute 'id'", False),  # the code ran and gave a wrong value
+        ("AttributeError: type object 'Gateway' has no attribute 'retry'", True),
+        ("TypeError: unsupported operand type(s) for +: 'int' and 'str'", False),
+        ("expected 9 to be less than or equal to 3", False),
+    ],
+)
+def test_missing_code_messages(message: str, missing: bool) -> None:
+    assert bool(redgreen.MISSING_CODE.search(message)) is missing
+
+
+def test_review_prints_the_hint_for_new_code(in_repo: Path) -> None:
+    (in_repo / "src/queue.py").write_text(JITTER_CODE)
+    inv_id = propose(in_repo, code=JITTER_TEST, assertion="Jitter halves the delay.")["id"]
+    out = runner.invoke(app, ["review"], input="y\ns\n")
+    assert "YES, BUT ONLY BECAUSE THE CODE IS NEW" in out.output
+    assert (
+        f"To see this test catch something: break the new code on purpose, run `seamspec verify --proposed {inv_id}`"
+        in out.output
+    )
 
 
 def test_existing_behavior_passes_on_head(git_repo: Path) -> None:
@@ -123,7 +171,7 @@ def test_no_guess_when_the_runner_cant_be_redirected(editable_repo: Path, monkey
     """A runner that isn't started from a Python script (a binary, a Windows launcher) can't be
     pointed at HEAD's code. With an editable install present, the honest answer is "n/a"."""
     fake_editable_install(editable_repo, str(editable_repo / "lib"))
-    monkeypatch.setattr(redgreen, "_shim_runner", lambda *args: False)
+    monkeypatch.setattr(redgreen, "shim_runner", lambda *args: False)
     inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
     result = check(editable_repo, inv_id)
     assert result.verdict == "n/a" and "editable mode" in result.detail
@@ -223,7 +271,7 @@ def test_the_runner_is_found_the_way_the_verifier_finds_it(git_repo: Path, tmp_p
     cfg = load_config(git_repo)
     assert cfg.runners["pytest"].env == {"PATH": str(own)}
     shims = tmp_path_factory.mktemp("shims")
-    assert redgreen._shim_runner(cfg, "pytest", git_repo, shims, git_repo, git_repo)
+    assert redgreen.shim_runner(cfg, "pytest", git_repo, shims, git_repo, git_repo)
     assert "THE RUNNER'S OWN PYTEST" in (shims / "pytest").read_text()
 
 
@@ -231,7 +279,7 @@ def test_a_copied_runner_that_never_started_is_not_trusted(
     editable_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """If the copy was made but its first lines never ran, a failing HEAD run says nothing about the test."""
-    monkeypatch.setattr(redgreen, "_shim_runner", lambda *args: True)  # claims a copy; none exists, none runs
+    monkeypatch.setattr(redgreen, "shim_runner", lambda *args: True)  # claims a copy; none exists, none runs
     inv_id = propose(editable_repo, code=WIDGET_TEST, assertion="triple(n) returns three times n.")["id"]
     result = check(editable_repo, inv_id)
     assert result.verdict == "n/a" and "couldn't be started" in result.detail
@@ -373,6 +421,116 @@ def test_supersede_requests(in_repo: Path) -> None:
     assert "declined 1" in out.output
 
 
+# --- a supersede request and its replacement are one decision (dogfooding #10, ADR-20261013-7c2e) ---
+
+
+def swap(root: Path, code: str = PASS) -> tuple[Store, str, str]:
+    """A locked rule, a proposed replacement, and the agent's request to swap them."""
+    store, cfg = Store(root), load_config(root)
+    old = propose(root)["id"]
+    lifecycle.approve(store, cfg, old)
+    new = propose(root, code=code, title="Retry delay is capped at 60s", assertion="Never above 60 seconds.")["id"]
+    lifecycle.request_supersede(store, old, "batch jobs need 60s", new)
+    return store, old, new
+
+
+def test_supersede_with_replacement_is_one_decision(in_repo: Path) -> None:
+    store, old, new = swap(in_repo)
+    out = runner.invoke(app, ["review"], input="n\na\n")
+    assert out.exit_code == 0, out.output
+    text = out.output
+    assert "To review: 0 proposed rule(s), 1 supersede request(s) (1 with a replacement rule)" in text
+    order = [
+        f"Supersede request 1 of 1: the rule that would stop running · {old}",
+        "Requested: batch jobs need 60s",
+        f"Supersede request 1 of 1: its replacement · {new}",
+        f"Replaces: {old} · Retry delay is capped (still locked; retired when its supersede request is approved)",
+        f"One decision: approving locks {new} and then retires {old}.",
+        f"LOCKED {new}",  # the replacement first: at no point is the behavior without a rule
+        f"SUPERSEDED {old} (replaced by {new})",
+    ]
+    assert [text.index(part) for part in order] == sorted(text.index(part) for part in order), text
+    assert "== Proposed rules" not in text  # the replacement is not offered a second time, on its own
+    assert store.get(new).status == InvStatus.LOCKED
+    assert store.get(old).status == InvStatus.SUPERSEDED and store.get(old).superseded_by == new
+    assert "approved 1" in text and "superseded 1" in text
+
+
+@pytest.mark.parametrize("keys", ["n\ns\n", "n\nq\n", "n\n"])  # skip, quit, or the input just ends
+def test_stopping_a_swap_changes_nothing_and_never_offers_the_replacement_alone(in_repo: Path, keys: str) -> None:
+    store, old, new = swap(in_repo)
+    out = runner.invoke(app, ["review"], input=keys)
+    assert "Proposed rule 1 of" not in out.output and "LOCKED" not in out.output
+    assert store.get(old).status == InvStatus.LOCKED and store.get(new).status == InvStatus.PROPOSED
+    assert requests.pending_supersede_ids(store) == {old}
+
+
+def test_a_failing_replacement_leaves_the_old_rule_locked(in_repo: Path) -> None:
+    from .test_lifecycle import FAIL
+
+    store, old, new = swap(in_repo, code=FAIL)
+    out = runner.invoke(app, ["review"], input="n\na\n")
+    assert f"the replacement was not approved, so {old} stays locked" in out.output
+    assert store.get(old).status == InvStatus.LOCKED and store.get(new).status == InvStatus.PROPOSED
+    assert requests.pending_supersede_ids(store) == {old} and "superseded" not in out.output.split("Review done")[1]
+
+
+def test_declining_a_swap_keeps_the_old_rule_and_offers_to_reject_the_replacement(in_repo: Path) -> None:
+    store, old, new = swap(in_repo)
+    out = runner.invoke(app, ["review"], input="n\nd\ny\n")
+    assert out.exit_code == 0, out.output
+    assert store.get(old).status == InvStatus.LOCKED and requests.pending_supersede_ids(store) == set()
+    assert set(requests.declined(store)) == {old}  # the agent is told the rule stays (ADR-20261024-6f0c)
+    rejected = store.get(new)
+    assert rejected.status == InvStatus.REJECTED and old in rejected.status_reason
+    # Kept as an ordinary proposal instead: it is offered on its own next time.
+    store, old, new = swap(in_repo)
+    runner.invoke(app, ["review"], input="n\nd\nn\n")
+    assert store.get(new).status == InvStatus.PROPOSED
+    again = runner.invoke(app, ["review"], input="n\ns\n")
+    assert f"Proposed rule 1 of 1 · {new}" in again.output and "Replaces:" not in again.output
+
+
+def test_a_request_whose_replacement_was_rejected_cannot_be_approved(in_repo: Path) -> None:
+    store, old, new = swap(in_repo)
+    lifecycle.reject(store, load_config(in_repo), new, "wrong number")
+    out = runner.invoke(app, ["review"], input="a\ns\n")
+    assert f"Replacement: {new} is REJECTED, so this request can't be approved as it stands." in out.output
+    assert "please answer one of: d, s, q" in out.output  # there is no approve key
+    assert store.get(old).status == InvStatus.LOCKED
+
+
+def test_a_retirement_without_replacement_says_nothing_will_protect_the_behavior(in_repo: Path) -> None:
+    store, cfg = Store(in_repo), load_config(in_repo)
+    old = propose(in_repo)["id"]
+    lifecycle.approve(store, cfg, old)
+    lifecycle.request_supersede(store, old, "feature removed")
+    out = runner.invoke(app, ["review"], input="a\n")
+    assert "No replacement: after this, no rule protects this behavior." in out.output
+    assert f"SUPERSEDED {old} (no replacement)" in out.output and store.get(old).status == InvStatus.SUPERSEDED
+
+
+def test_an_unrelated_proposal_is_still_reviewed_after_the_swap(in_repo: Path) -> None:
+    """What happened in dogfooding: an unrelated proposal sat between the request and its replacement."""
+    other = propose(in_repo, title="Unrelated", assertion="Something else holds.")["id"]
+    store, old, new = swap(in_repo)
+    out = runner.invoke(app, ["review"], input="n\na\nn\ns\n")
+    text = out.output
+    assert "To review: 1 proposed rule(s), 1 supersede request(s) (1 with a replacement rule)" in text
+    assert text.index(f"SUPERSEDED {old}") < text.index(f"Proposed rule 1 of 1 · {other}")
+    assert store.get(new).status == InvStatus.LOCKED and store.get(other).status == InvStatus.PROPOSED
+
+
+def test_a_locked_replacement_card_says_what_it_replaced(in_repo: Path) -> None:
+    store, old, new = swap(in_repo)
+    from seamspec import review
+
+    assert review.replaces(store, store.get(new))[0][2].startswith("still locked")
+    runner.invoke(app, ["review"], input="n\na\n")
+    assert review.replaces(store, store.get(new)) == [(old, "Retry delay is capped", "retired")]
+    assert review.replaces(store, store.get(old)) == []
+
+
 def test_bad_key_is_asked_again(in_repo: Path) -> None:
     inv_id = propose(in_repo)["id"]
     out = runner.invoke(app, ["review"], input="n\nx\ns\n")
@@ -407,7 +565,8 @@ def test_red_green_real_failure_mentioning_not_found_is_yes(git_repo: Path) -> N
         "    assert getattr(queue, 'lookup', lambda k: 'not found')('x') == 'found'\n"
     )
     inv_id = propose(git_repo, code=code, assertion="Lookup finds existing keys.")["id"]
-    assert check(git_repo, inv_id).verdict == "yes"
+    result = check(git_repo, inv_id)
+    assert result.verdict == "yes" and not result.new_code  # an assertion failed: not "the code is missing"
 
 
 def test_red_green_filesystem_error_is_not_applicable(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:

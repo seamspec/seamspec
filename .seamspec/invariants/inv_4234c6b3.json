@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "id": "inv_4234c6b3",
+  "title": "The generated spec depends on the ledger alone",
+  "assertion": "The same ledger records give the same generated spec, byte for byte, whatever folders exist on the machine, whether or not the local journal exists, and whatever is still only proposed; it contains no email address and no path of the machine.",
+  "scope": {
+    "paths": [
+      "seamspec/core/specdoc.py",
+      "seamspec/core/area.py"
+    ],
+    "tags": []
+  },
+  "status": "LOCKED",
+  "origin": {
+    "type": "prompt",
+    "text": "prompt: \"yes, start part 1 and propose the rules too\". Promised in ADR-20261013-2f6b (\"To be proposed\").",
+    "ref": null
+  },
+  "verification": {
+    "runner": "pytest",
+    "harness_path": ".seamspec/tests/test_inv_4234c6b3.py",
+    "harness_sha256": "e436722c76a6c67dc6ac03290c47ab46120895c44077065cc5f67df5ab7d35c9",
+    "assertion_sha256": "132cce0de189159fb28c6665df2450a94d3bc315f4af7324c13f3c632fb7a76f"
+  },
+  "adr_id": null,
+  "created_at": "2026-10-12T20:22:02.687769Z",
+  "approved_at": "2026-10-12T20:41:20.132314Z",
+  "approved_by": "Vamshidhar Pandrapagada <25401978+vamshidhar-pandrapagada@users.noreply.github.com>",
+  "superseded_by": null,
+  "status_reason": null,
+  "decided_via": "terminal"
+}

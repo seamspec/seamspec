@@ -166,6 +166,9 @@ def test_regression_blocks_with_retry_cap_per_prompt(git_repo: Path, human: None
         out = stop(git_repo)
         assert out["decision"] == "block", out
         assert f"[FAIL] {inv_id} (pytest)" in out["reason"] and f"Attempt {attempt} of 3" in out["reason"]
+        # Dogfooding #11: the rule's title and the failing check come first, then the runner's own output.
+        named = f"  {inv_id} · Retry delay is capped\n    line 5: assert backoff_delay(100) <= 30\n"
+        assert named in out["reason"] and out["reason"].index(named) < out["reason"].index("[FAIL]")
         assert "request_supersede" in out["reason"]
     capped = stop(git_repo)
     assert "decision" not in capped and "still failing after 3 attempts" in capped["systemMessage"]
@@ -188,6 +191,32 @@ def test_pending_supersede_lets_the_agent_stop(git_repo: Path, human: None) -> N
     lifecycle.request_supersede(Store(git_repo), inv_id, "cap is changing")
     out = stop(git_repo)
     assert "decision" not in out and "supersede requested" in out["systemMessage"]
+
+
+def test_a_declined_request_is_told_to_the_agent(git_repo: Path, human: None) -> None:
+    """Release rehearsal (2026-10-24): after the person declined, the stop hook still said "if intentional,
+    request a supersede", and the agent kept saying its request was pending instead of restoring the rule."""
+    from seamspec.core import context, requests
+
+    inv_id = lock(git_repo)
+    store = Store(git_repo)
+    (git_repo / "src/queue.py").write_text(BROKEN_CODE)
+    lifecycle.request_supersede(store, inv_id, "cap is changing")
+    requests.decline(store, inv_id, "we keep the 30 s cap")  # what `seamspec review` does on [d]ecline
+
+    out = stop(git_repo)
+    assert out["decision"] == "block"
+    assert f"A person declined the request to retire {inv_id}" in out["reason"]
+    assert "Their reason: we keep the 30 s cap." in out["reason"] and "restore it" in out["reason"]
+    assert claude.DECLINED_HINT in out["reason"] and claude.SUPERSEDE_HINT not in out["reason"]
+
+    text = session(git_repo)["hookSpecificOutput"]["additionalContext"]
+    assert claude.DECLINED_HEADING in text and f"retire {inv_id}" in text  # a new chat knows too
+    cs = context.constraints_for(store, ["src/queue.py"])
+    assert f"retire {inv_id}" in cs.render() and cs.to_dict()["declined"] == cs.declined
+
+    lifecycle.request_supersede(store, inv_id, "the user asked again")  # asking again replaces the decline
+    assert requests.declined(store) == {} and "supersede requested" in stop(git_repo, prompt="p2")["systemMessage"]
 
 
 def test_silent_retirement_blocks(git_repo: Path, human: None) -> None:

@@ -42,6 +42,21 @@ def test_init_reports_unsupported_language(tmp_path: Path) -> None:
     assert "go detected; support arrives in v0.2" in result.output
 
 
+def test_init_says_which_lines_it_kept(tmp_path: Path) -> None:
+    """Dogfooding #8: a line written inside SeamSpec's CLAUDE.md block is kept, and init shows it."""
+    runner.invoke(app, ["init", "--path", str(tmp_path)])
+    path = tmp_path / "CLAUDE.md"
+    lines = path.read_text().splitlines()
+    path.write_text("\n".join([lines[0], "Commit straight to main.", *lines[1:]]) + "\n")
+    result = runner.invoke(app, ["init", "--path", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "1 line inside SeamSpec's block was not SeamSpec's. Kept, and moved above the block:" in result.output
+    assert "    | Commit straight to main." in result.output
+    assert path.read_text().startswith("Commit straight to main.\n\n<!-- seamspec:begin")
+    again = runner.invoke(app, ["init", "--path", str(tmp_path)])
+    assert "unchanged CLAUDE.md" in again.output and "Kept" not in again.output
+
+
 def test_init_broken_claude_md(tmp_path: Path) -> None:
     (tmp_path / "CLAUDE.md").write_text("<!-- seamspec:begin -->\n")
     result = runner.invoke(app, ["init", "--path", str(tmp_path)])

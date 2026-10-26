@@ -142,6 +142,19 @@ def test_local_warnings(locked_repo: tuple[Path, str]) -> None:
     assert report.ok  # warnings never fail
 
 
+def test_directive_warning_says_foreign_lines_are_kept(locked_repo: tuple[Path, str]) -> None:
+    """Dogfooding #8: the owner asked whether rerunning init would delete their line. Doctor answers."""
+    from seamspec.installers import directive
+
+    root, _ = locked_repo
+    directive.install(root)
+    path = root / "CLAUDE.md"
+    path.write_text(path.read_text().replace(directive.BEGIN, directive.BEGIN + "\nCommit straight to main."))
+    messages = [f.message for f in doctor.run(root).findings if f.check == "directive"]
+    assert len(messages) == 1 and messages[0].startswith("1 line inside the SeamSpec block in CLAUDE.md was not")
+    assert "keeps them" in messages[0]
+
+
 def test_cli_exit_codes_and_step_summary(locked_repo: tuple[Path, str], monkeypatch: pytest.MonkeyPatch,
                                          tmp_path: Path) -> None:  # fmt: skip
     root, inv_id = locked_repo
