@@ -458,7 +458,7 @@ gate_mode = "context"          # context | deny_once | off (§7.2)
 fail_closed = false            # strict mode defaults to true
 
 [braindump]                     # v0.1 (ADR-20261013-d9e4)
-path = "BRAINDUMP.md"
+path = "BRAINDUMP.md"            # inside the repo; a link out of it isn't read (ADR-20261027-9d14)
 marker = "<!-- seamspec:processed -->"
 redact_secrets = true
 nudge = "ask"                  # ask | off — session-start offer to sort new notes (§13.9)
@@ -1186,7 +1186,7 @@ This file is git-ignored, so it stays yours; remove it from .gitignore to share 
 - Items = list entries (`-`, `*`, `+`, `1.`, optional `[ ]`/`[x]`) and standalone paragraphs above the marker.
 - Headings, horizontal rules, and HTML comments are ignored.
 - **List items continue only over indented lines.** An unindented line after a list item starts a new item. A standalone paragraph runs until the next blank line, list entry or heading.
-- **Fenced code blocks** (```` ``` ```` or `~~~`) are kept whole: they belong to the item above them (or form their own item), and lines inside them are never treated as headings, list entries or separators, so `# comment` lines in pasted code survive.
+- **Fenced code blocks** (```` ``` ```` or `~~~`) are kept whole: they belong to the item above them (or form their own item), and lines inside them are never treated as headings, list entries or separators, so `# comment` lines in pasted code survive. A block closes only on a line of the same character, at least as long as the opener, with nothing else on it (ADR-20261027-9d14).
 - Item id = `bd_` + first 8 hex of SHA-256 of whitespace-normalized, lowercased text.
 
 ### 13.6 Drain Classification
@@ -1226,7 +1226,7 @@ A rule can't be proposed before its code exists: its test has to pass, and revie
 
 ### 13.8 Secret Redaction
 
-Before copying text into committed records, a redaction pass replaces common secret patterns (AWS keys, `sk-…`, `ghp_…`, bearer tokens, `password=…`, private key blocks) with `[REDACTED]`. Configurable via `braindump.redact_secrets`.
+Before copying text into committed records, a redaction pass replaces common secret patterns (AWS keys, `sk-…`, `ghp_…`, bearer tokens, `password=…`, private key blocks) with `[REDACTED]`. It covers every field the agent writes (titles, assertions, decisions, consequences, origins, dead ends), not the test code, which the person reviews (ADR-20261027-9d14). Configurable via `braindump.redact_secrets`.
 
 ### 13.9 Session-Start Nudge
 
@@ -2394,7 +2394,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 - **Unknown keys are errors** (`extra="forbid"` on every table), so a typo such as `timout_seconds` fails loudly instead of being ignored. `parse_config` / `load_config` raise `ConfigError` with the file name.
 - `runners` defaults to `{}`: `init` writes the presets commented out when no language is detected (§12A.7).
-- Runner `filename` must contain `{id}` (attribution relies on it, §12A.4); `harness_dir`, `filename` and `config_files` must be relative paths inside the repo.
+- Runner `filename` must contain `{id}` (attribution relies on it, §12A.4); `harness_dir`, `filename`, `config_files` and `braindump.path` must be relative paths inside the repo (no `..`, no POSIX or Windows root or drive, ADR-20261027-9d14).
 - `RunnerCfg.harness_path(id)` and `RunnerCfg.protect_glob()` build the harness path and the protection glob (§12A.5).
 - `strict` mode defaults (`hooks.fail_closed = true`, `execution.trust_level = "harness"`) apply only to keys not set explicitly (§9.5).
 - `config_json_schema()` generates `schemas/v1/config.json` from the model; a test fails if the packaged file is stale (§9.4).
@@ -2448,7 +2448,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
   - `install_codeowners()` returns `created`, `updated` or `unchanged`. It manages only a block between `# seamspec:begin` and `# seamspec:end`, owning `/.seamspec/` and each runner's harness folder, with the placeholder owner `@your-team/leads`.
   - The CLI's `init --ci/--no-ci` follows §7.3: advisory never adds CI; enforced asks, or adds nothing without a terminal or flag; strict always adds it plus CODEOWNERS, and says when `--no-ci` is ignored.
 - [`hosts.py`](../seamspec/installers/hosts.py) (ADR-20261013-e8f3): `install(root, host)` for `cursor`, `vscode`, `antigravity` returns one `Change(path, status)` per file: the `AGENTS.md` block (`directive.install_keeping(root, "AGENTS.md")`, the `agents` variant), the MCP server entry (added if missing; a different existing `seamspec` entry is `kept (yours)`; a file that isn't a JSON object is `skipped`), the session-start and stop hook entries (added unless an entry with the same command exists; other hooks untouched), and the `/seamspec-<name>` command files (`core/commands.render(name, host)`, owned by SeamSpec, rewritten to match). `detect(root)` lists hosts whose folder exists. [`adapters/hosts.py`](../seamspec/adapters/hosts.py): `main(host, event, stdin)` for `session-start` and `stop`, translating each host's input and output around `claude.main`; fail open.
-- [`claude_plugin.py`](../seamspec/installers/claude_plugin.py): the Claude Code plugin install (§16.1). `marketplace_source()` is `$SEAMSPEC_PLUGIN_MARKETPLACE`, else the checkout (`checkout()`), else for a released version `release_source()` (`https://github.com/seamspec/seamspec.git#v<version>`, using `ci.released()`), else `None`; `shareable(source)` is true for an `https://` URL or an `owner/repo` that isn't a local folder. `precheck(root, scope)` returns `skipped` (no `claude`, no source, or `project` scope with a source that isn't shareable) or `unchanged` (already enabled here or at `user` scope), else `None`; `commands(source, scope)` lists the two `claude plugin` invocations for the prompt; `enable(root, scope)` runs them with `--json` and `--scope local|project`, reports `installed` / `failed` (with Claude Code's message). Whenever `.claude/settings.local.json` exists (installed, a manual install reported `unchanged`, or a `failed` install whose `marketplace add` already wrote it), it is added to `.gitignore`. `install(root, scope)` = `precheck` then `enable`. Tests use a fake `claude`, plus one real `claude` run in a throwaway `CLAUDE_CONFIG_DIR` (every test gets one, so no test can touch the developer's Claude Code settings).
+- [`claude_plugin.py`](../seamspec/installers/claude_plugin.py): the Claude Code plugin install (§16.1). `marketplace_source()` is `$SEAMSPEC_PLUGIN_MARKETPLACE`, else the checkout (`checkout()`), else for a released version `release_source()` (`https://github.com/seamspec/seamspec.git#v<version>`, using `ci.released()`), else `None`; `shareable(source)` is true for an `https://` URL or an `owner/repo` that isn't a local folder. `precheck(root, scope)` returns `skipped` (no `claude`, no source, or `project` scope with a source that isn't shareable) or `unchanged` (already enabled: for `local`, here at any scope or at `user` scope; for `project`, only in this repository's `project` scope, `enabled_here(root, scope)`, ADR-20261027-9d14), else `None`; `commands(source, scope)` lists the two `claude plugin` invocations for the prompt; `enable(root, scope)` runs them with `--json` and `--scope local|project`, reports `installed` / `failed` (with Claude Code's message). Whenever `.claude/settings.local.json` exists (installed, a manual install reported `unchanged`, or a `failed` install whose `marketplace add` already wrote it), it is added to `.gitignore`. `install(root, scope)` = `precheck` then `enable`. Tests use a fake `claude`, plus one real `claude` run in a throwaway `CLAUDE_CONFIG_DIR` (every test gets one, so no test can touch the developer's Claude Code settings).
 - [`directive.py`](../seamspec/installers/directive.py): the marked `CLAUDE.md` block (§18). Inserts or replaces only between the markers, accepts an edited begin marker, refuses unbalanced or repeated markers, and exposes `drift()` for `doctor`. Lines inside the old block that SeamSpec never shipped are kept: `merge_keeping(text)` and `install_keeping(root)` return them and place them above the block; `foreign_in(root)` lists them for `doctor`. `known_lines()` reads `templates/directive_known_lines.txt` (a SHA-256 prefix per line ever shipped) and adds the current template's lines; `python -m seamspec.installers.directive` appends new ones after `directive.md` changes, and a test fails if the file is behind (ADR-20261011-b1c8).
 
 ### 19.7 `seamspec/core/verifier.py` and `reports.py` — implemented (week 2)
@@ -2479,7 +2479,7 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - `reject` / `supersede` move the harness to `.seamspec/retired/<id>/` (the record keeps its hash) and journal the change. `reject(as_dead_end=True)` also records a dead end. `supersede` takes its reason and replacement from a pending request when none is given, and clears the request. It raises `LifecycleError` while the replacement is still `PROPOSED` (or missing, or rejected): callers approve the replacement first (ADR-20261013-7c2e).
 - `harness_in_place(...)`: context manager that copies a `PROPOSED` harness to its runner location for one run (`verify --proposed`, red-green) and removes it afterwards.
 - `journal.unjournaled_changes(store)` implements the rules in §11.1 against `git HEAD` (works when `.seamspec/` sits in a subfolder of the git repo). No git or no commit means "everything is new".
-- `origin.text` and `failure_symptom` pass through `redact()` (§13.8) when `braindump.redact_secrets` is on (the default), for every origin, not only braindump.
+- Every prose field written into a record passes through `redact()` (§13.8) when `braindump.redact_secrets` is on (the default), for every origin, not only braindump: `origin.text`, a rule's `title` and `assertion` and its `adr_draft`, a decision's `title`, `context`, `decision` and `consequences`, a dead end's approach and `failure_symptom` (ADR-20261027-9d14). Not `harness_code`.
 - ADR files use JSON-valued frontmatter (valid YAML flow style), so no YAML dependency is needed. Hand-written ADRs in the same format, including this repo's `docs/adr/`, parse (a test checks it).
 
 ### 19.8a `seamspec/core/trust.py`, `core/tree.py`, `installers/git_hooks.py`, `seamspec verify` — implemented (week 2)
@@ -2521,14 +2521,15 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 
 ### 19.9 `seamspec/core/braindump.py` — implemented (ADR-20261013-d9e4)
 
-- `parse_items(markdown, marker) -> list[Item(id, text)]`: §13.5. List items continue over indented lines; a paragraph runs to the next blank line, list entry or heading; fenced code stays whole with its item (or is one); headings, rules and HTML comments are skipped; text below the marker is never read; duplicate ids are listed once.
+- `parse_items(markdown, marker) -> list[Item(id, text)]`: §13.5. List items continue over indented lines; a paragraph runs to the next blank line, list entry or heading; fenced code stays whole with its item (or is one), closed only by a fence of the same character at least as long; headings, rules and HTML comments are skipped; text below the marker is never read; duplicate ids are listed once.
+- `location(root, path)`: the notes file with links followed, or `None` when that is outside the project; `read()` then returns `None`, `tidy()` writes nothing, and `init` skips creating it; when `init` creates it through a link inside the project, it git-ignores the link's target too, each name escaped as a literal `.gitignore` line, and refuses a name with a line break (ADR-20261027-9d14).
 - `item_id(text)`: `bd_` + 8 hex of SHA-256 of the whitespace-normalized, lowercased text.
 - `state(store)` / `record(store, id, as, ref, text)`: `.seamspec/.local/braindump.json`, what each item became (`invariant`, `dead_end`, `decision`, `todo`, `exploration`) with the record id. `lifecycle.propose_invariant` (origin type `braindump`), `log_dead_end(origin_ref=…)` and `propose_decision(origin_ref=…)` call it. The preview is the note's own text from the file (redacted when `redact_secrets` is on), not the agent's rewording.
-- `pending(store, path, marker)`; `dismiss(store, path, marker, [{item_id, as}])` (only `todo` / `exploration` / `planned`, only pending items), also reached by `seamspec drain --dismiss ID=todo|exploration|planned`. `planned(store, path, marker)` lists notes set aside as planned that are still in the file; `planned_lines(...)` is their session-start text (never raises); `note_text(...)` finds a note's own text by id. `tidy` leaves planned notes in place (§13.6a).
+- `pending(store, path, marker)`; `dismiss(store, path, marker, [{item_id, as}])` (only `todo` / `exploration` / `planned`, only pending items), also reached by `seamspec drain --dismiss ID=todo|exploration|planned`. `planned(store, path, marker)` lists notes set aside as planned that are still in the file; `planned_lines(...)` is their session-start text and `planned_payload(...)` their `{note, rules}` for `get_constraints` and `context --json` (both never raise); `note_text(...)` finds a note's own text by id. `tidy` leaves planned notes in place (§13.6a).
 - `should_nudge` / `remember_nudge`: `.seamspec/.local/nudge.json` holds a hash of the pending ids at the last nudge (§13.9); `adapters/claude._braindump_nudge` uses them on `startup` and `clear`, and is silent on any error.
 - `below_marker(markdown, marker) -> list[str]`: lines a person wrote below the marker (anything but blank lines, the managed heading and `tidy`'s log lines); `below_marker_note(root, path, marker)` is the sentence `drain`, `status` and `braindump_pending` show, or `None` (§13.7).
-- `tidy(store, path, marker) -> int`: moves sorted items from the person's part into the managed part as `- \`bd_…\` → <what> — "<preview>"`, leaving every other line as it was. Only `seamspec drain --tidy` (human only) calls it.
-- Redaction (§13.8) is `core/redact.py`, applied by `lifecycle` to origin text, dead-end approaches and failure reasons.
+- `tidy(store, path, marker) -> int`: moves sorted items from the person's part into the managed part as `- \`bd_…\` → <what> — "<preview>"`, leaving every other line as it was. It removes the lines the parser read each item from (and blank lines between them), so the same words in an example or another note stay. Only `seamspec drain --tidy` (human only) calls it.
+- Redaction (§13.8) is `core/redact.py`, applied by `lifecycle` to every prose field of a record (§19.8).
 
 ### 19.10 `seamspec/adapters/claude.py`, `core/session.py` — implemented (weeks 3–4)
 

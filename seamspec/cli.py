@@ -556,7 +556,10 @@ def context(
     except RecordError as exc:
         raise _fail(f"bad record: {exc}") from None
     if as_json:
-        typer.echo(json.dumps(cs.to_dict(), indent=2))
+        out = cs.to_dict()
+        if plans := braindump.planned_payload(store, cfg.braindump.path, cfg.braindump.marker):
+            out["planned"] = plans  # the same shape as MCP get_constraints
+        typer.echo(json.dumps(out, indent=2))
         return
     shown = ", ".join(cs.files) or "(no files inside this repository)"
     plans = braindump.planned_lines(store, cfg.braindump.path, cfg.braindump.marker)
@@ -714,6 +717,9 @@ def drain(
         if stray:
             out["below_marker"] = stray
         typer.echo(json.dumps(out, indent=2))
+        return
+    if braindump.location(store.root, path) is None:
+        typer.echo(f"{path} points outside this repository, so SeamSpec doesn't read it.")
         return
     if braindump.read(store.root, path) is None:
         typer.echo(f"No {path} here. `seamspec init` creates one.")

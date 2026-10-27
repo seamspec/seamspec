@@ -376,6 +376,8 @@ def test_planned_rules_in_status_drain_context_and_get_constraints(tmp_path: Pat
     assert "1 planned rule(s), waiting for their code" in listed and tenant in listed
     assert json.loads(runner.invoke(app, ["drain", "--json"]).output)["planned"][0]["id"] == tenant
     assert braindump.PLANNED_HEADING in runner.invoke(app, ["context", "src/app.py"]).output
+    as_json = json.loads(runner.invoke(app, ["context", "src/app.py", "--json"]).output)  # was missing (#97)
+    assert as_json["planned"]["rules"][0]["id"] == tenant and as_json["planned"]["note"] == braindump.PLANNED_HEADING
 
     monkeypatch.setenv("SEAMSPEC_ROOT", str(tmp_path))
 
@@ -386,3 +388,142 @@ def test_planned_rules_in_status_drain_context_and_get_constraints(tmp_path: Pat
     got = anyio.run(call, "get_constraints", {"files": ["src/app.py"]})
     assert got["planned"]["rules"][0]["id"] == tenant and got["planned"]["note"] == braindump.PLANNED_HEADING
     assert anyio.run(call, "braindump_pending", {})["planned"][0]["id"] == tenant
+
+
+# --- catch-up review of #53–#95 (draft #97) ------------------------------------------------------------
+
+
+def _committed(root: Path) -> str:
+    """Every record file under .seamspec/, the part that gets committed."""
+    return "\n".join(p.read_text() for p in (root / ".seamspec").rglob("*") if p.is_file() and ".local" not in p.parts)
+
+
+def test_secrets_never_reach_any_field_of_a_rule_or_decision(tmp_path: Path) -> None:
+    """Only the origin text was masked: a key repeated in a title or decision went into the record as is."""
+    store = project(tmp_path)
+    cfg = load_config(tmp_path)
+    key = "sk-" + "b" * 30
+    lifecycle.propose_decision(
+        store, cfg, title=f"Rotate {key}", context=f"It leaked: {key}", decision=f"Never log {key}.",
+        consequences=[f"Revoke {key}"], scope_paths=["src/**"], origin_text=f"the key {key}",
+    )  # fmt: skip
+    draft = {"context": f"Seen with {key}", "decision": f"Mask {key}", "consequences": [f"Revoke {key}"]}
+    propose(tmp_path, title=f"Never print {key}", assertion=f"Logs never show {key}.", adr_draft=draft)
+    committed = _committed(tmp_path)
+    assert key not in committed and committed.count("[REDACTED]") >= 9
+
+
+@pytest.mark.parametrize(
+    "path", ["/etc/notes.md", "../outside.md", "notes/../../outside.md", "C:notes.md", "\\notes.md"]
+)
+def test_the_notes_file_must_be_inside_the_repository(path: str) -> None:
+    from seamspec.core.config import ConfigError, parse_config
+
+    with pytest.raises(ConfigError, match="inside the repo"):
+        parse_config(f"[braindump]\npath = {json.dumps(path)}\n")
+
+
+def test_a_notes_file_that_links_outside_is_neither_read_nor_written(tmp_path: Path, human: None, monkeypatch) -> None:
+    """A cloned repository could commit a BRAINDUMP.md link to a file elsewhere, which drain would read
+    out to the agent and tidy would rewrite."""
+    repo, elsewhere = tmp_path / "repo", tmp_path / "elsewhere.md"
+    repo.mkdir()
+    store = project(repo)
+    elsewhere.write_text(NOTES)
+    (repo / "BRAINDUMP.md").unlink()
+    (repo / "BRAINDUMP.md").symlink_to(elsewhere)
+    monkeypatch.chdir(repo)
+    assert braindump.read(repo, "BRAINDUMP.md") is None and braindump.pending(store, "BRAINDUMP.md", MARKER) == []
+    assert json.loads(runner.invoke(app, ["drain", "--json"]).output)["pending"] == []
+    assert "points outside this repository" in runner.invoke(app, ["drain"]).output
+    assert runner.invoke(app, ["drain", "--tidy"]).exit_code == 0 and elsewhere.read_text() == NOTES
+
+    elsewhere.unlink()  # init doesn't create the file it points to either
+    assert dict(scaffold.init(repo).actions)["BRAINDUMP.md"].startswith("skipped")
+    assert not elsewhere.exists()
+
+
+def test_a_link_inside_the_repository_is_followed(tmp_path: Path, human: None, monkeypatch) -> None:
+    store = project(tmp_path)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "BRAINDUMP.md").rename(tmp_path / "docs/notes.md")
+    (tmp_path / "BRAINDUMP.md").symlink_to("docs/notes.md")
+    todo = next(i for i in braindump.pending(store, "BRAINDUMP.md", MARKER) if i.text.startswith("TODO"))
+    braindump.dismiss(store, "BRAINDUMP.md", MARKER, [{"item_id": todo.id, "as": "todo"}])
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["drain", "--tidy"]).exit_code == 0
+    assert (tmp_path / "BRAINDUMP.md").is_symlink()  # written where it points, the link kept
+    assert "TODO benchmark" not in (tmp_path / "docs/notes.md").read_text().split(MARKER)[0]
+
+
+def test_init_ignores_the_file_a_link_creates(tmp_path: Path) -> None:
+    """A dangling BRAINDUMP.md link: init creates the file it points to, which must be ignored too (#102)."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "BRAINDUMP.md").symlink_to("docs/notes.md")
+    assert dict(scaffold.init(tmp_path).actions)["BRAINDUMP.md"] == "created (git-ignored)"
+    assert MARKER in (tmp_path / "docs/notes.md").read_text()
+    ignored = (tmp_path / ".gitignore").read_text().splitlines()
+    assert "BRAINDUMP.md" in ignored and "docs/notes.md" in ignored
+
+
+@pytest.mark.parametrize("target", ["#notes.md", "!notes.md", "docs/notes[1].md", "notes*.md", "notes.md  "])
+def test_the_ignore_line_matches_exactly_that_file(tmp_path: Path, target: str) -> None:
+    """Git reads `#`, `!`, wildcards and trailing spaces in .gitignore: written as is, the file the link
+    creates wasn't ignored, or other files were (Copilot on #102). Checked with git itself."""
+    import subprocess
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    git(tmp_path, "init", "-q")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "BRAINDUMP.md").symlink_to(target)
+    (tmp_path / "notes-other.md").write_text("x")  # a wildcard must not catch it
+    scaffold.init(tmp_path)
+
+    def ignored(name: str) -> bool:
+        return subprocess.run(["git", "check-ignore", "-q", "--no-index", name], cwd=tmp_path).returncode == 0
+
+    assert (tmp_path / target).is_file() and ignored(target)
+    assert not ignored("notes-other.md")
+
+
+def test_a_link_with_a_line_break_is_not_followed_into_gitignore(tmp_path: Path) -> None:
+    """A committed link to `docs/notes\\n!.env` would have added a `!.env` rule (Copilot on #102)."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "BRAINDUMP.md").symlink_to("docs/notes\n!.env")
+    assert "line break" in dict(scaffold.init(tmp_path).actions)["BRAINDUMP.md"]
+    assert "!.env" not in (tmp_path / ".gitignore").read_text()
+    assert not (tmp_path / "docs/notes\n!.env").exists()
+
+
+def test_a_longer_fence_is_closed_only_by_one_as_long() -> None:
+    """The opener was cut to three characters, so a ``` line inside a ```` block ended it early."""
+    notes = "````markdown\nAn example:\n```python\n- not a note\n```\n````\n\n- A real note.\n" + MARKER
+    texts = [i.text for i in braindump.parse_items(notes, MARKER)]
+    assert texts == ["````markdown\nAn example:\n```python\n- not a note\n```\n````", "A real note."]
+    assert [i.text for i in braindump.parse_items("```\n```python\nx\n```\n- after\n", MARKER)] == [
+        "```\n```python\nx\n```",  # ```python has words after it: it opens, it doesn't close
+        "after",
+    ]
+
+
+def test_tidy_removes_the_sorted_note_not_the_same_words_elsewhere(tmp_path: Path, human: None, monkeypatch) -> None:
+    """Tidy looked for the note's first line anywhere: it could cut it out of a code example or a longer
+    note written earlier, and leave the sorted note in place."""
+    notes = (
+        "```text\n- Use UTC.\n```\n\n"  # an example showing the same words
+        "- Use UTC.\n  Everywhere, logs included.\n\n"  # a longer note starting with them
+        "- Use UTC.\n\n"  # the note that gets sorted
+        "- Another note.\n\n"
+        + MARKER + "\n"
+    )  # fmt: skip
+    store = project(tmp_path)
+    (tmp_path / "BRAINDUMP.md").write_text(notes)
+    short = next(i for i in braindump.pending(store, "BRAINDUMP.md", MARKER) if i.text == "Use UTC.")
+    braindump.dismiss(store, "BRAINDUMP.md", MARKER, [{"item_id": short.id, "as": "todo"}])
+    monkeypatch.chdir(tmp_path)
+    assert "Moved 1" in runner.invoke(app, ["drain", "--tidy"]).output
+    human_part = (tmp_path / "BRAINDUMP.md").read_text().split(MARKER)[0]
+    assert human_part == "```text\n- Use UTC.\n```\n\n- Use UTC.\n  Everywhere, logs included.\n\n\n- Another note.\n\n"

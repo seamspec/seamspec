@@ -176,6 +176,27 @@ def test_project_scope_puts_the_published_plugin_in_the_committed_settings(
     ]
 
 
+@pytest.mark.parametrize("scope", ["local", "user"])
+def test_enabled_for_you_alone_still_installs_for_the_team(
+    fake_claude: Path, project: Path, tmp_path: Path, released_build: str, scope: str
+) -> None:
+    """`--plugin-scope project` reported unchanged when only this user had the plugin on (#97)."""
+    entry = {"id": "seamspec@seamspec", "scope": scope, "enabled": True, "projectPath": str(project)}
+    (tmp_path / "list.json").write_text(json.dumps([entry]))
+    result = claude_plugin.install(project, "project")
+    assert result.status == "installed" and "--scope project" in calls(fake_claude)[-1]
+
+
+def test_project_scope_already_committed_is_left_alone(
+    fake_claude: Path, project: Path, tmp_path: Path, released_build: str
+) -> None:
+    entry = {"id": "seamspec@seamspec", "scope": "project", "enabled": True, "projectPath": str(project)}
+    (tmp_path / "list.json").write_text(json.dumps([entry]))
+    result = claude_plugin.install(project, "project")
+    assert result.status == "unchanged" and "for everyone in this repository" in result.message
+    assert calls(fake_claude) == ["plugin list --json"]
+
+
 def test_project_scope_never_shares_a_path_on_this_machine(fake_claude: Path, project: Path) -> None:
     result = claude_plugin.install(project, "project")
     assert result.status == "skipped" and "--plugin-scope local" in result.message

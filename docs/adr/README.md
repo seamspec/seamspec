@@ -98,3 +98,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261026-d67b](ADR-20261026-d67b-pin-uv-in-ci.md) | Pin uv in SeamSpec's own CI; upgrade it on purpose | ACCEPTED |
 | [ADR-20261026-f4e2](ADR-20261026-f4e2-full-ci-on-pull-requests.md) | Full CI on every pull request, macOS included, now the repo is public | ACCEPTED |
 | [ADR-20261026-5b8e](ADR-20261026-5b8e-commit-check-per-runner-redirect.md) | The commit check needs a redirect per runner that runs, none when nothing runs, and takes outside rule tests from disk | ACCEPTED |
+| [ADR-20261027-9d14](ADR-20261027-9d14-braindump-and-plugin-catch-up-fixes.md) | The notes file stays inside the repository, every committed field is redacted, and plugin scope is checked | ACCEPTED |
