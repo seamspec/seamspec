@@ -29,10 +29,10 @@ Fixing item 3 showed a code gap: `install_codeowners()` rebuilt its block with t
 1. **The Haiku page's costs are recomputed from the saved logs** (each session's final running total, summed per run). The total is $1.24, matching `full-1.md`, with a note giving the first figure. No other number changes. ADR-20261013-e2b6 keeps its figures as a dated record, as it does for the main run's.
 2. **The full-run command names A–H,** and the README says why.
 3. **The guide gives both CODEOWNERS steps:** name real reviewers with write access, and turn on **Require review from Code Owners**. The claim says it holds once both are done.
-4. **The removal steps come in order:** advisory mode first (it removes the hook), the plugin, the required check, then the files, the commit and the command.
+4. **The removal steps come in order:** advisory mode first (it removes the hook), the plugin, the required check, then the files, the commit and the command. Files only SeamSpec uses are deleted; in shared ones (the editors' MCP and hook settings, `CLAUDE.md`, `AGENTS.md`, CODEOWNERS, `.gitignore`) only SeamSpec's entries go, and a kept `BRAINDUMP.md` keeps its ignore lines (Copilot on #103).
 5. **PROGRESS marks the done items done** and points to the release steps. The stale "In progress" line goes too.
 6. **The test breaks the code first,** and checks that the rule fails the same way with the mark on and off.
-7. **`install_codeowners()` keeps the reviewers written in its block.** A folder new to the block gets the reviewers of its first line. Any line starting `# seamspec:begin` opens the block, and a rerun restores its wording. `init` shows the "replace @your-team/leads" hint only while the placeholder is there.
+7. **`install_codeowners()` keeps the reviewers written in its block.** A folder new to the block gets the reviewers of its first line. Any line starting `# seamspec:begin` opens the block, and a rerun restores its wording. `init` shows the "replace @your-team/leads" hint, and `doctor` its warning, only while an owner entry still names the placeholder; the marker line's comment doesn't count. Owners are split on any whitespace, so `/.seamspec/<tab>@maya` keeps `@maya` (Copilot on #103).
 
 **Alternative considered:** *keep reviewers outside the block* (CODEOWNERS uses the last matching line). That works only when the person's lines come after the block, which is easy to get wrong.
 

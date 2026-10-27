@@ -92,14 +92,33 @@ def owner_lines(cfg: Config, owners: dict[str, str] | None = None) -> list[str]:
     return [f"{d} {owners.get(d, fallback)}" for d in dict.fromkeys(dirs)]
 
 
+# Any `# seamspec:begin` line opens the block: a find-and-replace of the placeholder changes its words too.
+_BLOCK = re.compile(r"^# seamspec:begin\b[^\n]*\n.*?" + re.escape(OWNERS_END) + r"\n?", re.S | re.M)
+
+
+def owners_block(text: str) -> str | None:
+    """SeamSpec's block in a CODEOWNERS file, or None."""
+    found = _BLOCK.search(text)
+    return found.group(0) if found else None
+
+
+def _entries(block: str) -> list[tuple[str, list[str]]]:
+    """(folder, owners) for each entry line; comments aside. Any whitespace separates them (tabs too)."""
+    return [(parts[0], parts[1:]) for line in block.splitlines()
+            if (parts := line.split()) and not parts[0].startswith("#")]  # fmt: skip
+
+
+def placeholder_left(text: str) -> bool:
+    """Does an entry in SeamSpec's block still name `@your-team/leads`? Comments don't count (#103)."""
+    block = owners_block(text)
+    return block is not None and any(PLACEHOLDER_OWNER in owners for _, owners in _entries(block))
+
+
 def _owners_in(block: str) -> dict[str, str]:
     """The reviewers a person put in SeamSpec's block, by folder (placeholders left out)."""
-    found = {}
-    for line in block.splitlines():
-        folder, _, owners = line.strip().partition(" ")
-        if folder.startswith("/") and owners.strip() and owners.strip() != PLACEHOLDER_OWNER:
-            found[folder] = owners.strip()
-    return found
+    return {
+        folder: " ".join(owners) for folder, owners in _entries(block) if owners and PLACEHOLDER_OWNER not in owners
+    }
 
 
 def install_codeowners(root: Path, cfg: Config) -> str:
@@ -107,13 +126,11 @@ def install_codeowners(root: Path, cfg: Config) -> str:
     Reviewers written in the block are kept: rerunning `init` must not put the placeholder back."""
     path = root / CODEOWNERS_REL
     old = path.read_text(encoding="utf-8") if path.is_file() else ""
-    # Any `# seamspec:begin` line: a find-and-replace of the placeholder also changes the marker's words.
-    pattern = re.compile(r"^# seamspec:begin\b[^\n]*\n.*?" + re.escape(OWNERS_END) + r"\n?", re.S | re.M)
-    found = pattern.search(old)
-    lines = owner_lines(cfg, _owners_in(found.group(0)) if found else None)
+    found = owners_block(old)
+    lines = owner_lines(cfg, _owners_in(found) if found else None)
     block = "\n".join([OWNERS_BEGIN, *lines, OWNERS_END]) + "\n"
     if found:
-        new = pattern.sub(lambda _: block, old, count=1)
+        new = _BLOCK.sub(lambda _: block, old, count=1)
     else:
         new = old + ("\n" if old and not old.endswith("\n") else "") + block
     if new == old:

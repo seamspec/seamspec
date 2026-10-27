@@ -95,6 +95,21 @@ def test_rerunning_init_keeps_the_reviewers_someone_wrote(tmp_path: Path) -> Non
     assert "/tests/seamspec/ @acme/leads @maya" in path.read_text()
 
 
+def test_reviewers_after_a_tab_are_kept_and_the_hint_goes(tmp_path: Path) -> None:
+    """CODEOWNERS allows a tab between the folder and its owners; they were read as missing and replaced
+    with the placeholder. The hint only reads owner entries, not the marker's comment (#103)."""
+    root = _repo(tmp_path, "pyproject.toml")
+    cfg = load_config(root)
+    ci.install_codeowners(root, cfg)
+    path = root / ci.CODEOWNERS_REL
+    assert ci.placeholder_left(path.read_text())
+    path.write_text(path.read_text().replace("/.seamspec/ @your-team/leads", "/.seamspec/\t@maya  @acme/leads"))
+    ci.install_codeowners(root, cfg)
+    assert "/.seamspec/ @maya @acme/leads" in path.read_text()
+    assert not ci.placeholder_left(path.read_text()) and ci.PLACEHOLDER_OWNER in path.read_text()  # the comment
+    assert "replace @your-team/leads" not in init(root, "--mode", "strict")
+
+
 # --- through `seamspec init`, by mode --------------------------------------------------------------
 
 

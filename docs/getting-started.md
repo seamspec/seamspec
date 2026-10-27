@@ -172,6 +172,11 @@ A captured rule follows what was said. If you said `max_attempts=5`, the rule ma
   1. **Switch to advisory first:** `seamspec init --mode advisory`, while `.seamspec/` still exists. It removes the commit hook. Skipped, the hook stays and refuses the commit that removes SeamSpec. If a hook manager (pre-commit, Husky, Lefthook) runs SeamSpec instead, delete that step from its config.
   2. **Remove the plugin** (above), if you installed it.
   3. **Remove the required check:** if `seamspec / verify` is a required status check (section 6), untick it in the branch protection rule before you delete the workflow. Otherwise every pull request waits for a check that never runs.
-  4. **Delete the files:** `.seamspec/`; the SeamSpec block in `CLAUDE.md` / `AGENTS.md` (between the `seamspec:begin` and `seamspec:end` markers); `.github/workflows/seamspec.yml`; in `strict` mode, the SeamSpec block in `.github/CODEOWNERS`; the editor files `init --hosts` wrote ([editors.md](editors.md) lists them); SeamSpec's lines in `.gitignore`. `BRAINDUMP.md` is yours: keep it or delete it.
-  5. **Commit** the removal.
-  6. **The command itself:** `uv tool uninstall seamspec`, once no project uses it.
+  4. **Delete SeamSpec's files:** `.seamspec/`; `.github/workflows/seamspec.yml`; and the editor files only SeamSpec uses, all named `seamspec…`: the commands, prompts, skills and reviewer agents, and `.github/hooks/seamspec.json`.
+  5. **Remove SeamSpec's parts of shared files,** keeping the rest:
+     - the SeamSpec block in `CLAUDE.md` / `AGENTS.md`, between the `seamspec:begin` and `seamspec:end` markers, and in `strict` mode the one in `.github/CODEOWNERS`;
+     - the `seamspec` server in `.cursor/mcp.json`, `.vscode/mcp.json` and `.agents/mcp_config.json`;
+     - the hooks that run `seamspec` in `.cursor/hooks.json` and `.agents/hooks.json`;
+     - SeamSpec's lines in `.gitignore`. If you keep `BRAINDUMP.md` (it's yours), keep its lines (for a file set in `braindump.path` or a link, the one for the file it points to as well), so your notes stay out of the commit.
+  6. **Commit** the removal. Check `git status` first: nothing personal should be staged.
+  7. **The command itself:** `uv tool uninstall seamspec`, once no project uses it.

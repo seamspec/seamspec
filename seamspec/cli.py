@@ -321,7 +321,7 @@ def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
         )
     if mode == "strict":
         outcome = ci_installer.install_codeowners(root, cfg)
-        placeholder = ci_installer.PLACEHOLDER_OWNER in (root / ci_installer.CODEOWNERS_REL).read_text(encoding="utf-8")
+        placeholder = ci_installer.placeholder_left((root / ci_installer.CODEOWNERS_REL).read_text(encoding="utf-8"))
         hint = f" (replace {ci_installer.PLACEHOLDER_OWNER} with your reviewers)" if placeholder else ""
         typer.echo(f"  {outcome:<9} {ci_installer.CODEOWNERS_REL}{hint}")
 
