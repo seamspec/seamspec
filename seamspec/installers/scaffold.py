@@ -189,7 +189,9 @@ def _braindump(root: Path, report: InitReport) -> None:
         report.add(path, "kept")
         return
     atomic_write(where, _template("BRAINDUMP.md"))
-    merge_gitignore(root, (path,), header="SeamSpec: your personal scratchpad (remove this line to share it)")
+    # Through a link, the file is created where it points: ignore that too, or `git add -A` takes it (#102).
+    ignored = tuple(dict.fromkeys((path, where.relative_to(root.resolve()).as_posix())))
+    merge_gitignore(root, ignored, header="SeamSpec: your personal scratchpad (remove this line to share it)")
     report.add(path, "created (git-ignored)")
 
 

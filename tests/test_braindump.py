@@ -456,6 +456,17 @@ def test_a_link_inside_the_repository_is_followed(tmp_path: Path, human: None, m
     assert "TODO benchmark" not in (tmp_path / "docs/notes.md").read_text().split(MARKER)[0]
 
 
+def test_init_ignores_the_file_a_link_creates(tmp_path: Path) -> None:
+    """A dangling BRAINDUMP.md link: init creates the file it points to, which must be ignored too (#102)."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "BRAINDUMP.md").symlink_to("docs/notes.md")
+    assert dict(scaffold.init(tmp_path).actions)["BRAINDUMP.md"] == "created (git-ignored)"
+    assert MARKER in (tmp_path / "docs/notes.md").read_text()
+    ignored = (tmp_path / ".gitignore").read_text().splitlines()
+    assert "BRAINDUMP.md" in ignored and "docs/notes.md" in ignored
+
+
 def test_a_longer_fence_is_closed_only_by_one_as_long() -> None:
     """The opener was cut to three characters, so a ``` line inside a ```` block ended it early."""
     notes = "````markdown\nAn example:\n```python\n- not a note\n```\n````\n\n- A real note.\n" + MARKER
