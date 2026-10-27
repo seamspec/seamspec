@@ -169,7 +169,7 @@ A captured rule follows what was said. If you said `max_attempts=5`, the rule ma
 - **Pause enforcement:** `seamspec init --mode advisory`. This removes SeamSpec's commit hook; the rules stay.
 - **Remove the Claude Code plugin from a project:** `claude plugin uninstall seamspec@seamspec --scope local` (or `--scope project` if you turned it on for the team, then commit `.claude/settings.json`).
 - **Remove it completely,** in this order:
-  1. **Switch to advisory first:** `seamspec init --mode advisory`, while `.seamspec/` still exists. It removes the commit hook. Skipped, the hook stays and refuses the commit that removes SeamSpec. If a hook manager (pre-commit, Husky, Lefthook) runs SeamSpec instead, delete that step from its config.
+  1. **Switch to advisory first:** `seamspec init --mode advisory`, while `.seamspec/` still exists. It removes the commit hook. Skipped, the hook stays and refuses the commit that removes SeamSpec. If a hook manager (pre-commit, Husky, Lefthook) or a hook you wrote yourself runs SeamSpec instead, remove that step: once `.seamspec/` is gone it fails and blocks the commit.
   2. **Remove the plugin** (above), if you installed it.
   3. **Remove the required check:** if `seamspec / verify` is a required status check (section 6), untick it in the branch protection rule before you delete the workflow. Otherwise every pull request waits for a check that never runs.
   4. **Delete SeamSpec's files:** `.seamspec/`; `.github/workflows/seamspec.yml`; and the editor files only SeamSpec uses, all named `seamspec…`: the commands, prompts, skills and reviewer agents, and `.github/hooks/seamspec.json`.
@@ -177,6 +177,6 @@ A captured rule follows what was said. If you said `max_attempts=5`, the rule ma
      - the SeamSpec block in `CLAUDE.md` / `AGENTS.md`, between the `seamspec:begin` and `seamspec:end` markers, and in `strict` mode the one in `.github/CODEOWNERS`;
      - the `seamspec` server in `.cursor/mcp.json`, `.vscode/mcp.json` and `.agents/mcp_config.json`;
      - the hooks that run `seamspec` in `.cursor/hooks.json` and `.agents/hooks.json`;
-     - SeamSpec's lines in `.gitignore`. If you keep `BRAINDUMP.md` (it's yours), keep its lines (for a file set in `braindump.path` or a link, the one for the file it points to as well), so your notes stay out of the commit.
+     - SeamSpec's lines in `.gitignore`. If you keep `BRAINDUMP.md` (it's yours), keep its lines (for a file set in `braindump.path` or a link, the one for the file it points to as well), so your notes stay out of the commit. Keep the `.claude/settings.local.json` line too while that file exists: it holds this machine's Claude Code settings.
   6. **Commit** the removal. Check `git status` first: nothing personal should be staged.
   7. **The command itself:** `uv tool uninstall seamspec`, once no project uses it.
