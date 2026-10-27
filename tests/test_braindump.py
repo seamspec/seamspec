@@ -467,6 +467,37 @@ def test_init_ignores_the_file_a_link_creates(tmp_path: Path) -> None:
     assert "BRAINDUMP.md" in ignored and "docs/notes.md" in ignored
 
 
+@pytest.mark.parametrize("target", ["#notes.md", "!notes.md", "docs/notes[1].md", "notes*.md", "notes.md  "])
+def test_the_ignore_line_matches_exactly_that_file(tmp_path: Path, target: str) -> None:
+    """Git reads `#`, `!`, wildcards and trailing spaces in .gitignore: written as is, the file the link
+    creates wasn't ignored, or other files were (Copilot on #102). Checked with git itself."""
+    import subprocess
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    git(tmp_path, "init", "-q")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "BRAINDUMP.md").symlink_to(target)
+    (tmp_path / "notes-other.md").write_text("x")  # a wildcard must not catch it
+    scaffold.init(tmp_path)
+
+    def ignored(name: str) -> bool:
+        return subprocess.run(["git", "check-ignore", "-q", "--no-index", name], cwd=tmp_path).returncode == 0
+
+    assert (tmp_path / target).is_file() and ignored(target)
+    assert not ignored("notes-other.md")
+
+
+def test_a_link_with_a_line_break_is_not_followed_into_gitignore(tmp_path: Path) -> None:
+    """A committed link to `docs/notes\\n!.env` would have added a `!.env` rule (Copilot on #102)."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "demo"\n')
+    (tmp_path / ".gitignore").write_text(".env\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "BRAINDUMP.md").symlink_to("docs/notes\n!.env")
+    assert "line break" in dict(scaffold.init(tmp_path).actions)["BRAINDUMP.md"]
+    assert "!.env" not in (tmp_path / ".gitignore").read_text()
+    assert not (tmp_path / "docs/notes\n!.env").exists()
+
+
 def test_a_longer_fence_is_closed_only_by_one_as_long() -> None:
     """The opener was cut to three characters, so a ``` line inside a ```` block ended it early."""
     notes = "````markdown\nAn example:\n```python\n- not a note\n```\n````\n\n- A real note.\n" + MARKER

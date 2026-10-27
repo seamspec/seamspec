@@ -173,6 +173,19 @@ def default_mode(current: Mode | None) -> Mode:
     return current if current in ("enforced", "strict") else "enforced"
 
 
+def _literal_ignore(name: str) -> str:
+    """A .gitignore line matching exactly this file name, or "" when none can: a line break would end
+    the line and start a rule of the repository's choosing (Copilot on #102). `#` or `!` at the start,
+    wildcards and trailing spaces are escaped, so git doesn't read them as a comment or a pattern."""
+    if "\n" in name or "\r" in name:
+        return ""
+    escaped = re.sub(r"([\\*?\[])", r"\\\1", name)
+    if escaped.startswith(("#", "!")):
+        escaped = "\\" + escaped
+    kept = escaped.rstrip(" ")
+    return kept + "\\ " * (len(escaped) - len(kept))
+
+
 def _braindump(root: Path, report: InitReport) -> None:
     """Create BRAINDUMP.md once, git-ignored (§13.3). An existing file and its ignore line are the
     person's: a team that shares it removes the line, and init never adds it back."""
@@ -188,10 +201,13 @@ def _braindump(root: Path, report: InitReport) -> None:
     if where.exists():
         report.add(path, "kept")
         return
-    atomic_write(where, _template("BRAINDUMP.md"))
     # Through a link, the file is created where it points: ignore that too, or `git add -A` takes it (#102).
-    ignored = tuple(dict.fromkeys((path, where.relative_to(root.resolve()).as_posix())))
-    merge_gitignore(root, ignored, header="SeamSpec: your personal scratchpad (remove this line to share it)")
+    names = dict.fromkeys((path, where.relative_to(root.resolve()).as_posix()))
+    if not all(patterns := [_literal_ignore(n) for n in names]):
+        report.add(path, "skipped (its name has a line break, which .gitignore can't hold)")
+        return
+    atomic_write(where, _template("BRAINDUMP.md"))
+    merge_gitignore(root, tuple(patterns), header="SeamSpec: your personal scratchpad (remove this line to share it)")
     report.add(path, "created (git-ignored)")
 
 
