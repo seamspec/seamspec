@@ -80,20 +80,39 @@ def install_workflow(root: Path, cfg: Config) -> str:
     return "created"
 
 
-def owner_lines(cfg: Config) -> list[str]:
-    """`/.seamspec/` plus each runner's harness folder (§12A.5)."""
+PLACEHOLDER_OWNER = "@your-team/leads"
+
+
+def owner_lines(cfg: Config, owners: dict[str, str] | None = None) -> list[str]:
+    """`/.seamspec/` plus each runner's harness folder (§12A.5). `owners`: the reviewers already
+    written in the block, by folder; a new folder gets the ones on the block's first line."""
     dirs = ["/.seamspec/", *(f"/{r.harness_dir.strip('/')}/" for r in cfg.runners.values())]
-    unique = list(dict.fromkeys(dirs))
-    return [f"{d} @your-team/leads" for d in unique]
+    owners = owners or {}
+    fallback = next(iter(owners.values()), PLACEHOLDER_OWNER)
+    return [f"{d} {owners.get(d, fallback)}" for d in dict.fromkeys(dirs)]
+
+
+def _owners_in(block: str) -> dict[str, str]:
+    """The reviewers a person put in SeamSpec's block, by folder (placeholders left out)."""
+    found = {}
+    for line in block.splitlines():
+        folder, _, owners = line.strip().partition(" ")
+        if folder.startswith("/") and owners.strip() and owners.strip() != PLACEHOLDER_OWNER:
+            found[folder] = owners.strip()
+    return found
 
 
 def install_codeowners(root: Path, cfg: Config) -> str:
-    """created | updated | unchanged. Only the marked block is SeamSpec's; the rest is never touched."""
+    """created | updated | unchanged. Only the marked block is SeamSpec's; the rest is never touched.
+    Reviewers written in the block are kept: rerunning `init` must not put the placeholder back."""
     path = root / CODEOWNERS_REL
     old = path.read_text(encoding="utf-8") if path.is_file() else ""
-    block = "\n".join([OWNERS_BEGIN, *owner_lines(cfg), OWNERS_END]) + "\n"
-    pattern = re.compile(re.escape(OWNERS_BEGIN) + r".*?" + re.escape(OWNERS_END) + r"\n?", re.S)
-    if pattern.search(old):
+    # Any `# seamspec:begin` line: a find-and-replace of the placeholder also changes the marker's words.
+    pattern = re.compile(r"^# seamspec:begin\b[^\n]*\n.*?" + re.escape(OWNERS_END) + r"\n?", re.S | re.M)
+    found = pattern.search(old)
+    lines = owner_lines(cfg, _owners_in(found.group(0)) if found else None)
+    block = "\n".join([OWNERS_BEGIN, *lines, OWNERS_END]) + "\n"
+    if found:
         new = pattern.sub(lambda _: block, old, count=1)
     else:
         new = old + ("\n" if old and not old.endswith("\n") else "") + block

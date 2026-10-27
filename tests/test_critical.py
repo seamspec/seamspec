@@ -87,9 +87,14 @@ def test_marked_where_rules_are_shown_and_never_changes_enforcement(git_repo: Pa
     assert status["critical"] == 1
     from seamspec.core import verifier
 
-    before = verifier.run(git_repo, cfg, [store.get(inv_id)]).passed
+    # Broken code, so a skipped rule can't pass for a checked one (catch-up review, #98): the rule must
+    # fail, and the same way, with the mark on and off.
+    (git_repo / "src/queue.py").write_text("def backoff_delay(n):\n    return 0.1 * 2 ** n\n")
+    marked = verifier.run(git_repo, cfg, [store.get(inv_id)])
     lifecycle.set_critical(store, inv_id, False)
-    assert verifier.run(git_repo, cfg, [store.get(inv_id)]).passed == before  # the same test, run the same way
+    plain = verifier.run(git_repo, cfg, [store.get(inv_id)])
+    for report in (marked, plain):
+        assert not report.passed and report.failing_ids == [inv_id] and not report.incomplete
 
 
 def test_doctor_notes_a_removed_mark_in_ci_and_too_many_marks(git_repo: Path, human: None) -> None:

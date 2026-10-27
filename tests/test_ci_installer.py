@@ -74,6 +74,27 @@ def test_codeowners_block_is_merged_not_clobbered(tmp_path: Path) -> None:
     assert text.count(ci.OWNERS_BEGIN) == 1
 
 
+def test_rerunning_init_keeps_the_reviewers_someone_wrote(tmp_path: Path) -> None:
+    """The block was rebuilt with the placeholder on every run, so a rerun of `init` (to add an editor,
+    say) undid the guide's "replace @your-team/leads" step (catch-up review, #99)."""
+    root = _repo(tmp_path, "pyproject.toml", "package.json")
+    cfg = load_config(root)
+    ci.install_codeowners(root, cfg)
+    path = root / ci.CODEOWNERS_REL
+    # A find-and-replace over the whole file, the marker line included.
+    path.write_text(path.read_text().replace("@your-team/leads", "@acme/leads @maya"))
+    assert ci.install_codeowners(root, cfg) == "updated"  # the marker line gets its own words back
+    assert ci.install_codeowners(root, cfg) == "unchanged"
+    text = path.read_text()
+    assert text.count(ci.OWNERS_BEGIN) == 1 and text.count("# seamspec:begin") == 1
+    assert "/.seamspec/ @acme/leads @maya" in text and "/tests/seamspec/ @acme/leads @maya" in text
+
+    # A folder missing from the block (a runner added later) gets the owners of the block's first line.
+    path.write_text(text.replace("/tests/seamspec/ @acme/leads @maya\n", ""))
+    assert ci.install_codeowners(root, cfg) == "updated"
+    assert "/tests/seamspec/ @acme/leads @maya" in path.read_text()
+
+
 # --- through `seamspec init`, by mode --------------------------------------------------------------
 
 

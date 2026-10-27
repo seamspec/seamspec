@@ -320,8 +320,10 @@ def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
             "able to read that repository. After the release, change that line to a version."
         )
     if mode == "strict":
-        typer.echo(f"  {ci_installer.install_codeowners(root, cfg):<9} {ci_installer.CODEOWNERS_REL}"
-                   " (replace @your-team/leads with your reviewers)")  # fmt: skip
+        outcome = ci_installer.install_codeowners(root, cfg)
+        placeholder = ci_installer.PLACEHOLDER_OWNER in (root / ci_installer.CODEOWNERS_REL).read_text(encoding="utf-8")
+        hint = f" (replace {ci_installer.PLACEHOLDER_OWNER} with your reviewers)" if placeholder else ""
+        typer.echo(f"  {outcome:<9} {ci_installer.CODEOWNERS_REL}{hint}")
 
 
 def _init_hosts(root: Path, wanted: str | None) -> None:

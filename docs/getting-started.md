@@ -118,7 +118,9 @@ A notes file guides whichever agent reads it. SeamSpec's rules are tests, and **
 
    Until SeamSpec's first release, the workflow installs it from its GitHub repository; edit that line if your CI can't reach it.
 3. **Make the check required.** On GitHub: **Settings → Branches → Add branch protection rule** for `main`, then tick **Require status checks to pass** and choose **`seamspec / verify`**. Without this, CI reports a broken rule but doesn't stop the merge.
-4. **Optional, `strict` mode:** `seamspec init --mode strict` also adds a CODEOWNERS entry, so changes to `.seamspec/` need a named reviewer.
+4. **Optional, `strict` mode:** `seamspec init --mode strict` also adds a block to `.github/CODEOWNERS` for `.seamspec/` and the rule tests. Two more steps make it count:
+   - **Name your reviewers:** replace the placeholder `@your-team/leads` with real people or a team (`@maya`, `@acme/leads`) who have write access to the repository. Rerunning `init` keeps them. `seamspec doctor` warns while the placeholder is there.
+   - **Require their review:** in the same branch protection rule, tick **Require a pull request before merging**, then **Require review from Code Owners**. Without it, GitHub only *suggests* the code owners as reviewers.
 
 **Each teammate, after cloning:**
 
@@ -128,7 +130,7 @@ seamspec init
 
 A clone doesn't carry anyone's local setup: the hooks, the consent for automatic runs and the editor plugin stay on each person's machine. `init` shows the test commands the repository would run and asks before trusting them. Until a teammate does this, their agent can still read the rules, but nothing checks locally. `seamspec verify` will say so, and CI still checks every push.
 
-**Who approves?** Anyone who runs `seamspec review`. Approvals are recorded with the person's git identity. In `strict` mode, CODEOWNERS makes sure the right people review changes to the rules.
+**Who approves?** Anyone who runs `seamspec review`. Approvals are recorded with the person's git identity. In `strict` mode, once you've named real reviewers and required code-owner reviews (step 4), CODEOWNERS makes sure the right people review changes to the rules before they merge.
 
 **Keep your notes too.** A good `CLAUDE.md` still helps every agent understand the project. Agreements that can't be tested (style, architecture preferences) belong there, or as SeamSpec decisions. Use rules for the few agreements that would really hurt if broken: money, data contracts, public APIs, security behaviour.
 
@@ -166,4 +168,10 @@ A captured rule follows what was said. If you said `max_attempts=5`, the rule ma
 
 - **Pause enforcement:** `seamspec init --mode advisory`. This removes SeamSpec's commit hook; the rules stay.
 - **Remove the Claude Code plugin from a project:** `claude plugin uninstall seamspec@seamspec --scope local` (or `--scope project` if you turned it on for the team, then commit `.claude/settings.json`).
-- **Remove it completely:** delete `.seamspec/`, the SeamSpec block in `CLAUDE.md` / `AGENTS.md` (between the `seamspec:begin` and `seamspec:end` markers), and `.github/workflows/seamspec.yml`.
+- **Remove it completely,** in this order:
+  1. **Switch to advisory first:** `seamspec init --mode advisory`, while `.seamspec/` still exists. It removes the commit hook. Skipped, the hook stays and refuses the commit that removes SeamSpec. If a hook manager (pre-commit, Husky, Lefthook) runs SeamSpec instead, delete that step from its config.
+  2. **Remove the plugin** (above), if you installed it.
+  3. **Remove the required check:** if `seamspec / verify` is a required status check (section 6), untick it in the branch protection rule before you delete the workflow. Otherwise every pull request waits for a check that never runs.
+  4. **Delete the files:** `.seamspec/`; the SeamSpec block in `CLAUDE.md` / `AGENTS.md` (between the `seamspec:begin` and `seamspec:end` markers); `.github/workflows/seamspec.yml`; in `strict` mode, the SeamSpec block in `.github/CODEOWNERS`; the editor files `init --hosts` wrote ([editors.md](editors.md) lists them); SeamSpec's lines in `.gitignore`. `BRAINDUMP.md` is yours: keep it or delete it.
+  5. **Commit** the removal.
+  6. **The command itself:** `uv tool uninstall seamspec`, once no project uses it.

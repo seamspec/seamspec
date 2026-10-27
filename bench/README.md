@@ -42,11 +42,11 @@ That prints the plan and runs nothing. Add `--yes` only after the owner approves
 - `--bar rough|full|none` chooses the pass bar the summary applies (default `rough`). `full` also prints which claims the write-up may make. `none` is for a second model: reported, never judged.
 - `--resume` continues a batch that stopped: runs already in that label's `results.jsonl` are kept and not run again.
 
-The full run, once the owner has accepted ADR-20261013-9d41 (each line is a separate, paid batch; run them in your own terminal with the key set):
+The full run, once the owner has accepted ADR-20261013-9d41 (each line is a separate, paid batch; run them in your own terminal with the key set). `--conditions` defaults to every setup, N and S included, so the full run names A–H: without it, it would be 150 runs, not 120:
 
 ```bash
 uv run python -m bench.run --tasks t3_export --conditions A --runs 2 --model claude-sonnet-5-5 --label calib-t3 --billing api --yes
-uv run python -m bench.run --runs 5 --model claude-sonnet-5-5 --label full-1 --billing api --counted --bar full --resume --yes   # 120 runs
+uv run python -m bench.run --conditions A,B,C,D,E,F,G,H --runs 5 --model claude-sonnet-5-5 --label full-1 --billing api --counted --bar full --resume --yes   # 120 runs
 uv run python -m bench.run --conditions A,C,D,E --runs 3 --model claude-haiku-5-5 --label full-1-haiku --billing api --bar none --resume --yes
 ```
 
