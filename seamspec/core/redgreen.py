@@ -206,6 +206,13 @@ def _prepare(root: Path, wt_root: Path, cfg: Config, inv: Invariant) -> None:
 
 APPLIED = "applied"  # written by the redirect when it has run
 
+
+def applied_marker(script: str) -> str:
+    """The file the redirect in start-script copy `script` writes as well, so the commit check can
+    tell which runners were redirected, not only that one was (ADR-20261026-5b8e)."""
+    return f"{APPLIED}.{script}"
+
+
 # Runs first in the runner's start script. It moves every import path inside the repository to the
 # same place in the HEAD worktree: sys.path entries (a `.pth` editable install, PYTHONPATH) and the
 # tables of import-hook editable installs (`__editable__*` modules). The interpreter's own folders
@@ -235,26 +242,79 @@ def _redirect():
                     for k, v in list(table.items()):
                         table[k] = [move(x) for x in v] if isinstance(v, list) else move(v)
     sys.path_importer_cache.clear()
-    try:
-        open(os.path.join(here, {applied!r}), "w").close()
-    except OSError:
-        pass
+    for marker in ({applied!r}, {mine!r}):
+        try:
+            open(os.path.join(here, marker), "w").close()
+        except OSError:
+            pass
 _redirect()
 del _redirect
 """
 
 
-def shim_runner(cfg: Config, name: str, wt_root: Path, shims: Path, top: Path, wt: Path) -> bool:
-    """Write a copy of runner `name`'s start script that redirects imports first. False when the
-    runner isn't started from a Python script SeamSpec can copy (a path, a binary, a Windows launcher)."""
+def _start_script(cfg: Config, name: str, wt_root: Path) -> Path | None:
+    """The file runner `name` starts: its command found on the runner's PATH, or a path to it."""
     runner = cfg.runners[name]
     command = runner.cmd[0]
     if "/" in command or os.sep in command:
-        return False
-    # The same environment the verifier starts this runner with, so a runner's own PATH counts.
+        path = Path(command) if Path(command).is_absolute() else wt_root / command
+        return path if path.is_file() else None
+    # The same environment the verifier starts this runner with, so a runner's own PATH counts. The
+    # runner starts in `wt_root`, so a relative PATH entry is relative to it, not to this process (#101).
     env = verifier.runner_env(wt_root, cfg, runner, wt_root / verifier.REPORTS_REL / f"{name}.xml")
-    found = shutil.which(command, path=env.get("PATH", ""))
-    return found is not None and write_shim(Path(found), shims, top, wt)
+    entries = [e if os.path.isabs(e) else str(wt_root / e) for e in env.get("PATH", "").split(os.pathsep)]
+    found = shutil.which(command, path=os.pathsep.join(entries))
+    return Path(found) if found is not None else None
+
+
+def shim_runner(cfg: Config, name: str, wt_root: Path, shims: Path, top: Path, wt: Path) -> str | None:
+    """Write a copy of runner `name`'s start script that redirects imports first, and return its file
+    name. None when the runner isn't started from a Python script SeamSpec can copy (a path, a binary,
+    a Windows launcher)."""
+    command = cfg.runners[name].cmd[0]
+    if "/" in command or os.sep in command:
+        return None  # started by its path, so a copy first on PATH wouldn't be used
+    script = _start_script(cfg, name, wt_root)
+    return script.name if script is not None and write_shim(script, shims, top, wt) else None
+
+
+def starts_without_python(cfg: Config, name: str, wt_root: Path, top: Path, root: Path | None = None) -> bool:
+    """True only when runner `name` is known not to start Python: its start script runs Node (npx,
+    vitest, jest), so an editable Python install can't hand it the working tree's code. Anything else,
+    a binary, `python -m`, `uv run`, may import the project's Python code. A start script inside the
+    repository `top` itself (not the `node_modules` or virtualenv of `top` or of the SeamSpec project
+    `root` inside it) gets no exemption: started by that path, it would run the working tree's copy
+    and import beside it (#101)."""
+    script = _start_script(cfg, name, wt_root)
+    if script is None:
+        return False
+    real, repo = os.path.realpath(script), os.path.realpath(top)
+    deps = [os.path.realpath(base / d) for base in dict.fromkeys([top, root or top]) for d in LINKED]
+    if real.startswith(repo + os.sep) and not any(real.startswith(d + os.sep) for d in deps):
+        return False
+    try:
+        with script.open("rb") as f:
+            first = f.readline(256)
+    except OSError:
+        return False
+    if any(c in first for c in (b"'", b'"', b"\\")):  # quoting we don't parse: no exemption (#101)
+        return False
+    return first.startswith(b"#!") and _interpreter(first) in ("node", "nodejs", "bun", "deno")
+
+
+def _interpreter(first: bytes) -> str:
+    """The program a `#!` line runs: its own name, or the one `env` starts. After `env`, only `-S`
+    and `NAME=value` are understood; any other option (`-u NAME`, `-i`) gives "" so the runner gets
+    no exemption, since its operand could be taken for the program (#101)."""
+    words = first[2:].decode("utf-8", "replace").split()
+    name = os.path.basename(words[0]) if words else ""
+    if name != "env":
+        return name
+    for word in words[1:]:
+        if word in ("-S", "--split-string") or ("=" in word and not word.startswith("-")):
+            continue
+        return "" if word.startswith("-") else os.path.basename(word)
+    return ""
 
 
 def write_shim(script: Path, shims: Path, top: Path, wt: Path) -> bool:
@@ -268,7 +328,11 @@ def write_shim(script: Path, shims: Path, top: Path, wt: Path) -> bool:
     if at is None:
         return False
     redirect = _REDIRECT.format(
-        src=os.path.realpath(top), dst=os.path.realpath(wt), here=str(shims.resolve()), applied=APPLIED
+        src=os.path.realpath(top),
+        dst=os.path.realpath(wt),
+        here=str(shims.resolve()),
+        applied=APPLIED,
+        mine=applied_marker(script.name),
     )
     text = "".join(lines[:at]) + redirect + "".join(lines[at:])
     if "python" in lines[0].lower():  # a pure Python script: check the copy before trusting it

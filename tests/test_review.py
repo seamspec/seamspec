@@ -244,6 +244,7 @@ def test_import_hook_editable_installs_are_redirected_too(tmp_path: Path) -> Non
     assert f"{real_wt}/src" in seen["path"] and os.path.realpath(repo / "src") not in seen["path"]
     assert str(site) in seen["path"]  # not inside the repository: left alone
     assert (shims / redgreen.APPLIED).exists()
+    assert (shims / redgreen.applied_marker("runner")).exists()  # this copy's own proof (ADR-20261026-5b8e)
 
 
 def test_a_start_script_that_would_not_compile_is_not_copied(tmp_path: Path) -> None:

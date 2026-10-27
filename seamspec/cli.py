@@ -1056,9 +1056,9 @@ def _verify_staged(root: Path, cfg: Any, locked: list[Invariant]) -> verifier.Ve
     """Run the locked tests on a copy of what the commit records (SPEC §16.4). Fails closed when the
     copy can't be made or the run may have imported the working tree's code."""
     try:
-        with snapshot.staged(root, cfg) as snap:
+        with snapshot.staged(root, cfg, locked) as snap:
             report = verifier.run(snap.root, cfg, locked, first_on_path=snap.first_on_path)
-            if not snap.trustworthy():
+            if not snap.trustworthy({r.runner for r in report.results if not r.could_not_run}):
                 raise snapshot.SnapshotError(snapshot.EDITABLE)
     except snapshot.SnapshotError as exc:
         raise _fail(f"commit blocked. {exc}") from None
