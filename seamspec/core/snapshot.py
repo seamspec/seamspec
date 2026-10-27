@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import Config
+from .models import Invariant
 from .redgreen import LINKED, applied_marker, editable_install, shim_runner, starts_without_python
 
 LEDGER = ".seamspec"
@@ -98,33 +99,33 @@ def differs(root: Path) -> bool:
     return untracked is None or untracked.returncode != 0 or bool(untracked.stdout.strip())
 
 
-def _harness_dirs(cfg: Config) -> list[str]:
-    """Folders of rule tests outside `.seamspec/` (vitest's `tests/seamspec`): part of the ledger here."""
-    dirs = {r.harness_dir.rstrip("/") for r in cfg.runners.values()}
-    return sorted(d for d in dirs if d != LEDGER and not d.startswith(f"{LEDGER}/"))
+def _outside(rules: Collection[Invariant]) -> list[str]:
+    """The rules' tests kept outside `.seamspec/` (vitest's `tests/seamspec/`): part of the ledger here."""
+    paths = {i.verification.harness_path for i in rules}
+    return sorted(p for p in paths if p != LEDGER and not p.startswith(f"{LEDGER}/"))
 
 
-def ledger_differs(root: Path, cfg: Config | None = None) -> bool:
-    """Tracked SeamSpec files, and rule tests kept outside `.seamspec/`, whose staged copy differs
-    from the one on disk."""
+def ledger_differs(root: Path, harnesses: Collection[str] = ()) -> bool:
+    """Tracked SeamSpec files, and the rule tests `harnesses` kept outside `.seamspec/`, whose staged
+    copy differs from the one on disk."""
     found = _top_and_prefix(root)
     if found is None:
         return False
     top, prefix = found
-    paths = [LEDGER, *(_harness_dirs(cfg) if cfg is not None else [])]
-    diff = _git(top, "diff", "--quiet", "--", *(f"{prefix}{p}" for p in paths))
+    diff = _git(top, "diff", "--quiet", "--", *(f"{prefix}{p}" for p in (LEDGER, *harnesses)))
     return diff is None or diff.returncode != 0
 
 
 @contextmanager
-def staged(root: Path, cfg: Config, runners: Collection[str]) -> Iterator[Snapshot]:
+def staged(root: Path, cfg: Config, rules: Collection[Invariant]) -> Iterator[Snapshot]:
     """A temporary copy of what the commit records, with today's ledger, removed afterwards.
-    `runners`: the ones the commit's rules use, checked before anything runs."""
+    `rules`: the ones the commit check runs; the runners they use are checked before anything runs."""
     found = _top_and_prefix(root)
     if found is None:
         raise SnapshotError("SeamSpec couldn't ask git what this commit contains.")
-    if ledger_differs(root, cfg):
-        stage = " ".join(f"`git add {p}`" for p in [LEDGER, *_harness_dirs(cfg)])
+    harnesses = _outside(rules)
+    if ledger_differs(root, harnesses):
+        stage = " ".join(f"`git add {p}`" for p in (LEDGER, *harnesses))
         raise SnapshotError(
             "SeamSpec's files staged for this commit differ from the ones on disk, so the commit would record "
             f"rules the check didn't run. Stage them again ({stage}) and commit."
@@ -132,35 +133,61 @@ def staged(root: Path, cfg: Config, runners: Collection[str]) -> Iterator[Snapsh
     tmp = Path(tempfile.mkdtemp(prefix="seamspec-commit-"))
     try:
         try:
-            snap = _prepare(root, cfg, *found, tmp)
+            snap = _prepare(root, cfg, *found, tmp, harnesses)
         except OSError as exc:  # e.g. symlinks not allowed (Windows), permissions
             raise SnapshotError(f"SeamSpec couldn't prepare a copy of the staged files: {exc}") from None
-        if snap.must_redirect and snap.unredirected(runners):
+        if snap.must_redirect and snap.unredirected({i.verification.runner for i in rules}):
             raise SnapshotError(EDITABLE)
         yield snap
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _prepare(root: Path, cfg: Config, top: Path, prefix: str, tmp: Path) -> Snapshot:
+def _place(src: Path, snap_root: Path, rel: str) -> None:
+    """Put `src` from disk at `rel` in the copy: a file is copied, a link is copied as a link, a
+    folder is made. Whatever the copy has there is replaced, never written through, and a linked
+    folder on the way is refused, so the ledger can't overwrite the staged code (ADR-20261026-5b8e)."""
+    target = snap_root / rel
+    expected = os.path.join(os.path.realpath(snap_root), *Path(rel).parent.parts)
+    if os.path.realpath(target.parent) != expected:
+        raise SnapshotError(
+            f"`{Path(rel).parent.as_posix()}` is a link in the staged files, so SeamSpec can't place its rule "
+            "tests there without writing through it. Make it a real folder, or commit without the link."
+        )
+    if target.is_symlink() or target.is_file():
+        target.unlink()
+    if src.is_dir() and not src.is_symlink():
+        target.mkdir(parents=True, exist_ok=True)
+        return
+    if target.is_dir():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, target, follow_symlinks=False)
+
+
+def _overlay_ledger(root: Path, snap_root: Path) -> None:
+    """`.seamspec/` from disk, without `.local/` and `__pycache__`, links kept as links."""
+    ledger = root / LEDGER
+    _place(ledger, snap_root, LEDGER)
+    for dirpath, dirnames, filenames in os.walk(ledger):  # links to folders are listed, not followed
+        here = Path(dirpath)
+        dirnames[:] = [d for d in dirnames if d != "__pycache__" and not (d == LOCAL and here == ledger)]
+        for name in [*dirnames, *filenames]:
+            _place(here / name, snap_root, (here / name).relative_to(root).as_posix())
+        dirnames[:] = [d for d in dirnames if not (here / d).is_symlink()]
+
+
+def _prepare(root: Path, cfg: Config, top: Path, prefix: str, tmp: Path, harnesses: Collection[str]) -> Snapshot:
     copy = tmp / "commit"
     out = _git(top, "checkout-index", "--all", "--force", f"--prefix={copy}/")
     if out is None or out.returncode != 0:
         raise SnapshotError("SeamSpec couldn't copy the staged files to check them.")
     snap_root = copy / prefix
     snap_root.mkdir(parents=True, exist_ok=True)
-    ledger = root / LEDGER
-    shutil.copytree(
-        ledger,
-        snap_root / LEDGER,
-        dirs_exist_ok=True,
-        ignore=lambda folder, names: [n for n in names if n == "__pycache__" or (n == LOCAL and folder == str(ledger))],
-    )
-    for rel in _harness_dirs(cfg):  # rule tests approved but not staged yet apply here too
-        if (root / rel).is_dir():
-            shutil.copytree(
-                root / rel, snap_root / rel, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__")
-            )
+    _overlay_ledger(root, snap_root)
+    for rel in harnesses:  # a rule's test approved but not staged yet applies here too
+        if (root / rel).is_file() or (root / rel).is_symlink():
+            _place(root / rel, snap_root, rel)
     for name in LINKED:
         src = root / name
         if src.exists() and not (snap_root / name).exists():

@@ -22,9 +22,10 @@ PRs #53 to #95 were merged while Copilot could only post a billing note. The cat
 ## Decision
 
 1. **The redirect writes a marker of its own as well:** `applied.<script>` next to the shared `applied`, which red-green keeps using (`redgreen.applied_marker()`). `shim_runner()` returns the copy's file name instead of `True`.
-2. **Proof per runner.** `Snapshot.evidence` maps each redirected runner to its marker. `Snapshot.no_python` holds runners known not to start Python: those whose start script's `#!` line names node, bun or deno (npx, vitest, jest), never python. Everything else that can't be redirected (a binary, `python -m`, `uv run`, a command given as a path) is treated as possibly Python. That fails closed, as before.
+2. **Proof per runner.** `Snapshot.evidence` maps each redirected runner to its marker. `Snapshot.no_python` holds runners known not to start Python: those whose start script's `#!` line runs exactly `node`, `nodejs`, `bun` or `deno`, directly or through `env` (npx, vitest, jest). The program's name is matched, not any word in the line, so `#!/opt/node-tools/sh` doesn't count (Copilot on #101). Everything else that can't be redirected (a binary, `python -m`, `uv run`, a command given as a path) is treated as possibly Python. That fails closed, as before.
 3. **Only the runners that matter.** `staged(root, cfg, runners)` gets the runners the selected rules use. With an editable install, it refuses before running anything if one of them is neither redirected nor Node. After the run, `trustworthy(ran)` checks the marker of each runner that actually ran. If nothing ran, nothing needs proof.
-4. **Rule tests outside `.seamspec/` are part of the ledger** for the check: each runner's `harness_dir` outside `.seamspec/` is copied from disk, and `ledger_differs()` refuses a tracked file there whose staged copy differs from disk. The refusal now names every folder to `git add`.
+4. **Rule tests outside `.seamspec/` are part of the ledger** for the check: the test file of each rule being checked is copied from disk. Only those files are copied, never their folder, so an unstaged module next to them stays out of the copy. `ledger_differs()` refuses one that is tracked and whose staged copy differs from disk. The refusal names each path to `git add`.
+5. **Nothing from disk is written through a link** (Copilot on #101), for `.seamspec/` too. A link is copied as a link. A file or link already in the staged copy is replaced, not written into. A linked folder on the way is refused, because writing there would change staged code the commit records.
 
 **Alternatives considered:**
 - *A separate `PATH` folder per runner:* the same proof, but the verifier would need a `PATH` per runner. A marker per start-script copy gives the same answer without that change.
@@ -38,7 +39,10 @@ None new. Covered in `tests/test_commit_snapshot.py`:
 - every runner that ran needs its own marker;
 - a runner that can't be redirected is refused before anything runs, but only when a rule uses it;
 - Node runners need no redirect, binaries do;
-- rule tests outside `.seamspec/` come from disk, and a changed tracked one is refused.
+- rule tests outside `.seamspec/` come from disk, and a changed tracked one is refused;
+- only the rules' own test files come from disk;
+- a staged link is replaced, not written through, and a linked folder is refused;
+- `#!` lines are matched by program name.
 
 `tests/test_review.py` checks the new marker.
 

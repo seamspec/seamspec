@@ -288,7 +288,17 @@ def starts_without_python(cfg: Config, name: str, wt_root: Path) -> bool:
             first = f.readline(256)
     except OSError:
         return False
-    return first.startswith(b"#!") and b"python" not in first and any(w in first for w in (b"node", b"bun", b"deno"))
+    return first.startswith(b"#!") and _interpreter(first) in ("node", "nodejs", "bun", "deno")
+
+
+def _interpreter(first: bytes) -> str:
+    """The program a `#!` line runs: its own name, or the one `env` starts (after its options)."""
+    words = first[2:].decode("utf-8", "replace").split()
+    name = os.path.basename(words[0]) if words else ""
+    if name == "env":
+        rest = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
+        name = os.path.basename(rest[0]) if rest else ""
+    return name
 
 
 def write_shim(script: Path, shims: Path, top: Path, wt: Path) -> bool:

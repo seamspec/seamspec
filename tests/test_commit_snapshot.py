@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 from seamspec.cli import app
 from seamspec.core import lifecycle, redgreen, snapshot
 from seamspec.core.config import Config, RunnerCfg, load_config
+from seamspec.core.models import Invariant
 from seamspec.core.store import Store
 
 from .conftest import git
@@ -26,6 +27,12 @@ from .test_trust_gate import commit, gated_repo, human  # noqa: F401 - pytest fi
 runner = CliRunner()
 GOOD = "def backoff_delay(n):\n    return min(0.1 * 2 ** n, 30.0)\n"
 BROKEN = "def backoff_delay(n):\n    return 0.1 * 2 ** n  # cap removed\n"
+
+
+def rule(root: Path, inv_id: str) -> Invariant:
+    inv = Store(root).get(inv_id)
+    assert isinstance(inv, Invariant)
+    return inv
 
 
 def commit_staged(root: Path, message: str) -> subprocess.CompletedProcess[str]:
@@ -136,9 +143,9 @@ def test_editable_install_without_a_redirect_fails_closed(
 
 
 def test_the_copy_is_removed(locked: tuple[Path, str]) -> None:
-    root, _ = locked
+    root, inv_id = locked
     (root / "notes.txt").write_text("untracked\n")
-    with snapshot.staged(root, load_config(root), ["pytest"]) as snap:
+    with snapshot.staged(root, load_config(root), [rule(root, inv_id)]) as snap:
         copy = snap.root
         assert (copy / "src/queue.py").read_text() == GOOD
         assert not (copy / "notes.txt").exists() and not (copy / ".seamspec/.local").exists()
@@ -180,12 +187,12 @@ def test_each_runner_that_ran_needs_its_own_redirect(tmp_path: Path) -> None:
 def test_a_runner_that_cant_be_redirected_is_refused_before_anything_runs(
     locked: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root, _ = locked
+    root, inv_id = locked
     (root / "notes.txt").write_text("untracked\n")
     monkeypatch.setattr(snapshot, "editable_install", lambda *args: True)
     monkeypatch.setattr(snapshot, "shim_runner", lambda *args: None)
     cfg = load_config(root)
-    with pytest.raises(snapshot.SnapshotError, match="editable mode"), snapshot.staged(root, cfg, ["pytest"]):
+    with pytest.raises(snapshot.SnapshotError, match="editable mode"), snapshot.staged(root, cfg, [rule(root, inv_id)]):
         pass
     with snapshot.staged(root, cfg, []):  # no rule uses it: nothing to refuse
         pass
@@ -194,30 +201,70 @@ def test_a_runner_that_cant_be_redirected_is_refused_before_anything_runs(
 def test_node_runners_need_no_redirect(tmp_path: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name, first in (("npx", "#!/usr/bin/env node"), ("pytest", f"#!{sys.executable}"), ("uv", "\x7fELF")):
+    scripts = {
+        "npx": "#!/usr/bin/env node",
+        "jest": "#!/usr/bin/env -S node --no-warnings",
+        "bunx": "#!/opt/bun/bin/bun",
+        "pytest": f"#!{sys.executable}",
+        "uv": "\x7fELF",  # a binary may well start Python
+        "wrapped": "#!/opt/node-tools/sh",  # "node" in a folder name isn't Node (#101)
+        "envpy": "#!/usr/bin/env PYTHONPATH=src python3",
+    }
+    for name, first in scripts.items():
         (bin_dir / name).write_text(first + "\n")
         (bin_dir / name).chmod(0o755)
-    cfg = Config(
-        runners={
-            n: RunnerCfg(cmd=[n], filename="test_{id}.py", env={"PATH": str(bin_dir)}) for n in ("npx", "pytest", "uv")
-        }
-    )
-    assert redgreen.starts_without_python(cfg, "npx", tmp_path)
-    assert not redgreen.starts_without_python(cfg, "pytest", tmp_path)
-    assert not redgreen.starts_without_python(cfg, "uv", tmp_path)  # a binary may well start Python
+    cfg = Config(runners={n: RunnerCfg(cmd=[n], filename="test_{id}.py", env={"PATH": str(bin_dir)}) for n in scripts})
+    assert [n for n in scripts if redgreen.starts_without_python(cfg, n, tmp_path)] == ["npx", "jest", "bunx"]
+
+
+def outside(root: Path, inv_id: str, harness: str) -> Invariant:
+    """The rule with its test kept outside `.seamspec/`, as vitest keeps it."""
+    inv = rule(root, inv_id)
+    return inv.model_copy(update={"verification": inv.verification.model_copy(update={"harness_path": harness})})
 
 
 def test_rule_tests_outside_the_ledger_come_from_disk(locked: tuple[Path, str]) -> None:
     """vitest keeps rule tests in `tests/seamspec/`. One approved but not staged yet still applies;
     a tracked one changed after `git add` is refused, as for `.seamspec/`."""
-    root, _ = locked
+    root, inv_id = locked
     cfg = load_config(root)
-    cfg.runners["pytest"] = cfg.runners["pytest"].model_copy(update={"harness_dir": "tests/seamspec"})
+    inv = outside(root, inv_id, "tests/seamspec/inv_new.test.ts")
     (root / "tests/seamspec").mkdir(parents=True)
     (root / "tests/seamspec/inv_new.test.ts").write_text("// approved, not staged\n")
-    with snapshot.staged(root, cfg, []) as snap:
+    with snapshot.staged(root, cfg, [inv]) as snap:
         assert (snap.root / "tests/seamspec/inv_new.test.ts").read_text() == "// approved, not staged\n"
     git(root, "add", "tests/seamspec")
     (root / "tests/seamspec/inv_new.test.ts").write_text("// changed after git add\n")
-    with pytest.raises(snapshot.SnapshotError, match="git add tests/seamspec"), snapshot.staged(root, cfg, []):
+    with pytest.raises(snapshot.SnapshotError, match="git add tests/seamspec"), snapshot.staged(root, cfg, [inv]):
         pass
+
+
+def test_only_the_rules_own_tests_come_from_disk(locked: tuple[Path, str]) -> None:
+    """Even with the rule test at the top of the project, an unstaged module next to it stays out:
+    the commit doesn't contain it, so the check mustn't either (#101)."""
+    root, inv_id = locked
+    (root / "inv_new.test.ts").write_text("// the rule's test\n")
+    (root / "src/limits.py").write_text("LIMIT = 30\n")  # untracked: not in the commit
+    with snapshot.staged(root, load_config(root), [outside(root, inv_id, "inv_new.test.ts")]) as snap:
+        assert (snap.root / "inv_new.test.ts").exists() and not (snap.root / "src/limits.py").exists()
+
+
+def test_a_link_in_the_staged_files_is_replaced_never_written_through(tmp_path: Path) -> None:
+    """A staged link `tests/seamspec/inv_x.test.ts -> ../../src/queue.py` must not let the rule
+    test from disk overwrite the staged `src/queue.py`; a linked folder on the way is refused (#101)."""
+    snap, disk = tmp_path / "snap", tmp_path / "disk"
+    (snap / "src").mkdir(parents=True)
+    (snap / "src/queue.py").write_text(GOOD)
+    (snap / "tests/seamspec").mkdir(parents=True)
+    (snap / "tests/seamspec/inv_x.test.ts").symlink_to("../../src/queue.py")
+    (disk / "tests/seamspec").mkdir(parents=True)
+    (disk / "tests/seamspec/inv_x.test.ts").write_text("// the rule's test\n")
+    snapshot._place(disk / "tests/seamspec/inv_x.test.ts", snap, "tests/seamspec/inv_x.test.ts")
+    assert (snap / "src/queue.py").read_text() == GOOD
+    assert not (snap / "tests/seamspec/inv_x.test.ts").is_symlink()
+    (snap / "lib").symlink_to("src", target_is_directory=True)
+    (disk / "lib").mkdir()
+    (disk / "lib/inv_y.test.ts").write_text("// another\n")
+    with pytest.raises(snapshot.SnapshotError, match="is a link in the staged files"):
+        snapshot._place(disk / "lib/inv_y.test.ts", snap, "lib/inv_y.test.ts")
+    assert not (snap / "src/inv_y.test.ts").exists()
