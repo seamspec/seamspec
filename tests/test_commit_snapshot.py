@@ -314,6 +314,26 @@ def test_a_link_in_the_staged_files_is_replaced_never_written_through(tmp_path: 
     assert not (snap / "src/inv_y.test.ts").exists()
 
 
+def test_a_link_from_disk_pointing_outside_the_copy_is_copied_as_its_content(tmp_path: Path) -> None:
+    """An absolute link on disk would still point at the working tree inside the copy, and vitest
+    resolves imports from a link's target (#101). A relative link inside the copy stays a link."""
+    snap, disk = tmp_path / "snap", tmp_path / "disk"
+    (snap / "tests").mkdir(parents=True)
+    (disk / "tests").mkdir(parents=True)
+    (disk / "tests/real.test.ts").write_text("// the rule's test\n")
+    (disk / "tests/inv_abs.test.ts").symlink_to(disk / "tests/real.test.ts")
+    (disk / "tests/inv_rel.test.ts").symlink_to("real.test.ts")
+    (disk / "elsewhere").mkdir()
+    (disk / "tests/inv_dir").symlink_to(disk / "elsewhere", target_is_directory=True)
+    snapshot._place(disk / "tests/inv_abs.test.ts", snap, "tests/inv_abs.test.ts")
+    snapshot._place(disk / "tests/inv_rel.test.ts", snap, "tests/inv_rel.test.ts")
+    copied, kept = snap / "tests/inv_abs.test.ts", snap / "tests/inv_rel.test.ts"
+    assert not copied.is_symlink() and copied.read_text() == "// the rule's test\n"
+    assert kept.is_symlink() and os.readlink(kept) == "real.test.ts"
+    with pytest.raises(snapshot.SnapshotError, match="links to a folder outside"):
+        snapshot._place(disk / "tests/inv_dir", snap, "tests/inv_dir")
+
+
 def test_a_rule_test_path_outside_the_project_is_refused_before_anything_is_touched(tmp_path: Path) -> None:
     """An absolute path would make `snap_root / rel` the real file, which `_place` would replace (#101)."""
     snap, real = tmp_path / "snap", tmp_path / "repo/src/queue.py"

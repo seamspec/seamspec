@@ -144,9 +144,10 @@ def staged(root: Path, cfg: Config, rules: Collection[Invariant]) -> Iterator[Sn
 
 
 def _place(src: Path, snap_root: Path, rel: str) -> None:
-    """Put `src` from disk at `rel` in the copy: a file is copied, a link is copied as a link, a
-    folder is made. Whatever the copy has there is replaced, never written through, and a linked
-    folder on the way is refused, so the ledger can't overwrite the staged code (ADR-20261026-5b8e)."""
+    """Put `src` from disk at `rel` in the copy: a file is copied, a link pointing inside the copy is
+    copied as a link (one pointing outside it, at the working tree, as its content), a folder is
+    made. Whatever the copy has there is replaced, never written through, and a linked folder on the
+    way is refused, so the ledger can't overwrite the staged code (ADR-20261026-5b8e)."""
     if any(p.anchor or ".." in p.parts for p in (PurePosixPath(rel), PureWindowsPath(rel))):  # `\\x`, `C:x` too
         raise SnapshotError(f"`{rel}` isn't a path inside the project, so SeamSpec won't place a rule test there.")
     target = snap_root / rel
@@ -164,7 +165,20 @@ def _place(src: Path, snap_root: Path, rel: str) -> None:
     if target.is_dir():
         shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_symlink() and not _stays_inside(os.readlink(src), expected, os.path.realpath(snap_root)):
+        if src.is_dir():
+            raise SnapshotError(
+                f"`{rel}` links to a folder outside the project's copy, so its rule tests would run against the "
+                "files on disk. Make it a real folder, or commit without the link."
+            )
+        shutil.copy2(src, target)  # a link pointing outside the copy: its content, never the link (#101)
+        return
     shutil.copy2(src, target, follow_symlinks=False)
+
+
+def _stays_inside(link: str, folder: str, top: str) -> bool:
+    """Does a link written in `folder` point at something inside `top`? Absolute links never do."""
+    return not os.path.isabs(link) and os.path.normpath(os.path.join(folder, link)).startswith(top + os.sep)
 
 
 def _overlay_ledger(root: Path, snap_root: Path) -> None:
