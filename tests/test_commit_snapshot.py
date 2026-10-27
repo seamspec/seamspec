@@ -211,6 +211,7 @@ def test_node_runners_need_no_redirect(tmp_path: Path) -> None:
         "envpy": "#!/usr/bin/env PYTHONPATH=src python3",
         "unset": "#!/usr/bin/env -S -u node python3",  # `-u node` unsets a variable; Python starts
         "clean": "#!/usr/bin/env -i node",  # an option we don't parse: no exemption
+        "quoted": "#!/usr/bin/env -S PROBE='x node y' python3",  # quoting we don't parse: no exemption
     }
     for name, first in scripts.items():
         (bin_dir / name).write_text(first + "\n")
@@ -235,6 +236,17 @@ def test_a_node_script_in_the_repository_itself_gets_no_exemption(tmp_path: Path
     )
     assert not redgreen.starts_without_python(cfg, "local", tmp_path / "snap", repo)
     assert redgreen.starts_without_python(cfg, "dep", tmp_path / "snap", repo)
+
+
+def test_a_dependency_of_a_project_in_a_subfolder_still_counts_as_node(tmp_path: Path) -> None:
+    """A monorepo: SeamSpec's project is `repo/app`, its vitest in `repo/app/node_modules` (#101)."""
+    repo = tmp_path / "repo"
+    vitest = repo / "app/node_modules/.bin/vitest"
+    vitest.parent.mkdir(parents=True)
+    vitest.write_text("#!/usr/bin/env node\n")
+    cfg = Config(runners={"vitest": RunnerCfg(cmd=[str(vitest)], filename="t_{id}.ts")})
+    assert redgreen.starts_without_python(cfg, "vitest", tmp_path / "snap", repo, repo / "app")
+    assert not redgreen.starts_without_python(cfg, "vitest", tmp_path / "snap", repo)  # app/ itself isn't a dependency
 
 
 def test_a_relative_path_entry_is_read_from_the_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

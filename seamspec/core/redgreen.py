@@ -278,22 +278,26 @@ def shim_runner(cfg: Config, name: str, wt_root: Path, shims: Path, top: Path, w
     return script.name if script is not None and write_shim(script, shims, top, wt) else None
 
 
-def starts_without_python(cfg: Config, name: str, wt_root: Path, top: Path) -> bool:
+def starts_without_python(cfg: Config, name: str, wt_root: Path, top: Path, root: Path | None = None) -> bool:
     """True only when runner `name` is known not to start Python: its start script runs Node (npx,
     vitest, jest), so an editable Python install can't hand it the working tree's code. Anything else,
     a binary, `python -m`, `uv run`, may import the project's Python code. A start script inside the
-    repository `top` itself (not its `node_modules` or virtualenv) gets no exemption: started by that
-    path, it would run the working tree's copy and import beside it (#101)."""
+    repository `top` itself (not the `node_modules` or virtualenv of `top` or of the SeamSpec project
+    `root` inside it) gets no exemption: started by that path, it would run the working tree's copy
+    and import beside it (#101)."""
     script = _start_script(cfg, name, wt_root)
     if script is None:
         return False
     real, repo = os.path.realpath(script), os.path.realpath(top)
-    if real.startswith(repo + os.sep) and Path(real).relative_to(repo).parts[0] not in LINKED:
+    deps = [os.path.realpath(base / d) for base in dict.fromkeys([top, root or top]) for d in LINKED]
+    if real.startswith(repo + os.sep) and not any(real.startswith(d + os.sep) for d in deps):
         return False
     try:
         with script.open("rb") as f:
             first = f.readline(256)
     except OSError:
+        return False
+    if any(c in first for c in (b"'", b'"', b"\\")):  # quoting we don't parse: no exemption (#101)
         return False
     return first.startswith(b"#!") and _interpreter(first) in ("node", "nodejs", "bun", "deno")
 

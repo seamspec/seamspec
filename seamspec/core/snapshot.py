@@ -200,7 +200,7 @@ def _prepare(root: Path, cfg: Config, top: Path, prefix: str, tmp: Path, harness
     for name in cfg.runners:
         if script := shim_runner(cfg, name, snap_root, shims, top, copy):
             evidence[name] = applied_marker(script)
-        elif starts_without_python(cfg, name, snap_root, top):
+        elif starts_without_python(cfg, name, snap_root, top, root):
             no_python.add(name)
     must_redirect = editable_install(root, top, os.environ)
     redirected = bool(evidence)
