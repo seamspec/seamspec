@@ -103,9 +103,16 @@ def owners_block(text: str) -> str | None:
 
 
 def _entries(block: str) -> list[tuple[str, list[str]]]:
-    """(folder, owners) for each entry line; comments aside. Any whitespace separates them (tabs too)."""
-    return [(parts[0], parts[1:]) for line in block.splitlines()
-            if (parts := line.split()) and not parts[0].startswith("#")]  # fmt: skip
+    """(folder, owners) for each entry line. Any whitespace separates them (tabs too); a `#` word starts
+    a comment, on its own line or after the owners, and is never read as an owner (Copilot on #103)."""
+    out = []
+    for line in block.splitlines():
+        words = line.split()
+        if "#" in (cut := [w[:1] for w in words]):
+            words = words[: cut.index("#")]
+        if words:
+            out.append((words[0], words[1:]))
+    return out
 
 
 def placeholder_left(text: str) -> bool:
@@ -116,9 +123,11 @@ def placeholder_left(text: str) -> bool:
 
 def _owners_in(block: str) -> dict[str, str]:
     """The reviewers a person put in SeamSpec's block, by folder (placeholders left out)."""
-    return {
-        folder: " ".join(owners) for folder, owners in _entries(block) if owners and PLACEHOLDER_OWNER not in owners
-    }
+    found = {}
+    for folder, owners in _entries(block):
+        if real := [o for o in owners if o != PLACEHOLDER_OWNER]:  # a real reviewer next to it stays
+            found[folder] = " ".join(real)
+    return found
 
 
 def install_codeowners(root: Path, cfg: Config) -> str:

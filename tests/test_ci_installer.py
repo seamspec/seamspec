@@ -110,6 +110,26 @@ def test_reviewers_after_a_tab_are_kept_and_the_hint_goes(tmp_path: Path) -> Non
     assert "replace @your-team/leads" not in init(root, "--mode", "strict")
 
 
+@pytest.mark.parametrize(
+    ("entry", "kept"),
+    [
+        ("/.seamspec/ @maya # replaces @your-team/leads", "/.seamspec/ @maya"),  # an inline comment
+        ("/.seamspec/ @maya @your-team/leads", "/.seamspec/ @maya"),  # the placeholder beside a real reviewer
+    ],
+)
+def test_comments_and_a_leftover_placeholder_never_cost_a_reviewer(tmp_path: Path, entry: str, kept: str) -> None:
+    """Copilot on #103: both rebuilt the entry as the placeholder alone, dropping @maya."""
+    root = _repo(tmp_path, "pyproject.toml")
+    cfg = load_config(root)
+    ci.install_codeowners(root, cfg)
+    path = root / ci.CODEOWNERS_REL
+    path.write_text(path.read_text().replace("/.seamspec/ @your-team/leads", entry))
+    ci.install_codeowners(root, cfg)
+    text = path.read_text()
+    assert f"{kept}\n" in text and "/.seamspec/tests/ @maya\n" in text  # the other folder takes @maya too
+    assert not ci.placeholder_left(text)
+
+
 # --- through `seamspec init`, by mode --------------------------------------------------------------
 
 
