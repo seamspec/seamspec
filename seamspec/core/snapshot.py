@@ -30,7 +30,7 @@ import tempfile
 from collections.abc import Collection, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from .config import Config
 from .models import Invariant
@@ -147,7 +147,7 @@ def _place(src: Path, snap_root: Path, rel: str) -> None:
     """Put `src` from disk at `rel` in the copy: a file is copied, a link is copied as a link, a
     folder is made. Whatever the copy has there is replaced, never written through, and a linked
     folder on the way is refused, so the ledger can't overwrite the staged code (ADR-20261026-5b8e)."""
-    if PurePosixPath(rel).is_absolute() or Path(rel).is_absolute() or ".." in PurePosixPath(rel).parts:
+    if any(p.anchor or ".." in p.parts for p in (PurePosixPath(rel), PureWindowsPath(rel))):  # `\\x`, `C:x` too
         raise SnapshotError(f"`{rel}` isn't a path inside the project, so SeamSpec won't place a rule test there.")
     target = snap_root / rel
     expected = os.path.join(os.path.realpath(snap_root), *Path(rel).parent.parts)
@@ -200,7 +200,7 @@ def _prepare(root: Path, cfg: Config, top: Path, prefix: str, tmp: Path, harness
     for name in cfg.runners:
         if script := shim_runner(cfg, name, snap_root, shims, top, copy):
             evidence[name] = applied_marker(script)
-        elif starts_without_python(cfg, name, snap_root):
+        elif starts_without_python(cfg, name, snap_root, top):
             no_python.add(name)
     must_redirect = editable_install(root, top, os.environ)
     redirected = bool(evidence)

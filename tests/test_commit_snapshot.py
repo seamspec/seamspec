@@ -216,7 +216,37 @@ def test_node_runners_need_no_redirect(tmp_path: Path) -> None:
         (bin_dir / name).write_text(first + "\n")
         (bin_dir / name).chmod(0o755)
     cfg = Config(runners={n: RunnerCfg(cmd=[n], filename="test_{id}.py", env={"PATH": str(bin_dir)}) for n in scripts})
-    assert [n for n in scripts if redgreen.starts_without_python(cfg, n, tmp_path)] == ["npx", "jest", "bunx"]
+    repo = tmp_path / "repo"
+    assert [n for n in scripts if redgreen.starts_without_python(cfg, n, tmp_path, repo)] == ["npx", "jest", "bunx"]
+
+
+def test_a_node_script_in_the_repository_itself_gets_no_exemption(tmp_path: Path) -> None:
+    """Started by its path inside the repo, it runs the working tree's copy (#101). One in
+    `node_modules` is a dependency, linked into the copy, and still counts as Node."""
+    repo = tmp_path / "repo"
+    for rel in ("tools/check.cjs", "node_modules/.bin/vitest"):
+        (repo / rel).parent.mkdir(parents=True)
+        (repo / rel).write_text("#!/usr/bin/env node\n")
+    cfg = Config(
+        runners={
+            "local": RunnerCfg(cmd=[str(repo / "tools/check.cjs")], filename="t_{id}.ts"),
+            "dep": RunnerCfg(cmd=[str(repo / "node_modules/.bin/vitest")], filename="t_{id}.ts"),
+        }
+    )
+    assert not redgreen.starts_without_python(cfg, "local", tmp_path / "snap", repo)
+    assert redgreen.starts_without_python(cfg, "dep", tmp_path / "snap", repo)
+
+
+def test_a_relative_path_entry_is_read_from_the_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`PATH=tools` finds the copy's `tools/check`, the one the runner starts, not the working tree's (#101)."""
+    snap, here = tmp_path / "snap", tmp_path / "here"
+    for folder, first in ((snap, f"#!{sys.executable}"), (here, "#!/usr/bin/env node")):
+        (folder / "tools").mkdir(parents=True)
+        (folder / "tools/check").write_text(first + "\n")
+        (folder / "tools/check").chmod(0o755)
+    monkeypatch.chdir(here)
+    cfg = Config(runners={"check": RunnerCfg(cmd=["check"], filename="t_{id}.py", env={"PATH": "tools"})})
+    assert not redgreen.starts_without_python(cfg, "check", snap, tmp_path / "repo")
 
 
 def outside(root: Path, inv_id: str, harness: str) -> Invariant:
@@ -278,7 +308,14 @@ def test_a_rule_test_path_outside_the_project_is_refused_before_anything_is_touc
     snap.mkdir()
     real.parent.mkdir(parents=True)
     real.write_text(GOOD)
-    for rel in (str(real), "../repo/src/queue.py"):
+    for rel in (
+        str(real),
+        "../repo/src/queue.py",
+        "\\repo\\src\\queue.py",
+        "\\\\host\\share\\x",
+        "C:repo/src/queue.py",
+        "src\\..\\..\\x",
+    ):
         with pytest.raises(snapshot.SnapshotError, match="isn't a path inside the project"):
             snapshot._place(tmp_path / "anything", snap, rel)
     assert real.read_text() == GOOD

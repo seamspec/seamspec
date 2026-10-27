@@ -259,9 +259,11 @@ def _start_script(cfg: Config, name: str, wt_root: Path) -> Path | None:
     if "/" in command or os.sep in command:
         path = Path(command) if Path(command).is_absolute() else wt_root / command
         return path if path.is_file() else None
-    # The same environment the verifier starts this runner with, so a runner's own PATH counts.
+    # The same environment the verifier starts this runner with, so a runner's own PATH counts. The
+    # runner starts in `wt_root`, so a relative PATH entry is relative to it, not to this process (#101).
     env = verifier.runner_env(wt_root, cfg, runner, wt_root / verifier.REPORTS_REL / f"{name}.xml")
-    found = shutil.which(command, path=env.get("PATH", ""))
+    entries = [e if os.path.isabs(e) else str(wt_root / e) for e in env.get("PATH", "").split(os.pathsep)]
+    found = shutil.which(command, path=os.pathsep.join(entries))
     return Path(found) if found is not None else None
 
 
@@ -276,12 +278,17 @@ def shim_runner(cfg: Config, name: str, wt_root: Path, shims: Path, top: Path, w
     return script.name if script is not None and write_shim(script, shims, top, wt) else None
 
 
-def starts_without_python(cfg: Config, name: str, wt_root: Path) -> bool:
+def starts_without_python(cfg: Config, name: str, wt_root: Path, top: Path) -> bool:
     """True only when runner `name` is known not to start Python: its start script runs Node (npx,
     vitest, jest), so an editable Python install can't hand it the working tree's code. Anything else,
-    a binary, `python -m`, `uv run`, may import the project's Python code."""
+    a binary, `python -m`, `uv run`, may import the project's Python code. A start script inside the
+    repository `top` itself (not its `node_modules` or virtualenv) gets no exemption: started by that
+    path, it would run the working tree's copy and import beside it (#101)."""
     script = _start_script(cfg, name, wt_root)
     if script is None:
+        return False
+    real, repo = os.path.realpath(script), os.path.realpath(top)
+    if real.startswith(repo + os.sep) and Path(real).relative_to(repo).parts[0] not in LINKED:
         return False
     try:
         with script.open("rb") as f:
