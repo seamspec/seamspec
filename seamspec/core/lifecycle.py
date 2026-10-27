@@ -119,8 +119,14 @@ def harness_in_place(store: Store, cfg: Config, inv: Invariant) -> Iterator[Inva
 # --- agent-side operations -----------------------------------------------------------------------
 
 
+def _prose(cfg: Config, text: str) -> str:
+    """Words that go into a committed record, with secret-looking text masked when the config says so.
+    Every field the agent writes, not just the origin: a key repeated in a title stays out too (#97)."""
+    return redact(text) if cfg.braindump.redact_secrets else text
+
+
 def _origin(cfg: Config, origin_type: str, text: str, ref: str | None) -> Origin:
-    text = redact(text) if cfg.braindump.redact_secrets else text
+    text = _prose(cfg, text)
     return Origin(type=origin_type, text=text[:ORIGIN_MAX], ref=ref)  # type: ignore[arg-type]
 
 
@@ -133,8 +139,7 @@ def _from_braindump(
     """A record made from a braindump item marks the item as processed (§13.2). The note's own words
     are remembered when it is still in the file, not the agent's rewording of it."""
     if ref and ref.startswith(BRAINDUMP_REF):
-        text = braindump.note_text(store, cfg.braindump.path, cfg.braindump.marker, ref) or text
-        text = redact(text) if cfg.braindump.redact_secrets else text
+        text = _prose(cfg, braindump.note_text(store, cfg.braindump.path, cfg.braindump.marker, ref) or text)
         braindump.record(store, ref, became, record_id, text)
 
 
@@ -187,6 +192,7 @@ def propose_invariant(
     elif not by_human and pending_count(store) >= cfg.proposals.max_pending:
         return _queue_full(store)
 
+    title, assertion = _prose(cfg, title), _prose(cfg, assertion)
     inv_id = existing.id if existing else store.new_id("inv")
     harness_rel = proposed_path(cfg, runner, inv_id)
     try:
@@ -213,9 +219,9 @@ def propose_invariant(
         record = adr.create(
             store,
             title=title,
-            context=adr_draft["context"],
-            decision=adr_draft["decision"],
-            consequences=list(adr_draft.get("consequences", [])),
+            context=_prose(cfg, adr_draft["context"]),
+            decision=_prose(cfg, adr_draft["decision"]),
+            consequences=[_prose(cfg, c) for c in adr_draft.get("consequences", [])],
             scopes=scope_paths,
             invariants=[(inv_id, assertion)],
         )
@@ -250,8 +256,7 @@ def log_dead_end(
         store.get(related_invariant)  # must exist
     if origin_ref and origin_ref.startswith(BRAINDUMP_REF):
         source = "braindump"
-    symptom = redact(failure_symptom) if cfg.braindump.redact_secrets else failure_symptom
-    approach = redact(approach) if cfg.braindump.redact_secrets else approach
+    symptom, approach = _prose(cfg, failure_symptom), _prose(cfg, approach)
     try:
         de = DeadEnd(
             id=store.new_id("de"),
@@ -294,10 +299,10 @@ def propose_decision(
     where = f"braindump item `{origin_ref}`" if origin_ref else "the conversation"
     record = adr.create(
         store,
-        title=title.strip(),
-        context=f"{context.strip()}\n\nFrom {where}: {origin.text}",
-        decision=decision,
-        consequences=consequences,
+        title=_prose(cfg, title.strip()),
+        context=f"{_prose(cfg, context.strip())}\n\nFrom {where}: {origin.text}",
+        decision=_prose(cfg, decision),
+        consequences=[_prose(cfg, c) for c in consequences],
         scopes=scope_paths,
     )
     _from_braindump(store, cfg, origin_ref, "decision", record.id, origin_text)

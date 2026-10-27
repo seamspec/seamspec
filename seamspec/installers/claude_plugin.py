@@ -93,8 +93,10 @@ def _claude(root: Path, *args: str) -> tuple[bool, str]:
     return ok, message
 
 
-def enabled_here(root: Path) -> bool:
-    """Is the plugin already enabled for this repository (any scope)?"""
+def enabled_here(root: Path, scope: str = "local") -> bool:
+    """Is the plugin already enabled for this repository? For `local`, at any scope: it is on for this
+    user. For `project`, only in the committed settings: on for this user alone, the team still lacks
+    it (#97)."""
     try:
         out = subprocess.run(
             ["claude", "plugin", "list", "--json"], cwd=root, capture_output=True, text=True, timeout=TIMEOUT_SECONDS
@@ -105,6 +107,8 @@ def enabled_here(root: Path) -> bool:
     here = str(root.resolve())
     for p in plugins if isinstance(plugins, list) else []:
         if not isinstance(p, dict) or p.get("id") != PLUGIN_ID or not p.get("enabled"):
+            continue
+        if scope == "project" and p.get("scope") != "project":
             continue
         if p.get("scope") == "user" or str(Path(p.get("projectPath") or "/nonexistent").resolve()) == here:
             return True
@@ -142,8 +146,8 @@ def precheck(root: Path, scope: str = "local") -> PluginResult | None:
             f"the plugin comes from a folder on this machine ({source}), which can't go into the committed "
             f"{SETTINGS['project']}; it can be turned on for you only (`--plugin-scope local`)",
         )
-    if enabled_here(root):
-        message = f"{PLUGIN_ID} is already enabled for this repository"
+    if enabled_here(root, scope):
+        message = f"{PLUGIN_ID} is already enabled for {'everyone in ' if scope == 'project' else ''}this repository"
         return PluginResult("unchanged", message, _ignore_local_settings(root))
     return None
 

@@ -207,8 +207,8 @@ def get_constraints(files: list[str], roots: SessionRoots = None) -> dict[str, A
         linked = {i.adr_id for i in cs.locked + cs.proposed if i.adr_id}
         out["adrs"] = _adr_summaries(svc, cs.files, linked)
         out["runners"] = _runner_hints(svc, cs.files)
-        if plans := braindump.planned(svc.store, svc.cfg.braindump.path, svc.cfg.braindump.marker):
-            out["planned"] = {"note": braindump.PLANNED_HEADING, "rules": [{"id": i.id, "text": i.text} for i in plans]}
+        if plans := braindump.planned_payload(svc.store, svc.cfg.braindump.path, svc.cfg.braindump.marker):
+            out["planned"] = plans
         return out
 
     return _with_services(run, roots, files)
@@ -327,7 +327,9 @@ def braindump_pending(
             out["dismissed"] = done
         if stray := braindump.below_marker_note(svc.root, path, marker):
             out["below_marker"] = stray + " Tell the user; never edit the file yourself."
-        if braindump.read(svc.root, path) is None:
+        if braindump.location(svc.root, path) is None:
+            out["note"] = f"{path} points outside this project, so SeamSpec doesn't read it."
+        elif braindump.read(svc.root, path) is None:
             out["note"] = f"There is no {path} in this project."
         return out
 

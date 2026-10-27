@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -17,8 +17,8 @@ class _Strict(BaseModel):
 
 
 def _inside_repo(v: str) -> str:
-    p = PurePosixPath(v)
-    if p.is_absolute() or ".." in p.parts:
+    # Windows too: `\\x` (rooted) and `C:x` (drive-relative) are no relative path either.
+    if any(p.anchor or ".." in p.parts for p in (PurePosixPath(v), PureWindowsPath(v))):
         raise ValueError(f"{v!r} must be a relative path inside the repo")
     return v
 
@@ -85,6 +85,11 @@ class BraindumpCfg(_Strict):
     marker: str = "<!-- seamspec:processed -->"
     redact_secrets: bool = True
     nudge: Literal["ask", "off"] = "ask"
+
+    @field_validator("path")
+    @classmethod
+    def _path_inside_repo(cls, v: str) -> str:
+        return _inside_repo(v)  # a cloned repo's config must not point drain or init at a file elsewhere
 
 
 class ProtectCfg(_Strict):

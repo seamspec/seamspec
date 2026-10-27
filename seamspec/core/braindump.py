@@ -81,18 +81,35 @@ def below_marker_note(root: Path, path: str, marker: str) -> str | None:
     )
 
 
-def parse_items(markdown: str, marker: str) -> list[Item]:
-    """The items above the marker, in order (§13.5). Duplicates (same id) are listed once."""
+def _closes(line: str, fence: str) -> bool:
+    """A closing fence: the opener's character, at least as many, and nothing after (CommonMark)."""
+    stripped = line.strip()
+    return len(stripped) >= len(fence) and stripped == fence[0] * len(stripped)
+
+
+def _parse(markdown: str, marker: str) -> list[tuple[list[str], list[int]]]:
+    """Each item above the marker: its parts and the numbers of the lines they came from."""
     lines = _human_part(markdown, marker).splitlines()
-    items: list[list[str]] = []
-    current: list[str] | None = None
+    items: list[tuple[list[str], list[int]]] = []
+    current: tuple[list[str], list[int]] | None = None
     kind = ""  # "list" | "para" | ""
     fence: str | None = None
     in_comment = False
-    for raw in lines:
+
+    def add(n: int, text: str) -> None:
+        holder = current if current is not None else items[-1]
+        holder[0].append(text)
+        holder[1].append(n)
+
+    def start(n: int, text: str) -> tuple[list[str], list[int]]:
+        item = ([text], [n])
+        items.append(item)
+        return item
+
+    for n, raw in enumerate(lines):
         if fence is not None:  # inside a fenced block: kept whole, never parsed
-            (current if current is not None else items[-1]).append(raw)
-            if raw.strip().startswith(fence):
+            add(n, raw)
+            if _closes(raw, fence):
                 fence = None
             continue
         if in_comment:
@@ -103,11 +120,11 @@ def parse_items(markdown: str, marker: str) -> list[Item]:
             in_comment = "-->" not in stripped
             continue
         if opened := FENCE_RE.match(raw):
-            fence = opened.group(1)[:3]
+            fence = opened.group(1)  # the whole opener: a shorter fence inside doesn't close it
             if current is None:  # a code block on its own is an item
-                current, kind = [], "para"
-                items.append(current)
-            current.append(raw)
+                current, kind = start(n, raw), "para"
+            else:
+                add(n, raw)
             continue
         if not stripped:
             if kind == "para":
@@ -117,21 +134,23 @@ def parse_items(markdown: str, marker: str) -> list[Item]:
             current, kind = None, ""
             continue
         if entry := ITEM_RE.match(raw):
-            current, kind = [entry.group(1)], "list"
-            items.append(current)
+            current, kind = start(n, entry.group(1)), "list"
             continue
         if kind == "list" and raw[:1] in (" ", "\t"):
-            current.append(stripped)  # an indented line continues the list item
+            add(n, stripped)  # an indented line continues the list item
             continue
         if kind == "para":
-            current.append(stripped)
+            add(n, stripped)
             continue
-        current, kind = [stripped], "para"  # an unindented line starts a new paragraph
-        items.append(current)
+        current, kind = start(n, stripped), "para"  # an unindented line starts a new paragraph
+    return items
 
+
+def parse_items(markdown: str, marker: str) -> list[Item]:
+    """The items above the marker, in order (§13.5). Duplicates (same id) are listed once."""
     seen: set[str] = set()
     out: list[Item] = []
-    for parts in items:
+    for parts, _ in _parse(markdown, marker):
         text = "\n".join(parts).strip()
         if not text:
             continue
@@ -161,9 +180,21 @@ def record(store: Store, iid: str, became: Became, ref: str | None, text: str = 
     atomic_write(_state_path(store), json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
-def read(root: Path, path: str) -> str | None:
+def location(root: Path, path: str) -> Path | None:
+    """Where the notes file is, links followed, or None when that is outside the project: a cloned
+    repository's config or link must not make SeamSpec read or write a file elsewhere (#97)."""
     try:
-        return (root / path).read_text(encoding="utf-8")
+        here, target = root.resolve(), (root / path).resolve()
+    except (OSError, RuntimeError, ValueError):  # a link loop
+        return None
+    return target if here in target.parents else None
+
+
+def read(root: Path, path: str) -> str | None:
+    if (where := location(root, path)) is None:
+        return None
+    try:
+        return where.read_text(encoding="utf-8")
     except (OSError, ValueError):
         return None
 
@@ -227,6 +258,16 @@ def planned_lines(store: Store, path: str, marker: str) -> list[str]:
     return lines
 
 
+def planned_payload(store: Store, path: str, marker: str) -> dict[str, Any] | None:
+    """The planned rules for machine-readable context (MCP `get_constraints`, `context --json`), or None.
+    Never raises, like `planned_lines()`."""
+    try:
+        items = planned(store, path, marker)
+    except Exception:  # noqa: BLE001 - a broken notes file must not break context
+        return None
+    return {"note": PLANNED_HEADING, "rules": [{"id": i.id, "text": i.text} for i in items]} if items else None
+
+
 def note_text(store: Store, path: str, marker: str, iid: str) -> str | None:
     """A note's own text, when it is still in the file."""
     text = read(store.root, path)
@@ -274,13 +315,14 @@ def tidy(store: Store, path: str, marker: str) -> int:
     moved = [i for i in parse_items(human, marker) if i.id in done and done[i.id].get("as") != "planned"]
     if not moved:
         return 0
-    for item in moved:
-        human = _remove_item(human, item)
+    human = _remove_items(human, marker, {i.id for i in moved})
     log = [_log_line(item.id, done[item.id], item.text) for item in moved]
     managed = managed.rstrip("\n")
     if MANAGED_HEADING not in managed:
         managed += ("\n" if managed else "") + MANAGED_HEADING
-    atomic_write(store.root / path, human.rstrip("\n") + "\n\n" + marker + managed + "\n" + "\n".join(log) + "\n")
+    where = location(store.root, path)
+    assert where is not None  # read() found it
+    atomic_write(where, human.rstrip("\n") + "\n\n" + marker + managed + "\n" + "\n".join(log) + "\n")
     return len(moved)
 
 
@@ -295,24 +337,17 @@ def _log_line(iid: str, entry: dict[str, Any], text: str) -> str:
     return f'- `{iid}` → {what} — "{preview}"'
 
 
-def _remove_item(human: str, item: Item) -> str:
-    """Remove one item's lines from the person's part, keeping everything else byte for byte."""
+def _remove_items(human: str, marker: str, ids: set[str]) -> str:
+    """Remove these items' own lines from the person's part, found by where the parser read them, so
+    the same words in a comment, a code example or a longer note stay (#97). Blank lines inside an
+    item go with it; everything else is kept byte for byte. A note written twice goes both times."""
     lines = human.splitlines(keepends=True)
-    wanted = [ln.strip() for ln in item.text.splitlines() if ln.strip()]
-    for start, line in enumerate(lines):
-        entry = ITEM_RE.match(line)
-        if (entry.group(1) if entry else line.strip()) != wanted[0]:
-            continue
-        end, matched = start + 1, 1
-        while matched < len(wanted) and end < len(lines):  # blank lines inside the item go with it
-            if lines[end].strip():
-                if lines[end].strip() != wanted[matched]:
-                    break
-                matched += 1
-            end += 1
-        if matched == len(wanted):
-            return "".join(lines[:start] + lines[end:])
-    return human
+    drop: set[int] = set()
+    for parts, numbers in _parse(human, marker):
+        if item_id("\n".join(parts).strip()) in ids:
+            mine = set(numbers)
+            drop.update(n for n in range(numbers[0], numbers[-1] + 1) if n in mine or not lines[n].strip())
+    return "".join(line for n, line in enumerate(lines) if n not in drop)
 
 
 TEMPLATE_INTRO = (

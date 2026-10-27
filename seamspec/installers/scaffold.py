@@ -14,7 +14,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
-from ..core import runners, trust
+from ..core import braindump, runners, trust
 from ..core.config import load_config, parse_config
 from ..core.lifecycle import approver_identity
 from ..core.root import CONFIG_REL
@@ -182,10 +182,13 @@ def _braindump(root: Path, report: InitReport) -> None:
         path = load_config(root).braindump.path
     except ConfigError:
         path = "BRAINDUMP.md"
-    if (root / path).exists():
+    if (where := braindump.location(root, path)) is None:  # a link out of the project
+        report.add(path, "skipped (it points outside this repository)")
+        return
+    if where.exists():
         report.add(path, "kept")
         return
-    atomic_write(root / path, _template("BRAINDUMP.md"))
+    atomic_write(where, _template("BRAINDUMP.md"))
     merge_gitignore(root, (path,), header="SeamSpec: your personal scratchpad (remove this line to share it)")
     report.add(path, "created (git-ignored)")
 
