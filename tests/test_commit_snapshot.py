@@ -209,6 +209,8 @@ def test_node_runners_need_no_redirect(tmp_path: Path) -> None:
         "uv": "\x7fELF",  # a binary may well start Python
         "wrapped": "#!/opt/node-tools/sh",  # "node" in a folder name isn't Node (#101)
         "envpy": "#!/usr/bin/env PYTHONPATH=src python3",
+        "unset": "#!/usr/bin/env -S -u node python3",  # `-u node` unsets a variable; Python starts
+        "clean": "#!/usr/bin/env -i node",  # an option we don't parse: no exemption
     }
     for name, first in scripts.items():
         (bin_dir / name).write_text(first + "\n")
@@ -268,3 +270,15 @@ def test_a_link_in_the_staged_files_is_replaced_never_written_through(tmp_path: 
     with pytest.raises(snapshot.SnapshotError, match="is a link in the staged files"):
         snapshot._place(disk / "lib/inv_y.test.ts", snap, "lib/inv_y.test.ts")
     assert not (snap / "src/inv_y.test.ts").exists()
+
+
+def test_a_rule_test_path_outside_the_project_is_refused_before_anything_is_touched(tmp_path: Path) -> None:
+    """An absolute path would make `snap_root / rel` the real file, which `_place` would replace (#101)."""
+    snap, real = tmp_path / "snap", tmp_path / "repo/src/queue.py"
+    snap.mkdir()
+    real.parent.mkdir(parents=True)
+    real.write_text(GOOD)
+    for rel in (str(real), "../repo/src/queue.py"):
+        with pytest.raises(snapshot.SnapshotError, match="isn't a path inside the project"):
+            snapshot._place(tmp_path / "anything", snap, rel)
+    assert real.read_text() == GOOD

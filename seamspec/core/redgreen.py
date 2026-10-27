@@ -292,13 +292,18 @@ def starts_without_python(cfg: Config, name: str, wt_root: Path) -> bool:
 
 
 def _interpreter(first: bytes) -> str:
-    """The program a `#!` line runs: its own name, or the one `env` starts (after its options)."""
+    """The program a `#!` line runs: its own name, or the one `env` starts. After `env`, only `-S`
+    and `NAME=value` are understood; any other option (`-u NAME`, `-i`) gives "" so the runner gets
+    no exemption, since its operand could be taken for the program (#101)."""
     words = first[2:].decode("utf-8", "replace").split()
     name = os.path.basename(words[0]) if words else ""
-    if name == "env":
-        rest = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
-        name = os.path.basename(rest[0]) if rest else ""
-    return name
+    if name != "env":
+        return name
+    for word in words[1:]:
+        if word in ("-S", "--split-string") or ("=" in word and not word.startswith("-")):
+            continue
+        return "" if word.startswith("-") else os.path.basename(word)
+    return ""
 
 
 def write_shim(script: Path, shims: Path, top: Path, wt: Path) -> bool:
