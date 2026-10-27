@@ -74,6 +74,62 @@ def test_codeowners_block_is_merged_not_clobbered(tmp_path: Path) -> None:
     assert text.count(ci.OWNERS_BEGIN) == 1
 
 
+def test_rerunning_init_keeps_the_reviewers_someone_wrote(tmp_path: Path) -> None:
+    """The block was rebuilt with the placeholder on every run, so a rerun of `init` (to add an editor,
+    say) undid the guide's "replace @your-team/leads" step (catch-up review, #99)."""
+    root = _repo(tmp_path, "pyproject.toml", "package.json")
+    cfg = load_config(root)
+    ci.install_codeowners(root, cfg)
+    path = root / ci.CODEOWNERS_REL
+    # A find-and-replace over the whole file, the marker line included.
+    path.write_text(path.read_text().replace("@your-team/leads", "@acme/leads @maya"))
+    assert ci.install_codeowners(root, cfg) == "updated"  # the marker line gets its own words back
+    assert ci.install_codeowners(root, cfg) == "unchanged"
+    text = path.read_text()
+    assert text.count(ci.OWNERS_BEGIN) == 1 and text.count("# seamspec:begin") == 1
+    assert "/.seamspec/ @acme/leads @maya" in text and "/tests/seamspec/ @acme/leads @maya" in text
+
+    # A folder missing from the block (a runner added later) gets the owners of the block's first line.
+    path.write_text(text.replace("/tests/seamspec/ @acme/leads @maya\n", ""))
+    assert ci.install_codeowners(root, cfg) == "updated"
+    assert "/tests/seamspec/ @acme/leads @maya" in path.read_text()
+
+
+def test_reviewers_after_a_tab_are_kept_and_the_hint_goes(tmp_path: Path) -> None:
+    """CODEOWNERS allows a tab between the folder and its owners; they were read as missing and replaced
+    with the placeholder. The hint only reads owner entries, not the marker's comment (#103)."""
+    root = _repo(tmp_path, "pyproject.toml")
+    cfg = load_config(root)
+    ci.install_codeowners(root, cfg)
+    path = root / ci.CODEOWNERS_REL
+    assert ci.placeholder_left(path.read_text())
+    path.write_text(path.read_text().replace("/.seamspec/ @your-team/leads", "/.seamspec/\t@maya  @acme/leads"))
+    ci.install_codeowners(root, cfg)
+    assert "/.seamspec/ @maya @acme/leads" in path.read_text()
+    assert not ci.placeholder_left(path.read_text()) and ci.PLACEHOLDER_OWNER in path.read_text()  # the comment
+    assert "replace @your-team/leads" not in init(root, "--mode", "strict")
+
+
+@pytest.mark.parametrize(
+    ("entry", "kept"),
+    [
+        ("/.seamspec/ @maya # replaces @your-team/leads", "/.seamspec/ @maya"),  # an inline comment
+        ("/.seamspec/ @maya @your-team/leads", "/.seamspec/ @maya"),  # the placeholder beside a real reviewer
+    ],
+)
+def test_comments_and_a_leftover_placeholder_never_cost_a_reviewer(tmp_path: Path, entry: str, kept: str) -> None:
+    """Copilot on #103: both rebuilt the entry as the placeholder alone, dropping @maya."""
+    root = _repo(tmp_path, "pyproject.toml")
+    cfg = load_config(root)
+    ci.install_codeowners(root, cfg)
+    path = root / ci.CODEOWNERS_REL
+    path.write_text(path.read_text().replace("/.seamspec/ @your-team/leads", entry))
+    ci.install_codeowners(root, cfg)
+    text = path.read_text()
+    assert f"{kept}\n" in text and "/.seamspec/tests/ @maya\n" in text  # the other folder takes @maya too
+    assert not ci.placeholder_left(text)
+
+
 # --- through `seamspec init`, by mode --------------------------------------------------------------
 
 

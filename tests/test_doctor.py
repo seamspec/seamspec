@@ -183,6 +183,12 @@ def test_strict_mode_expects_ci_and_real_codeowners(locked_repo: tuple[Path, str
     ci.install_codeowners(root, cfg)
     msgs = [f.message for f in doctor.run(root).findings if f.check == "mode"]
     assert msgs == [f"replace @your-team/leads in {ci.CODEOWNERS_REL} with real reviewers"]
+    # Named, then `init` reruns: the block's comment still mentions the placeholder, which doesn't count (#103).
+    path = root / ci.CODEOWNERS_REL
+    path.write_text(path.read_text().replace("@your-team/leads", "@maya"))
+    ci.install_codeowners(root, cfg)
+    assert ci.PLACEHOLDER_OWNER in path.read_text()  # in the marker line
+    assert [f.message for f in doctor.run(root).findings if f.check == "mode"] == []
 
 
 def test_a_mode_change_is_shown_to_reviewers(locked_repo: tuple[Path, str]) -> None:

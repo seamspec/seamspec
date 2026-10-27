@@ -205,9 +205,9 @@ def _ledger_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], rep
         if not (root / ci_installer.WORKFLOW_REL).is_file():
             report.add("warning", "mode", f"strict mode without {ci_installer.WORKFLOW_REL}: rerun `seamspec init`")
         owners = _read(root / ci_installer.CODEOWNERS_REL) or ""
-        if ci_installer.OWNERS_BEGIN not in owners:
+        if ci_installer.owners_block(owners) is None:
             report.add("warning", "mode", f"strict mode without the SeamSpec block in {ci_installer.CODEOWNERS_REL}")
-        elif "@your-team/leads" in owners:
+        elif ci_installer.placeholder_left(owners):  # owner entries only, not the block's comment (#103)
             report.add("warning", "mode",
                        f"replace @your-team/leads in {ci_installer.CODEOWNERS_REL} with real reviewers")  # fmt: skip
     store = Store(root)

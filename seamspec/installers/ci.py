@@ -80,21 +80,66 @@ def install_workflow(root: Path, cfg: Config) -> str:
     return "created"
 
 
-def owner_lines(cfg: Config) -> list[str]:
-    """`/.seamspec/` plus each runner's harness folder (§12A.5)."""
+PLACEHOLDER_OWNER = "@your-team/leads"
+
+
+def owner_lines(cfg: Config, owners: dict[str, str] | None = None) -> list[str]:
+    """`/.seamspec/` plus each runner's harness folder (§12A.5). `owners`: the reviewers already
+    written in the block, by folder; a new folder gets the ones on the block's first line."""
     dirs = ["/.seamspec/", *(f"/{r.harness_dir.strip('/')}/" for r in cfg.runners.values())]
-    unique = list(dict.fromkeys(dirs))
-    return [f"{d} @your-team/leads" for d in unique]
+    owners = owners or {}
+    fallback = next(iter(owners.values()), PLACEHOLDER_OWNER)
+    return [f"{d} {owners.get(d, fallback)}" for d in dict.fromkeys(dirs)]
+
+
+# Any `# seamspec:begin` line opens the block: a find-and-replace of the placeholder changes its words too.
+_BLOCK = re.compile(r"^# seamspec:begin\b[^\n]*\n.*?" + re.escape(OWNERS_END) + r"\n?", re.S | re.M)
+
+
+def owners_block(text: str) -> str | None:
+    """SeamSpec's block in a CODEOWNERS file, or None."""
+    found = _BLOCK.search(text)
+    return found.group(0) if found else None
+
+
+def _entries(block: str) -> list[tuple[str, list[str]]]:
+    """(folder, owners) for each entry line. Any whitespace separates them (tabs too); a `#` word starts
+    a comment, on its own line or after the owners, and is never read as an owner (Copilot on #103)."""
+    out = []
+    for line in block.splitlines():
+        words = line.split()
+        if "#" in (cut := [w[:1] for w in words]):
+            words = words[: cut.index("#")]
+        if words:
+            out.append((words[0], words[1:]))
+    return out
+
+
+def placeholder_left(text: str) -> bool:
+    """Does an entry in SeamSpec's block still name `@your-team/leads`? Comments don't count (#103)."""
+    block = owners_block(text)
+    return block is not None and any(PLACEHOLDER_OWNER in owners for _, owners in _entries(block))
+
+
+def _owners_in(block: str) -> dict[str, str]:
+    """The reviewers a person put in SeamSpec's block, by folder (placeholders left out)."""
+    found = {}
+    for folder, owners in _entries(block):
+        if real := [o for o in owners if o != PLACEHOLDER_OWNER]:  # a real reviewer next to it stays
+            found[folder] = " ".join(real)
+    return found
 
 
 def install_codeowners(root: Path, cfg: Config) -> str:
-    """created | updated | unchanged. Only the marked block is SeamSpec's; the rest is never touched."""
+    """created | updated | unchanged. Only the marked block is SeamSpec's; the rest is never touched.
+    Reviewers written in the block are kept: rerunning `init` must not put the placeholder back."""
     path = root / CODEOWNERS_REL
     old = path.read_text(encoding="utf-8") if path.is_file() else ""
-    block = "\n".join([OWNERS_BEGIN, *owner_lines(cfg), OWNERS_END]) + "\n"
-    pattern = re.compile(re.escape(OWNERS_BEGIN) + r".*?" + re.escape(OWNERS_END) + r"\n?", re.S)
-    if pattern.search(old):
-        new = pattern.sub(lambda _: block, old, count=1)
+    found = owners_block(old)
+    lines = owner_lines(cfg, _owners_in(found) if found else None)
+    block = "\n".join([OWNERS_BEGIN, *lines, OWNERS_END]) + "\n"
+    if found:
+        new = _BLOCK.sub(lambda _: block, old, count=1)
     else:
         new = old + ("\n" if old and not old.endswith("\n") else "") + block
     if new == old:
