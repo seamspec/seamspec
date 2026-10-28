@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-27 · **Current:** v0.1 · **0.1.0 published on PyPI** (2026-10-27); next, the website and launch posts (*Release steps* below)
+**Last updated:** 2026-10-27 · **Current:** v0.1 · **0.1.0 published on PyPI** (2026-10-27), website updated; next, the launch posts (*Release steps* below)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-27 | **Website updated for 0.1.0** (release step 7; `seamspec/seamspec.github.io#2`, merged by the owner). Badge `v0.1.0 first release`; the install section gives the requirements, the getting-started guide and three steps (`uv tool install seamspec`, `seamspec init`, then work and approve in `seamspec review`) instead of the placeholder; GitHub links in the nav, install section and footer; the results note links the four benchmark write-ups and the decision records; structured data says 0.1.0, macOS and Linux. The spec-first comparison now names "Kiro's spec mode": Kiro's site lists autonomous, spec and default modes. Spec Kit's and OpenSpec's public READMEs, read the same day, still describe spec-first flows (no code read). Checked live after the Pages build | `seamspec.github.io` |
 | 2026-10-27 | **SeamSpec 0.1.0 published** (release step 6). The owner set up PyPI's trusted publisher and the GitHub `pypi` environment (the owner as required reviewer; `v*` tags only) and gave the go-ahead. Tag `v0.1.0` on `00a8960`; the release workflow's checks, tests and build passed; the owner approved; it uploaded the wheel and sdist to [PyPI](https://pypi.org/project/seamspec/0.1.0/). [GitHub Release](https://github.com/seamspec/seamspec/releases/tag/v0.1.0) made from the changelog. Checked from a clean install (`uv tool install seamspec` into an empty tool folder, a throwaway Claude Code config): `seamspec 0.1.0`; `init --plugin` installs the plugin from `github.com/seamspec/seamspec.git` at `v0.1.0` (version 0.1.0, local scope); `--plugin-scope project` writes that source into `.claude/settings.json` (project scope); enforced mode writes CI pinned to `seamspec==0.1.0`. Cost: none | ADR-20261027-b1a4 |
 | 2026-10-27 | **The release workflow** (PR `chore/release-workflow`, release step 6, part 1). Pushing a `v<version>` tag runs `.github/workflows/release.yml`: it refuses a tag that doesn't match the code, isn't on `main` or has no dated changelog entry, runs the tests, builds with the pinned uv and uploads to PyPI through trusted publishing (no stored token). The changelog's 0.1.0 entry is dated. Nothing is published until the owner sets up PyPI's trusted publisher and pushes the tag | ADR-20261027-b1a4 |
 | 2026-10-27 | **Version 0.1.0, not yet published** (PR `chore/release-0.1.0`, release step 5). The package, the CLI and the plugin say `0.1.0`; classifiers (Alpha; Linux and macOS; Python 3.11 to 3.14) and project URLs added; new `CHANGELOG.md`. The README and getting-started install with `uv tool install seamspec`; the README's links are absolute, so they work on pypi.org; the plugin's start script names the PyPI install first. New tests: one version everywhere, and no relative README links. The built wheel, installed outside the checkout, pins CI to `seamspec==0.1.0` and takes the plugin from `v0.1.0`. Until step 6, `uv tool install seamspec` still gets the PyPI placeholder | ADR-20261027-5e17 |
@@ -143,7 +144,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **The release:** see [release steps](#release-steps-agreed-2026-10-23-publishing-only-with-the-owners-go-ahead-adr-20261005-3adc) below (0.1.0 published 2026-10-27; next, step 7, the website, with the owner's OK).
+- **The release:** see [release steps](#release-steps-agreed-2026-10-23-publishing-only-with-the-owners-go-ahead-adr-20261005-3adc) below (0.1.0 published and the website updated, 2026-10-27; next, step 8, the launch posts).
 
 ## Next (Week 4, issue #4)
 
@@ -193,7 +194,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
    - [x] with the owner's go-ahead, push the tag `v0.1.0`; the workflow uploads to PyPI (the owner approved the upload);
    - [x] the GitHub Release, from the changelog;
    - [x] from a clean install, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
-7. [ ] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK)
+7. [x] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK; `seamspec.github.io#2`, 2026-10-27)
 8. [ ] Launch posts: LinkedIn post and article, a short demo
 - **Before a second release (0.1.1):** `init` (or `doctor`) must notice a plugin pinned to an older tag, move the pin and update the plugin (ADR-20261023-7d41).
 - **After v0.1.0:** upgrade uv in CI on purpose, checking what the built packages contain (ADR-20261026-d67b).
