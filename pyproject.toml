@@ -1,6 +1,6 @@
 [project]
 name = "seamspec"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Executable specs for AI coding agents. Build first; every seam that works gets a spec."
 readme = "README.md"
 license = "Apache-2.0"
@@ -9,10 +9,17 @@ requires-python = ">=3.11"
 authors = [{ name = "vamshidhar.p" }]
 keywords = ["ai", "coding-agents", "specs", "testing", "mcp", "claude-code", "regression"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Testing",
 ]
@@ -30,6 +37,10 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://seamspec.github.io"
+Documentation = "https://github.com/seamspec/seamspec/blob/main/docs/getting-started.md"
+Source = "https://github.com/seamspec/seamspec"
+Issues = "https://github.com/seamspec/seamspec/issues"
+Changelog = "https://github.com/seamspec/seamspec/blob/main/CHANGELOG.md"
 
 [project.scripts]
 seamspec = "seamspec.cli:main"

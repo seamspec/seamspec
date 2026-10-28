@@ -100,3 +100,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261026-5b8e](ADR-20261026-5b8e-commit-check-per-runner-redirect.md) | The commit check needs a redirect per runner that runs, none when nothing runs, and takes outside rule tests from disk | ACCEPTED |
 | [ADR-20261027-9d14](ADR-20261027-9d14-braindump-and-plugin-catch-up-fixes.md) | The notes file stays inside the repository, every committed field is redacted, and plugin scope is checked | ACCEPTED |
 | [ADR-20261027-c3a0](ADR-20261027-c3a0-docs-catch-up-and-codeowners-reviewers.md) | Docs fixes from the catch-up review; `init` keeps the CODEOWNERS reviewers a person wrote | ACCEPTED |
+| [ADR-20261027-5e17](ADR-20261027-5e17-version-0-1-0.md) | Version 0.1.0 in the code, a changelog, and install docs for the published package | ACCEPTED |
