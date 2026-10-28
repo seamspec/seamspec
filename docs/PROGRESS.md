@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-26 · **Current:** v0.1 · getting ready to release (the steps are under *Release steps* below)
+**Last updated:** 2026-10-27 · **Current:** v0.1 · 0.1.0 set in the code, waiting to be published (the steps are under *Release steps* below)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-27 | **Version 0.1.0, not yet published** (PR `chore/release-0.1.0`, release step 5). The package, the CLI and the plugin say `0.1.0`; classifiers (Alpha; Linux and macOS; Python 3.11 to 3.14) and project URLs added; new `CHANGELOG.md`. The README and getting-started install with `uv tool install seamspec`; the README's links are absolute, so they work on pypi.org; the plugin's start script names the PyPI install first. New tests: one version everywhere, and no relative README links. The built wheel, installed outside the checkout, pins CI to `seamspec==0.1.0` and takes the plugin from `v0.1.0`. Until step 6, `uv tool install seamspec` still gets the PyPI placeholder | ADR-20261027-5e17 |
 | 2026-10-26 | **Getting ready to go public** (PR `chore/public-repo-prep`, release step 3). History checked across all 95 commits: no secrets (the one match is a made-up test value), no private files, no personal email; CI is safe for pull requests from forks. New: `CONTRIBUTING.md`, `SECURITY.md` (GitHub private vulnerability reporting), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1 by reference), issue forms for bugs and ideas; README links them. The owner decides on the documents that mention costs and billing, then switches the repository to public | ADR-20261026-1c7a |
 | 2026-10-24 | **Release rehearsal, part 2: a declined change reaches the agent** (PR `fix/declined-supersede`). The owner ran the installed package in Claude Code and VS Code. BRAINDUMP sorting, rules from notes, review, the below-the-marker warning and the commit check all held. Both agents met a breaking request by changing the code and filing a supersede request. After the owner declined it, VS Code's agent wasn't told and kept asking for approval. Now a decline is remembered on the machine and shown in the Stop block, `get_constraints` and session start, until the user asks again. `docs/editors.md`: VS Code holds agent edits until Keep; SeamSpec checks the saved files | ADR-20261024-6f0c |
 | 2026-10-24 | **Release rehearsal, part 1** (PR `fix/rehearsal-findings`, release step 2). Built the wheel and sdist as PyPI would get them, installed the wheel in a clean environment and ran everything that needs no agent in a fresh `uv init` project (init with four editors, CI and the plugin; propose, verify, approve; the commit check; four stop hooks; the MCP server; session start, drain, dead end, status, spec; init again). All worked from the package. Fixed: the licence is now in both packages (new packaging test); `verify --proposed` no longer says "on the staged files"; the MCP server reports its version; notes typed below the BRAINDUMP marker are pointed out by `drain`, `status` and `braindump_pending` instead of being silently ignored. README links for PyPI moved to step 5 | ADR-20261024-b3e9 |
@@ -140,7 +141,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **The release:** see [release steps](#release-steps-agreed-2026-10-23-publishing-only-with-the-owners-go-ahead-adr-20261005-3adc) below (step 4, the catch-up review, as of 2026-10-27).
+- **The release:** see [release steps](#release-steps-agreed-2026-10-23-publishing-only-with-the-owners-go-ahead-adr-20261005-3adc) below (step 5 done 2026-10-27; step 6, the publish, waits for the owner's go-ahead).
 
 ## Next (Week 4, issue #4)
 
@@ -183,8 +184,8 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
    - **Closed:** the four drafts (#97–#100) and their branches, 2026-10-27; the one declined finding (the benchmark's sample app) answered on #100.
    - **Follow-ups, theoretical or rare (Copilot):** one lookup of a runner's start script shared by inspection and launch; a link chain through a staged folder link with a rule test linked through it (#101); a CODEOWNERS file that already got a second SeamSpec block from the old find-and-replace bug, before #103 (merge the blocks, keeping named reviewers; the bug was never released).
    - [ ] after v0.1.0, the benchmark harness: missing S demonstrations as not measured, matched cells after a stopped batch, the batch settings on resume, the review commit's paths. Published results checked: unaffected.
-5. [ ] Version `0.1.0` (pyproject and plugin), classifiers, project URLs, `CHANGELOG.md`; README and getting-started switch to `uv tool install seamspec`; README links made absolute so they work on pypi.org
-6. [ ] Publish: PyPI trusted publishing (the owner sets it up), tag `v0.1.0`, GitHub Release; then, from a clean machine, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
+5. [x] Version `0.1.0` (pyproject and plugin), classifiers, project URLs, `CHANGELOG.md`; README and getting-started switch to `uv tool install seamspec`; README links made absolute so they work on pypi.org (ADR-20261027-5e17)
+6. [ ] Publish: PyPI trusted publishing (the owner sets it up), set the date in `CHANGELOG.md`, tag `v0.1.0`, GitHub Release; then, from a clean machine, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
 7. [ ] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK)
 8. [ ] Launch posts: LinkedIn post and article, a short demo
 - **Before a second release (0.1.1):** `init` (or `doctor`) must notice a plugin pinned to an older tag, move the pin and update the plugin (ADR-20261023-7d41).

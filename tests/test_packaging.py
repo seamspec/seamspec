@@ -1,15 +1,22 @@
 """What PyPI would receive (release rehearsal, 2026-10-24): the built wheel and sdist carry the licence and
-every file of the package, and nothing from outside it (notes, benchmark results, the plugin)."""
+every file of the package, and nothing from outside it (notes, benchmark results, the plugin). Since 0.1.0
+(ADR-20261027-5e17): one version everywhere, and a README whose links work on pypi.org."""
 
 from __future__ import annotations
 
+import json
+import re
 import shutil
 import subprocess
 import tarfile
+import tomllib
 import zipfile
 from pathlib import Path
 
 import pytest
+
+from seamspec import __version__
+from seamspec.installers import ci
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,3 +47,19 @@ def test_the_wheel_has_every_package_file(built: tuple[set[str], set[str]]) -> N
 def test_the_sdist_has_nothing_from_outside_the_package(built: tuple[set[str], set[str]]) -> None:
     top = {name.split("/")[0] for name in built[1]}
     assert top <= {"seamspec", "README.md", "LICENSE", "pyproject.toml", "PKG-INFO"}, top
+
+
+def test_one_version_everywhere() -> None:
+    """The package, the CLI and the plugin say the same version. A release also has a changelog entry."""
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))["project"]["version"]
+    plugin = json.loads((ROOT / "seamspec-plugin/.claude-plugin/plugin.json").read_text("utf-8"))["version"]
+    assert pyproject == __version__
+    if ci.released():
+        assert plugin == __version__
+        assert f"## [{__version__}]" in (ROOT / "CHANGELOG.md").read_text("utf-8")
+
+
+def test_readme_links_work_on_pypi() -> None:
+    """PyPI shows the README without the repository around it, so a relative link leads nowhere."""
+    targets = re.findall(r"\]\(([^)\s]+)\)", (ROOT / "README.md").read_text("utf-8"))
+    assert targets and [t for t in targets if not t.startswith(("https://", "#"))] == []

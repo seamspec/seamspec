@@ -1,7 +1,7 @@
 {
   "name": "seamspec",
   "displayName": "SeamSpec",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "description": "Build first; every seam that works gets a spec. Shows the agent your locked rules before it edits, blocks finishing while a locked rule fails, and adds /seamspec:lock and /seamspec:dead-end.",
   "author": { "name": "vamshidhar.p" },
   "homepage": "https://seamspec.github.io",

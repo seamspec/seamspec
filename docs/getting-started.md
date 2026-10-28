@@ -11,10 +11,8 @@ This guide takes you from nothing to a project where the rules your team agreed 
 
 ## 2. Install
 
-Until the first release, install from a clone of the SeamSpec repository:
-
 ```bash
-git clone https://github.com/seamspec/seamspec.git && cd seamspec && uv tool install --force --editable .
+uv tool install seamspec
 ```
 
 Check it works:
@@ -22,6 +20,10 @@ Check it works:
 ```bash
 seamspec --version
 ```
+
+**To upgrade later:** `uv tool upgrade seamspec`. If you added the CI workflow (section 6), change the version on its install line too.
+
+To try changes that aren't released yet, install a clone instead; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## 3. Set up your project
 
@@ -116,7 +118,7 @@ A notes file guides whichever agent reads it. SeamSpec's rules are tests, and **
    - runs `seamspec doctor --ci` (rules can't be quietly deleted or weakened);
    - runs `seamspec verify --all --ci` (every approved rule passes).
 
-   Until SeamSpec's first release, the workflow installs it from its GitHub repository; edit that line if your CI can't reach it.
+   The workflow installs the SeamSpec version that wrote it (`uv tool install "seamspec==0.1.0"`), so CI runs the same SeamSpec as you. When you upgrade SeamSpec, update that line too.
 3. **Make the check required.** On GitHub: **Settings → Branches → Add branch protection rule** for `main`, then tick **Require status checks to pass** and choose **`seamspec / verify`**. Without this, CI reports a broken rule but doesn't stop the merge.
 4. **Optional, `strict` mode:** `seamspec init --mode strict` also adds a block to `.github/CODEOWNERS` for `.seamspec/` and the rule tests. Two more steps make it count:
    - **Name your reviewers:** replace the placeholder `@your-team/leads` with real people or a team (`@maya`, `@acme/leads`) who have write access to the repository. Rerunning `init` keeps them. `seamspec doctor` warns while the placeholder is there.

@@ -9,7 +9,7 @@ When you tell your coding agent *"totals must never go negative"* or *"we tried 
 
 From then on, a change that breaks it is stopped, whoever makes it. Changing the rule itself takes your approval.
 
-> **Status:** pre-release (v0.1, not yet published). It works with Claude Code, Cursor, VS Code (Copilot) and Antigravity, for projects tested with pytest or vitest.
+> **Status:** v0.1, the first release. It works with Claude Code, Cursor, VS Code (Copilot) and Antigravity, for projects tested with pytest or vitest.
 
 ## What it looks like
 
@@ -40,16 +40,16 @@ We tested SeamSpec against simpler setups on three small projects, with agreemen
 
 | Question | Result |
 |---|---|
-| Agreements only said in chat, nobody writes them down: do they hold three sessions later? | Broken: **SeamSpec 0**, an agent keeping its own notes 8, nothing 22 (15 runs each). SeamSpec captured **39 of 40** agreements as tested rules. ([capture-1](docs/benchmark/capture-1.md)) |
-| A teammate's agent, in a fresh clone, makes the tempting changes: what reaches `main`? | Landed past CI: **SeamSpec 0**, the agent's notes 6, nothing 12. SeamSpec's teammate's agent broke 2, and CI stopped both. ([second-1](docs/benchmark/second-1.md)) |
-| Does the agent rewrite the checks instead of the code? | With plain tests and a Stop hook, it rewrote the rule tests 12 times. SeamSpec's locked tests stayed as approved. ([full-1](docs/benchmark/full-1.md)) |
+| Agreements only said in chat, nobody writes them down: do they hold three sessions later? | Broken: **SeamSpec 0**, an agent keeping its own notes 8, nothing 22 (15 runs each). SeamSpec captured **39 of 40** agreements as tested rules. ([capture-1](https://github.com/seamspec/seamspec/blob/main/docs/benchmark/capture-1.md)) |
+| A teammate's agent, in a fresh clone, makes the tempting changes: what reaches `main`? | Landed past CI: **SeamSpec 0**, the agent's notes 6, nothing 12. SeamSpec's teammate's agent broke 2, and CI stopped both. ([second-1](https://github.com/seamspec/seamspec/blob/main/docs/benchmark/second-1.md)) |
+| Does the agent rewrite the checks instead of the code? | With plain tests and a Stop hook, it rewrote the rule tests 12 times. SeamSpec's locked tests stayed as approved. ([full-1](https://github.com/seamspec/seamspec/blob/main/docs/benchmark/full-1.md)) |
 
 **Where SeamSpec does *not* win, so you can judge for yourself:**
 - **Notes a person wrote carefully in `CLAUDE.md`** broke 0 too. A careful agent respects a good notes file. SeamSpec's difference is that its rules are tests, captured for you, enforced at commit and in CI, and changed only with your approval.
-- **Within one long session,** nothing slipped in any setup ([long-1](docs/benchmark/long-1.md)). Agents lose agreements **between** sessions.
+- **Within one long session,** nothing slipped in any setup ([long-1](https://github.com/seamspec/seamspec/blob/main/docs/benchmark/long-1.md)). Agents lose agreements **between** sessions.
 - **The guard can be stricter than you meant.** In 2 of 9 runs, CI blocked a change that broke nothing the benchmark checked, because a captured rule pinned a detail you had stated. You then approve a replacement rule.
 
-All the plans, results and allowed claims are in [the decision records](docs/adr/README.md) (ADR-20261018-a4c2, ADR-20261019-c71d).
+All the plans, results and allowed claims are in [the decision records](https://github.com/seamspec/seamspec/blob/main/docs/adr/README.md) (ADR-20261018-a4c2, ADR-20261019-c71d).
 
 ## Quick start
 
@@ -58,13 +58,15 @@ All the plans, results and allowed claims are in [the decision records](docs/adr
 - a project tested with pytest or vitest;
 - one of Claude Code, Cursor, VS Code (Copilot) or Antigravity.
 
-The full walkthrough, from install to a team setup with CI, is **[Getting started](docs/getting-started.md)**.
+The full walkthrough, from install to a team setup with CI, is **[Getting started](https://github.com/seamspec/seamspec/blob/main/docs/getting-started.md)**.
 
-Until the first release, install from a clone of this repository:
+Install the `seamspec` command:
 
 ```bash
-uv tool install --force --editable .
+uv tool install seamspec
 ```
+
+To upgrade later, run `uv tool upgrade seamspec`.
 
 Then, in your project:
 
@@ -78,7 +80,7 @@ seamspec init
 - installs the git pre-commit check, and offers the Claude Code plugin and a CI workflow;
 - with `--hosts cursor,vscode,antigravity`, sets up those editors too.
 
-Some editors need a one-time click; see [docs/editors.md](docs/editors.md).
+Some editors need a one-time click; see [docs/editors.md](https://github.com/seamspec/seamspec/blob/main/docs/editors.md).
 
 Then just work. Say what must stay true, or tell the agent what failed before. When rules are waiting, run:
 
@@ -93,7 +95,7 @@ The guard that matters for a team is **CI**: it runs every approved rule on each
 2. On GitHub, make the **`seamspec / verify`** check required for `main` (branch protection).
 3. Each teammate runs `seamspec init` after cloning. A clone doesn't carry anyone's local hooks or consent, and `init` shows what would run and asks first.
 
-**Use it with your notes, not instead of them.** A good `CLAUDE.md` helps every agent understand the project. SeamSpec is for the few agreements that would really hurt if broken (money, data contracts, public APIs, security behaviour), so that they're tested, approved, and can't change without someone saying yes. Details: [Getting started, section 6](docs/getting-started.md#6-for-teams).
+**Use it with your notes, not instead of them.** A good `CLAUDE.md` helps every agent understand the project. SeamSpec is for the few agreements that would really hurt if broken (money, data contracts, public APIs, security behaviour), so that they're tested, approved, and can't change without someone saying yes. Details: [Getting started, section 6](https://github.com/seamspec/seamspec/blob/main/docs/getting-started.md#6-for-teams).
 
 ## How it works
 
@@ -130,16 +132,16 @@ In Cursor, VS Code and Antigravity they are `/seamspec-lock` and so on. You can 
 
 ## Docs
 
-- [Getting started](docs/getting-started.md): install, first rules, the first week, team setup, troubleshooting
-- [Setting it up in your editor](docs/editors.md)
-- [Design spec](docs/SPEC.md): the full design, kept in step with the code
-- [Decision records](docs/adr/README.md): why it works the way it does, including every benchmark plan and result
-- [Progress](docs/PROGRESS.md)
+- [Getting started](https://github.com/seamspec/seamspec/blob/main/docs/getting-started.md): install, first rules, the first week, team setup, troubleshooting
+- [Setting it up in your editor](https://github.com/seamspec/seamspec/blob/main/docs/editors.md)
+- [Design spec](https://github.com/seamspec/seamspec/blob/main/docs/SPEC.md): the full design, kept in step with the code
+- [Decision records](https://github.com/seamspec/seamspec/blob/main/docs/adr/README.md): why it works the way it does, including every benchmark plan and result
+- [Progress](https://github.com/seamspec/seamspec/blob/main/docs/PROGRESS.md)
 
 ## Contributing
 
-Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). To report a security problem privately, see [SECURITY.md](SECURITY.md).
+Issues and pull requests are welcome: see [CONTRIBUTING.md](https://github.com/seamspec/seamspec/blob/main/CONTRIBUTING.md). To report a security problem privately, see [SECURITY.md](https://github.com/seamspec/seamspec/blob/main/SECURITY.md).
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](https://github.com/seamspec/seamspec/blob/main/LICENSE)
