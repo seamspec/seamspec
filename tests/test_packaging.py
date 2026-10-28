@@ -54,9 +54,19 @@ def test_one_version_everywhere() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))["project"]["version"]
     plugin = json.loads((ROOT / "seamspec-plugin/.claude-plugin/plugin.json").read_text("utf-8"))["version"]
     assert pyproject == __version__
-    if ci.released():
+    if ci.released():  # the release workflow refuses a tag without a dated entry; catch it before tagging
         assert plugin == __version__
-        assert f"## [{__version__}]" in (ROOT / "CHANGELOG.md").read_text("utf-8")
+        heading = rf"^## \[{re.escape(__version__)}\] - \d{{4}}-\d{{2}}-\d{{2}}$"
+        assert re.search(heading, (ROOT / "CHANGELOG.md").read_text("utf-8"), re.MULTILINE)
+
+
+def test_the_release_is_built_with_the_uv_the_tests_use() -> None:
+    """ADR-20261026-d67b: a newer uv builds a different package, so the upload uses the tests' pin."""
+    pins = {
+        name: set(re.findall(r'^\s+version: "([^"]+)"', (ROOT / ".github/workflows" / name).read_text("utf-8"), re.M))
+        for name in ("tests.yml", "release.yml")
+    }
+    assert len(pins["tests.yml"]) == 1 and pins["release.yml"] == pins["tests.yml"], pins
 
 
 def test_readme_links_work_on_pypi() -> None:

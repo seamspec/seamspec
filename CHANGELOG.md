@@ -2,9 +2,9 @@
 
 All notable changes to SeamSpec are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a minor version (0.2, 0.3) may change how things work; the changelog says when it does.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-27
 
-The first release. The date is set when it is published.
+The first release.
 
 ### Rules
 - **Rules are tests.** Each rule is a plain sentence plus a focused pytest or vitest test, kept in `.seamspec/` and committed with your code. Approving one locks it by hash, so it can't be quietly edited, skipped or emptied.

@@ -55,6 +55,10 @@ To have the same checks run on your machine before each commit:
 seamspec init
 ```
 
+## Releases (maintainers)
+
+A release is a version tag. Pushing `v<version>` runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which checks that the tag matches the code's version, is on `main` and has a dated `CHANGELOG.md` entry, runs the tests, builds the package and uploads it to PyPI through trusted publishing. Before tagging, merge a PR that sets the version (pyproject, `seamspec/__init__.py`, the plugin's `plugin.json`) and the changelog date; a test checks they agree. Only the project owner decides to release (ADR-20261005-3adc).
+
 ## Licence
 
 SeamSpec is licensed under [Apache-2.0](LICENSE). By contributing, you agree that your contribution is licensed under the same terms (section 5 of the licence). There is no separate agreement to sign.
