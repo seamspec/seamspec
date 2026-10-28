@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-10-27 · **Current:** v0.1 · 0.1.0 set in the code, waiting to be published (the steps are under *Release steps* below)
+**Last updated:** 2026-10-27 · **Current:** v0.1 · **0.1.0 published on PyPI** (2026-10-27); next, the website and launch posts (*Release steps* below)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-10-27 | **SeamSpec 0.1.0 published** (release step 6). The owner set up PyPI's trusted publisher and the GitHub `pypi` environment (the owner as required reviewer; `v*` tags only) and gave the go-ahead. Tag `v0.1.0` on `00a8960`; the release workflow's checks, tests and build passed; the owner approved; it uploaded the wheel and sdist to [PyPI](https://pypi.org/project/seamspec/0.1.0/). [GitHub Release](https://github.com/seamspec/seamspec/releases/tag/v0.1.0) made from the changelog. Checked from a clean install (`uv tool install seamspec` into an empty tool folder, a throwaway Claude Code config): `seamspec 0.1.0`; `init --plugin` installs the plugin from `github.com/seamspec/seamspec.git` at `v0.1.0` (version 0.1.0, local scope); `--plugin-scope project` writes that source into `.claude/settings.json` (project scope); enforced mode writes CI pinned to `seamspec==0.1.0`. Cost: none | ADR-20261027-b1a4 |
 | 2026-10-27 | **The release workflow** (PR `chore/release-workflow`, release step 6, part 1). Pushing a `v<version>` tag runs `.github/workflows/release.yml`: it refuses a tag that doesn't match the code, isn't on `main` or has no dated changelog entry, runs the tests, builds with the pinned uv and uploads to PyPI through trusted publishing (no stored token). The changelog's 0.1.0 entry is dated. Nothing is published until the owner sets up PyPI's trusted publisher and pushes the tag | ADR-20261027-b1a4 |
 | 2026-10-27 | **Version 0.1.0, not yet published** (PR `chore/release-0.1.0`, release step 5). The package, the CLI and the plugin say `0.1.0`; classifiers (Alpha; Linux and macOS; Python 3.11 to 3.14) and project URLs added; new `CHANGELOG.md`. The README and getting-started install with `uv tool install seamspec`; the README's links are absolute, so they work on pypi.org; the plugin's start script names the PyPI install first. New tests: one version everywhere, and no relative README links. The built wheel, installed outside the checkout, pins CI to `seamspec==0.1.0` and takes the plugin from `v0.1.0`. Until step 6, `uv tool install seamspec` still gets the PyPI placeholder | ADR-20261027-5e17 |
 | 2026-10-26 | **Getting ready to go public** (PR `chore/public-repo-prep`, release step 3). History checked across all 95 commits: no secrets (the one match is a made-up test value), no private files, no personal email; CI is safe for pull requests from forks. New: `CONTRIBUTING.md`, `SECURITY.md` (GitHub private vulnerability reporting), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1 by reference), issue forms for bugs and ideas; README links them. The owner decides on the documents that mention costs and billing, then switches the repository to public | ADR-20261026-1c7a |
@@ -142,7 +143,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 ## In progress
 
-- **The release:** see [release steps](#release-steps-agreed-2026-10-23-publishing-only-with-the-owners-go-ahead-adr-20261005-3adc) below (step 5 done 2026-10-27; step 6, the publish: the release workflow is in review, the tag waits for the owner's go-ahead).
+- **The release:** see [release steps](#release-steps-agreed-2026-10-23-publishing-only-with-the-owners-go-ahead-adr-20261005-3adc) below (0.1.0 published 2026-10-27; next, step 7, the website, with the owner's OK).
 
 ## Next (Week 4, issue #4)
 
@@ -176,7 +177,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 ## Release steps (agreed 2026-10-23; publishing only with the owner's go-ahead, ADR-20261005-3adc)
 
 1. [x] Release blockers in code: the plugin from GitHub at the release tag, team scope, `Idea.md` references removed (ADR-20261023-7d41)
-2. [ ] Release rehearsal: build the wheel, install it in a clean folder (not editable), run `uv init` → `seamspec init` → BRAINDUMP → review → stop hook in Claude Code, plus a quick check in Cursor, VS Code and Antigravity; optionally TestPyPI. **Part 1 done** (everything without an agent, ADR-20261024-b3e9). **Part 2 done** in Claude Code, VS Code and Antigravity (ADR-20261024-6f0c). Still open: Cursor (not yet; its setup was already checked hands-on), and the plugin fetched from GitHub at a tag (needs the public repo and the `v0.1.0` tag, so it moves to step 6)
+2. [ ] Release rehearsal: build the wheel, install it in a clean folder (not editable), run `uv init` → `seamspec init` → BRAINDUMP → review → stop hook in Claude Code, plus a quick check in Cursor, VS Code and Antigravity; optionally TestPyPI. **Part 1 done** (everything without an agent, ADR-20261024-b3e9). **Part 2 done** in Claude Code, VS Code and Antigravity (ADR-20261024-6f0c). Still open: Cursor (not yet; its setup was already checked hands-on). The plugin fetched from GitHub at a tag: checked in step 6 (2026-10-27)
 3. [x] Prepare the public repo: scan history for secrets, `CONTRIBUTING.md`, `SECURITY.md`, issue templates, description and topics; the owner makes it public. **Done:** files and scan (ADR-20261026-1c7a), description and topics set, public since 2026-10-26, private vulnerability reporting on
 4. [x] CI and Copilot reviews running again (free on a public repo; else fix billing); CI a required check; re-review the PRs merged without a real review. **CI and Copilot run again** (#96, free on the public repo). The first run caught the newest uv (0.13.5) building a different source package, so CI now pins uv 0.9.28 (ADR-20261026-d67b). PRs now run the full CI, macOS and Python 3.11–3.14, with macOS in `ci-ok` (ADR-20261026-f4e2). **`ci-ok` is a required check on `main`** (added to the existing ruleset, 2026-10-26). **Catch-up review:** real Copilot reviews had stopped after #52, so #53 to #95 (except #84, #85) were reviewed as four never-merged drafts by area, #97 to #100: 20 findings, 19 real, 1 declined (the benchmark's sample app). Fixes, in order:
    - [x] the commit check (#101, ADR-20261026-5b8e): commits blocked with no rules in an editable project, a redirect per runner, vitest rule tests from disk; plus Copilot's findings on #101 itself. Checked by hand in a copy of cartcheck through the real hook (2026-10-27): partial commits pass, a broken staged file is blocked while the file on disk is fixed, and a new project with no rules commits (the code before #101 refused it). Follow-ups: one lookup of a runner's start script shared by inspection and launch (a relative `PATH` entry can make them differ); a link chain through a staged folder link pointing into the working tree, with a rule test linked through it (Copilot on #101, theoretical);
@@ -186,12 +187,12 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
    - **Follow-ups, theoretical or rare (Copilot):** one lookup of a runner's start script shared by inspection and launch; a link chain through a staged folder link with a rule test linked through it (#101); a CODEOWNERS file that already got a second SeamSpec block from the old find-and-replace bug, before #103 (merge the blocks, keeping named reviewers; the bug was never released).
    - [ ] after v0.1.0, the benchmark harness: missing S demonstrations as not measured, matched cells after a stopped batch, the batch settings on resume, the review commit's paths. Published results checked: unaffected.
 5. [x] Version `0.1.0` (pyproject and plugin), classifiers, project URLs, `CHANGELOG.md`; README and getting-started switch to `uv tool install seamspec`; README links made absolute so they work on pypi.org (ADR-20261027-5e17)
-6. [ ] Publish (ADR-20261027-b1a4):
-   - [ ] the release workflow and the changelog date (PR `chore/release-workflow`);
-   - [ ] the owner adds the trusted publisher on PyPI (`seamspec/seamspec`, `release.yml`, environment `pypi`) and, optionally, a required reviewer on the `pypi` environment;
-   - [ ] with the owner's go-ahead, push the tag `v0.1.0`; the workflow uploads to PyPI;
-   - [ ] the GitHub Release, from the changelog;
-   - [ ] from a clean machine, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
+6. [x] Publish (ADR-20261027-b1a4), **done 2026-10-27**:
+   - [x] the release workflow and the changelog date (#106);
+   - [x] the owner adds the trusted publisher on PyPI (`seamspec/seamspec`, `release.yml`, environment `pypi`) and, optionally, a required reviewer on the `pypi` environment;
+   - [x] with the owner's go-ahead, push the tag `v0.1.0`; the workflow uploads to PyPI (the owner approved the upload);
+   - [x] the GitHub Release, from the changelog;
+   - [x] from a clean install, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
 7. [ ] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK)
 8. [ ] Launch posts: LinkedIn post and article, a short demo
 - **Before a second release (0.1.1):** `init` (or `doctor`) must notice a plugin pinned to an older tag, move the pin and update the plugin (ADR-20261023-7d41).
