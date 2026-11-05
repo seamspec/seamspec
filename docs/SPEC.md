@@ -2799,7 +2799,6 @@ In this order (ADR-20261011-0995):
 - **OpenSpec importer** (`origin.type = "import"`), moved up from "Later": SeamSpec works alongside spec-first tools, so reading their requirements as proposed rules comes first.
 - ~~Cursor and VS Code Copilot adapters~~, ~~the "critical" rule marking~~ and ~~BRAINDUMP~~: **moved into v0.1** (ADR-20261013-f4a8); the marking (ADR-20261013-c1a9) and BRAINDUMP (ADR-20261013-d9e4) are built. In v0.2 what remains of the hosts: in-session blocking wherever v0.1 shipped only the rules, the tools and the commit gate.
 - **Rules from an existing notes file** (new, from the benchmark): read a project's `CLAUDE.md` or similar and propose one tested rule per agreement.
-- **BRAINDUMP**: parse/drain/tidy + redaction, `/seamspec:drain`, session-start nudge (§13); `propose_decision` and `braindump_pending` tools. Until then, the agent proposes rules from a project's own list of intended rules, such as a section of a plan (v0.1, ADR-20261011-0995).
 - **More presets**: jest, Go, Rust (cargo), `custom` (§12A.2).
 - MCP **elicitation** for `run_proposed = "ask"`. (`trust_level = "harness"` moved into v0.1, ADR-20261005-8e80.)
 - `npx seamspec` wrapper for JS developers.
