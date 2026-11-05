@@ -2,12 +2,13 @@
 
 The single place to see where the SeamSpec build stands. **Read this first** when picking up the work.
 
-**Last updated:** 2026-11-04 · **Current:** v0.1 · **0.1.0 published on PyPI** (2026-10-27), website updated; next, the launch posts (*Release steps* below)
+**Last updated:** 2026-11-05 · **Current:** v0.1 · **0.1.0 published on PyPI** (2026-10-27), website updated; next, the launch posts (*Release steps* below)
 
 ## Done
 
 | Date | What | Where |
 |---|---|---|
+| 2026-11-05 | **Upgrades move the Claude Code plugin** (PR `fix/plugin-pin-upgrade`, ADR-20261105-bf19; the blocker for 0.1.1). After an upgrade, `init` offers to move the plugin to the new tag and update it, checks that it moved, and `doctor` warns when it doesn't match. Tried with the real Claude Code CLI against a local git server, at `local` and `project` scope. A checkout, a pin to another repository and a `user` scope install are left alone. | `seamspec/installers/claude_plugin.py`, `seamspec/cli.py`, `seamspec/core/doctor.py`, SPEC §16.1 |
 | 2026-11-04 | **v0.2 records brought up to date** (PR `docs/v0-2-records`, docs only). SPEC §22 no longer lists BRAINDUMP under v0.2, since it shipped in v0.1 (ADR-20261013-f4a8). ADR-20261006-c300 now points to ADR-20261011-8013 for the local review page, which is under "Later", not v0.2. Issue #7 now matches §22. | `docs/SPEC.md`, `docs/adr/ADR-20261006-c300-chat-approvals-design.md`, #7 |
 | 2026-10-27 | **Website updated for 0.1.0** (release step 7; `seamspec/seamspec.github.io#2`, merged by the owner). Badge `v0.1.0 first release`; the install section gives the requirements, the getting-started guide and three steps (`uv tool install seamspec`, `seamspec init`, then work and approve in `seamspec review`) instead of the placeholder; GitHub links in the nav, install section and footer; the results note links the four benchmark write-ups and the decision records; structured data says 0.1.0, macOS and Linux. The spec-first comparison now names "Kiro's spec mode": Kiro's site lists autonomous, spec and default modes. Spec Kit's and OpenSpec's public READMEs, read the same day, still describe spec-first flows (no code read). Checked live after the Pages build | `seamspec.github.io` |
 | 2026-10-27 | **SeamSpec 0.1.0 published** (release step 6). The owner set up PyPI's trusted publisher and the GitHub `pypi` environment (the owner as required reviewer; `v*` tags only) and gave the go-ahead. Tag `v0.1.0` on `00a8960`; the release workflow's checks, tests and build passed; the owner approved; it uploaded the wheel and sdist to [PyPI](https://pypi.org/project/seamspec/0.1.0/). [GitHub Release](https://github.com/seamspec/seamspec/releases/tag/v0.1.0) made from the changelog. Checked from a clean install (`uv tool install seamspec` into an empty tool folder, a throwaway Claude Code config): `seamspec 0.1.0`; `init --plugin` installs the plugin from `github.com/seamspec/seamspec.git` at `v0.1.0` (version 0.1.0, local scope); `--plugin-scope project` writes that source into `.claude/settings.json` (project scope); enforced mode writes CI pinned to `seamspec==0.1.0`. Cost: none | ADR-20261027-b1a4 |
@@ -197,7 +198,6 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
    - [x] from a clean install, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
 7. [x] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK; `seamspec.github.io#2`, 2026-10-27)
 8. [ ] Launch posts: LinkedIn post and article, a short demo
-- **Before a second release (0.1.1):** `init` (or `doctor`) must notice a plugin pinned to an older tag, move the pin and update the plugin (ADR-20261023-7d41).
 - **After v0.1.0:** upgrade uv in CI on purpose, checking what the built packages contain (ADR-20261026-d67b).
 - npm: nothing to publish for v0.1; the reserved name stays as it is.
 
