@@ -2,6 +2,11 @@
 
 All notable changes to SeamSpec are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a minor version (0.2, 0.3) may change how things work; the changelog says when it does.
 
+## [Unreleased]
+
+### Fixed
+- **Upgrades reach the Claude Code plugin.** After `uv tool upgrade seamspec`, `seamspec init` offers to move the plugin to the new version's tag and update it (`--plugin` does it without asking), and `seamspec doctor` warns when the plugin doesn't match.
+
 ## [0.1.0] - 2026-10-27
 
 The first release.

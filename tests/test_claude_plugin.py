@@ -6,12 +6,16 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+from collections.abc import Iterator
 from pathlib import Path
+from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 import pytest
 from typer.testing import CliRunner
 
 from seamspec.cli import app
+from seamspec.core import doctor
 from seamspec.installers import claude_plugin
 
 runner = CliRunner()
@@ -22,6 +26,13 @@ echo "$*" >> "$FAKE_CLAUDE_LOG"
 case "$*" in
   "plugin list --json") cat "$FAKE_CLAUDE_LIST" 2>/dev/null || echo "[]" ;;
   *"$FAKE_CLAUDE_FAIL"*) echo '{"outcome":"error","message":"boom"}'; exit 1 ;;
+  "plugin update"*)
+    if [ -f "$FAKE_CLAUDE_LIST.after" ]; then cp "$FAKE_CLAUDE_LIST.after" "$FAKE_CLAUDE_LIST"; fi
+    if [ -f "$FAKE_CLAUDE_SETTINGS_AFTER" ]; then cp "$FAKE_CLAUDE_SETTINGS_AFTER" .claude/settings.local.json; fi
+    echo '{"outcome":"ok","message":"updated"}' ;;
+  "plugin marketplace add"*)
+    mkdir -p .claude; [ -f .claude/settings.local.json ] || echo '{}' > .claude/settings.local.json
+    echo '{"outcome":"ok","message":"added"}' ;;
   *) mkdir -p .claude && echo '{}' > .claude/settings.local.json; echo '{"outcome":"ok","message":"done"}' ;;
 esac
 """
@@ -39,6 +50,7 @@ def fake_claude(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("FAKE_CLAUDE_LOG", str(log))
     monkeypatch.setenv("FAKE_CLAUDE_LIST", str(tmp_path / "list.json"))
     monkeypatch.setenv("FAKE_CLAUDE_FAIL", "nothing-fails")
+    monkeypatch.setenv("FAKE_CLAUDE_SETTINGS_AFTER", str(tmp_path / "settings.after.json"))
     monkeypatch.delenv(claude_plugin.SOURCE_ENV, raising=False)
     return log
 
@@ -274,6 +286,209 @@ def test_terminal_never_asks_about_the_team_for_a_checkout(
     assert "plugin install seamspec@seamspec --scope local --json" in calls(fake_claude)
 
 
+# --- an upgrade moves the pin (ADR-20261105-bf19) --------------------------------------------------
+
+
+REPO_URL = "https://github.com/seamspec/seamspec.git"
+
+
+def installed(project: Path, tmp_path: Path, version: str = "0.1.0", ref: str = "v0.1.0", scope: str = "local") -> None:
+    """The plugin as `seamspec init` left it at an earlier version: settings pin plus Claude Code's list."""
+    settings = {
+        "extraKnownMarketplaces": {"seamspec": {"source": {"source": "git", "url": REPO_URL, "ref": ref}}},
+        "enabledPlugins": {"seamspec@seamspec": True},
+    }
+    (project / ".claude").mkdir(exist_ok=True)
+    (project / claude_plugin.SETTINGS[scope]).write_text(json.dumps(settings))
+    entry = {
+        "id": "seamspec@seamspec",
+        "version": version,
+        "scope": scope,
+        "enabled": True,
+        "projectPath": str(project),
+    }
+    (tmp_path / "list.json").write_text(json.dumps([entry]))
+
+
+def moves_to(project: Path, tmp_path: Path, version: str, ref: str, scope: str = "local") -> None:
+    """What the fake `claude plugin update` leaves behind."""
+    entry = {
+        "id": "seamspec@seamspec",
+        "version": version,
+        "scope": scope,
+        "enabled": True,
+        "projectPath": str(project),
+    }
+    (tmp_path / "list.json.after").write_text(json.dumps([entry]))
+    settings = {"extraKnownMarketplaces": {"seamspec": {"source": {"source": "git", "url": REPO_URL, "ref": ref}}}}
+    if scope == "local":
+        (tmp_path / "settings.after.json").write_text(json.dumps(settings))
+    else:
+        # A project pin is rewritten in the committed file; the fake only knows the local one.
+        (project / claude_plugin.SETTINGS[scope]).write_text(json.dumps(settings))
+
+
+@pytest.fixture
+def next_release(released_build: str, monkeypatch: pytest.MonkeyPatch) -> str:
+    """The same install after `uv tool upgrade seamspec`."""
+    monkeypatch.setattr(claude_plugin, "__version__", "0.1.1")
+    return f"{REPO_URL}#v0.1.1"
+
+
+def test_a_new_version_finds_the_old_pin(fake_claude: Path, project: Path, tmp_path: Path, next_release: str) -> None:
+    installed(project, tmp_path)
+    found = claude_plugin.upgrades(project)
+    assert [(u.scope, u.pinned_ref, u.version, u.source) for u in found] == [("local", "v0.1.0", "0.1.0", next_release)]
+
+
+def test_upgrade_moves_the_pin_then_updates_the_plugin(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str
+) -> None:
+    installed(project, tmp_path)
+    moves_to(project, tmp_path, "0.1.1", "v0.1.1")
+    result = claude_plugin.install(project)
+    assert result.status == "upgraded" and "v0.1.1" in result.message
+    assert calls(fake_claude)[1:3] == [
+        f"plugin marketplace add {next_release} --scope local --json",
+        "plugin update seamspec@seamspec --scope local --json",
+    ]
+    assert claude_plugin.upgrades(project) == []
+
+
+def test_the_matching_version_is_left_alone(
+    fake_claude: Path, project: Path, tmp_path: Path, released_build: str
+) -> None:
+    installed(project, tmp_path)
+    assert claude_plugin.upgrades(project) == []
+    assert claude_plugin.install(project).status == "unchanged"
+    assert not any("marketplace add" in call or "update" in call for call in calls(fake_claude))
+
+
+def test_a_pin_already_moved_by_a_teammate_still_updates_this_copy(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str
+) -> None:
+    """A teammate committed the new tag; this machine still has the old plugin."""
+    installed(project, tmp_path, version="0.1.0", ref="v0.1.1", scope="project")
+    assert [(u.scope, u.version) for u in claude_plugin.upgrades(project)] == [("project", "0.1.0")]
+
+
+def test_project_scope_moves_the_committed_pin(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str
+) -> None:
+    installed(project, tmp_path, scope="project")
+    moves_to(project, tmp_path, "0.1.1", "v0.1.1", scope="project")
+    result = claude_plugin.install(project, "project")
+    assert result.status == "upgraded" and ".claude/settings.json" in result.message
+    assert "plugin update seamspec@seamspec --scope project --json" in calls(fake_claude)
+
+
+def test_a_failed_move_is_reported(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installed(project, tmp_path)
+    monkeypatch.setenv("FAKE_CLAUDE_FAIL", "plugin update")
+    result = claude_plugin.install(project)
+    assert result.status == "failed" and "claude plugin update" in result.message and "boom" in result.message
+
+
+def test_a_move_that_changes_nothing_is_not_called_success(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str
+) -> None:
+    """Every command says ok but the plugin stays put: say so, don't report it as moved."""
+    installed(project, tmp_path)
+    result = claude_plugin.install(project)
+    assert result.status == "failed" and "didn't move" in result.message and "0.1.0" in result.message
+
+
+@pytest.mark.parametrize("url", ["https://github.com/someone/fork.git", "https://example.com/seamspec.git"])
+def test_a_pin_to_another_repository_is_left_alone(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str, url: str
+) -> None:
+    installed(project, tmp_path)
+    settings = json.loads((project / ".claude/settings.local.json").read_text())
+    settings["extraKnownMarketplaces"]["seamspec"]["source"]["url"] = url
+    (project / ".claude/settings.local.json").write_text(json.dumps(settings))
+    assert claude_plugin.upgrades(project) == []
+
+
+def test_a_checkout_never_moves_a_pin(fake_claude: Path, project: Path, tmp_path: Path) -> None:
+    installed(project, tmp_path)
+    assert claude_plugin.upgrades(project) == []
+    assert calls(fake_claude) == []  # and without running `claude`
+
+
+def test_a_user_scope_install_is_left_alone(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str
+) -> None:
+    """It covers every project on the machine, so one repository's `init` doesn't change it."""
+    installed(project, tmp_path)
+    entry = {"id": "seamspec@seamspec", "version": "0.1.0", "scope": "user", "enabled": True}
+    (tmp_path / "list.json").write_text(json.dumps([entry]))
+    assert claude_plugin.upgrades(project) == []
+
+
+def test_no_pin_here_runs_nothing(fake_claude: Path, project: Path, next_release: str) -> None:
+    assert claude_plugin.upgrades(project) == []
+    assert calls(fake_claude) == []
+
+
+@pytest.mark.parametrize("answer", ["y", "n"])
+def test_init_asks_before_moving_it(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str, monkeypatch: pytest.MonkeyPatch, answer: str
+) -> None:
+    monkeypatch.setattr("seamspec.cli._interactive", lambda: True)
+    installed(project, tmp_path)
+    moves_to(project, tmp_path, "0.1.1", "v0.1.1")
+    out = init(project, input=f"{answer}\n")
+    assert f"claude plugin marketplace add {next_release} --scope local" in out
+    assert "claude plugin update seamspec@seamspec --scope local" in out
+    assert ("Claude Code plugin: upgraded" in out) is (answer == "y")
+    assert ("Restart Claude Code" in out) is (answer == "y")
+    assert ("not moved" in out) is (answer == "n")
+    assert any("plugin update" in call for call in calls(fake_claude)) is (answer == "y")
+
+
+def test_init_plugin_flag_moves_it_without_asking(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str
+) -> None:
+    installed(project, tmp_path)
+    moves_to(project, tmp_path, "0.1.1", "v0.1.1")
+    assert "Claude Code plugin: upgraded" in init(project, "--plugin")
+
+
+def test_init_without_a_terminal_never_moves_it(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str
+) -> None:
+    installed(project, tmp_path)
+    out = init(project)
+    assert "seamspec init --plugin" in out and calls(fake_claude) == []
+
+
+def test_init_says_to_commit_a_moved_team_pin(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str
+) -> None:
+    installed(project, tmp_path, scope="project")
+    moves_to(project, tmp_path, "0.1.1", "v0.1.1", scope="project")
+    assert "Commit .claude/settings.json" in init(project, "--plugin")
+
+
+def test_doctor_warns_about_an_old_plugin(fake_claude: Path, project: Path, tmp_path: Path, next_release: str) -> None:
+    init(project)
+    installed(project, tmp_path)
+    report = doctor.run(project)
+    found = [f for f in report.findings if f.check == "claude plugin"]
+    assert [f.level for f in found] == ["warning"] and "seamspec init --plugin" in found[0].message
+    assert "claude plugin" in report.checks
+
+
+def test_doctor_is_quiet_when_the_plugin_matches(
+    fake_claude: Path, project: Path, tmp_path: Path, released_build: str
+) -> None:
+    init(project)
+    installed(project, tmp_path)
+    assert not [f for f in doctor.run(project).findings if f.check == "claude plugin"]
+
+
 # --- the real Claude Code CLI, in a throwaway CLAUDE_CONFIG_DIR (conftest) -------------------------
 
 
@@ -288,3 +503,83 @@ def test_real_claude_cli_enables_it_for_this_repository_only(project: Path, tmp_
     other = tmp_path / "other"
     other.mkdir()
     assert not claude_plugin.enabled_here(other)
+
+
+class _QuietHandler(WSGIRequestHandler):
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+@pytest.fixture
+def plugin_server(tmp_path: Path) -> Iterator[str]:
+    """A marketplace with tags v1.0.0 and v1.0.1, served over HTTP by `git http-backend`: Claude Code
+    only clones real git servers, and SeamSpec's next tag doesn't exist until it is released."""
+    work = tmp_path / "market"
+    (work / ".claude-plugin").mkdir(parents=True)
+    (work / "plugin/.claude-plugin").mkdir(parents=True)
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-C", str(work)]
+    subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+    marketplace = {
+        "name": "seamspec",
+        "owner": {"name": "t"},
+        "plugins": [{"name": "seamspec", "source": "./plugin", "description": "t"}],
+    }
+    (work / ".claude-plugin/marketplace.json").write_text(json.dumps(marketplace))
+    for version in ("1.0.0", "1.0.1"):
+        plugin = {"name": "seamspec", "version": version, "description": "t"}
+        (work / "plugin/.claude-plugin/plugin.json").write_text(json.dumps(plugin))
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-qm", version], check=True)
+        subprocess.run([*git, "tag", f"v{version}"], check=True)
+    subprocess.run(["git", "clone", "-q", "--bare", str(work), str(tmp_path / "market.git")], check=True)
+
+    def app_(environ: dict, start_response):  # type: ignore[no-untyped-def]
+        length = int(environ.get("CONTENT_LENGTH") or 0)
+        env = {
+            **os.environ,
+            "GIT_PROJECT_ROOT": str(tmp_path),
+            "GIT_HTTP_EXPORT_ALL": "1",
+            "PATH_INFO": environ["PATH_INFO"],
+            "QUERY_STRING": environ.get("QUERY_STRING", ""),
+            "REQUEST_METHOD": environ["REQUEST_METHOD"],
+            "CONTENT_TYPE": environ.get("CONTENT_TYPE", ""),
+            "CONTENT_LENGTH": str(length),
+            "REMOTE_ADDR": "127.0.0.1",
+        }
+        for name, var in (("HTTP_GIT_PROTOCOL", "GIT_PROTOCOL"), ("HTTP_CONTENT_ENCODING", "HTTP_CONTENT_ENCODING")):
+            if environ.get(name):
+                env[var] = environ[name]
+        body = environ["wsgi.input"].read(length) if length else b""
+        out = subprocess.run(["git", "http-backend"], input=body, capture_output=True, env=env).stdout
+        head, _, rest = out.partition(b"\r\n\r\n")
+        headers = [tuple(line.decode().split(": ", 1)) for line in head.split(b"\r\n") if b": " in line]
+        status = next((value for name, value in headers if name == "Status"), "200 OK")
+        start_response(status, [(name, value) for name, value in headers if name != "Status"])
+        return [rest]
+
+    server = make_server("127.0.0.1", 0, app_, handler_class=_QuietHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}/market.git"
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.mark.skipif(shutil.which("claude") is None, reason="Claude Code CLI not installed")
+def test_real_claude_cli_moves_the_pin_and_updates_the_plugin(
+    project: Path, plugin_server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+    monkeypatch.setenv(claude_plugin.SOURCE_ENV, f"{plugin_server}#v1.0.0")
+    first = claude_plugin.install(project)
+    assert first.status == "installed", first.message
+    assert claude_plugin.upgrades(project) == []
+
+    monkeypatch.setenv(claude_plugin.SOURCE_ENV, f"{plugin_server}#v1.0.1")  # the upgrade
+    assert [(u.pinned_ref, u.version) for u in claude_plugin.upgrades(project)] == [("v1.0.0", "1.0.0")]
+    moved = claude_plugin.install(project)
+    assert moved.status == "upgraded", moved.message
+    assert claude_plugin.upgrades(project) == []
+    settings = json.loads((project / ".claude/settings.local.json").read_text())
+    assert settings["extraKnownMarketplaces"]["seamspec"]["source"]["ref"] == "v1.0.1"
+    versions = [p["version"] for p in claude_plugin._enabled_entries(project)]
+    assert versions == ["1.0.1"]

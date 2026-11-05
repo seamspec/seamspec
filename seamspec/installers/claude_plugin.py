@@ -13,6 +13,11 @@ checkout (editable install) uses itself, so plugin edits apply at the next sessi
 `project` scope writes the committed `<repo>/.claude/settings.json`, so every teammate's Claude
 Code offers the plugin once they trust the folder; only a published source can go there, never a
 path on this machine.
+
+An upgrade moves the pin (ADR-20261105-bf19): when a repository's settings pin the plugin to an older
+tag, or its installed copy is an older version, `upgrades()` says so and `upgrade()` re-adds the
+marketplace at the installed version's tag and updates the plugin. A checkout, a pin to some other
+repository and a `user` scope install are left alone.
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ TIMEOUT_SECONDS = 120
 
 @dataclass
 class PluginResult:
-    status: str  # installed | unchanged | skipped | failed
+    status: str  # installed | upgraded | unchanged | skipped | failed
     message: str = ""
     gitignore: str | None = None  # what happened to .gitignore (created | updated | unchanged)
 
@@ -74,6 +79,12 @@ def shareable(source: str) -> bool:
     )
 
 
+def _pinned(source: str) -> tuple[str, str] | None:
+    """(url, ref) when the source is a git URL pinned to a ref. Only those can fall behind."""
+    url, _, ref = source.partition("#")
+    return (url, ref) if "://" in url and ref else None
+
+
 def _claude(root: Path, *args: str) -> tuple[bool, str]:
     """Run `claude plugin ...`; (ok, message from its --json result line or its output)."""
     try:
@@ -93,24 +104,31 @@ def _claude(root: Path, *args: str) -> tuple[bool, str]:
     return ok, message
 
 
-def enabled_here(root: Path, scope: str = "local") -> bool:
-    """Is the plugin already enabled for this repository? For `local`, at any scope: it is on for this
-    user. For `project`, only in the committed settings: on for this user alone, the team still lacks
-    it (#97)."""
+def _enabled_entries(root: Path) -> list[dict]:
+    """This plugin's enabled entries from `claude plugin list`, for any project; empty if that fails."""
     try:
         out = subprocess.run(
             ["claude", "plugin", "list", "--json"], cwd=root, capture_output=True, text=True, timeout=TIMEOUT_SECONDS
         )
         plugins = json.loads(out.stdout) if out.returncode == 0 else []
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        return False
-    here = str(root.resolve())
-    for p in plugins if isinstance(plugins, list) else []:
-        if not isinstance(p, dict) or p.get("id") != PLUGIN_ID or not p.get("enabled"):
-            continue
+        return []
+    plugins = plugins if isinstance(plugins, list) else []
+    return [p for p in plugins if isinstance(p, dict) and p.get("id") == PLUGIN_ID and p.get("enabled")]
+
+
+def _here(entry: dict, root: Path) -> bool:
+    return str(Path(entry.get("projectPath") or "/nonexistent").resolve()) == str(root.resolve())
+
+
+def enabled_here(root: Path, scope: str = "local") -> bool:
+    """Is the plugin already enabled for this repository? For `local`, at any scope: it is on for this
+    user. For `project`, only in the committed settings: on for this user alone, the team still lacks
+    it (#97)."""
+    for p in _enabled_entries(root):
         if scope == "project" and p.get("scope") != "project":
             continue
-        if p.get("scope") == "user" or str(Path(p.get("projectPath") or "/nonexistent").resolve()) == here:
+        if p.get("scope") == "user" or _here(p, root):
             return True
     return False
 
@@ -118,6 +136,74 @@ def enabled_here(root: Path, scope: str = "local") -> bool:
 def commands(source: str, scope: str = "local") -> list[tuple[str, ...]]:
     """The `claude plugin` invocations `enable()` runs, for showing them before asking."""
     return [("marketplace", "add", source, "--scope", scope), ("install", PLUGIN_ID, "--scope", scope)]
+
+
+def upgrade_commands(source: str, scope: str = "local") -> list[tuple[str, ...]]:
+    """The `claude plugin` invocations `upgrade()` runs: re-adding at the new tag moves the pin."""
+    return [("marketplace", "add", source, "--scope", scope), ("update", PLUGIN_ID, "--scope", scope)]
+
+
+@dataclass
+class Upgrade:
+    """An install in this repository that doesn't match the installed SeamSpec."""
+
+    scope: str  # local | project
+    pinned_ref: str  # the ref its settings pin now
+    version: str  # the plugin version installed now
+    source: str  # where it should come from
+
+
+def _settings_pin(root: Path, scope: str) -> tuple[str, str] | None:
+    """(url, ref) this repository's settings file pins the marketplace to, if it is a git source. Read
+    only: changes always go through Claude Code's own CLI."""
+    try:
+        settings = json.loads((root / SETTINGS[scope]).read_text(encoding="utf-8"))
+        source = settings["extraKnownMarketplaces"][PLUGIN_ID.split("@")[1]]["source"]
+        return (source["url"], source.get("ref") or "") if source["source"] == "git" else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def upgrades(root: Path) -> list[Upgrade]:
+    """Installs in this repository that are behind the installed SeamSpec, or ahead of it. Empty for a
+    checkout, for a pin to another repository, for a `user` scope install, and without `claude`."""
+    root = root.resolve()
+    source = marketplace_source()
+    target = _pinned(source) if source else None
+    if source is None or target is None or shutil.which("claude") is None:
+        return []
+    pins = {scope: _settings_pin(root, scope) for scope in SCOPES}
+    pins = {scope: pin for scope, pin in pins.items() if pin is not None and pin[0] == target[0]}
+    if not pins:  # nothing of ours to move: no need to run `claude`
+        return []
+    # $SEAMSPEC_PLUGIN_MARKETPLACE can point anywhere, so only its ref says what it should be.
+    version = None if os.environ.get(SOURCE_ENV, "").strip() else __version__
+    found = []
+    for entry in _enabled_entries(root):
+        scope = entry.get("scope")
+        if scope not in pins or not _here(entry, root):
+            continue
+        if pins[scope][1] != target[1] or (version is not None and entry.get("version") != version):
+            found.append(Upgrade(scope, pins[scope][1], str(entry.get("version")), source))
+    return found
+
+
+def upgrade(root: Path, pending: list[Upgrade]) -> PluginResult:
+    """Run the `upgrade_commands()` (after the human said yes), then check what is installed now."""
+    root = root.resolve()
+    for item in pending:
+        for args in upgrade_commands(item.source, item.scope):
+            ok, message = _claude(root, *args)
+            if not ok:
+                failed = f"`claude plugin {' '.join(args)}` failed: {message}"
+                return PluginResult("failed", failed, _ignore_local_settings(root))
+    left = upgrades(root)
+    if left:
+        stuck = ", ".join(f"{item.version} ({item.scope})" for item in left)
+        return PluginResult("failed", f"{PLUGIN_ID} didn't move: it is still at {stuck}", _ignore_local_settings(root))
+    wanted = pending[0].source.partition("#")[2]
+    scopes = " and ".join(SETTINGS[item.scope] for item in pending)
+    return PluginResult("upgraded", f"{PLUGIN_ID} moved to {wanted}, in {scopes}", _ignore_local_settings(root))
 
 
 def _ignore_local_settings(root: Path) -> str | None:
@@ -171,5 +257,9 @@ def enable(root: Path, scope: str = "local") -> PluginResult:
 
 
 def install(root: Path, scope: str = "local") -> PluginResult:
-    """`precheck()` then `enable()`, for callers that already have the human's yes."""
+    """`upgrade()` if an install here is out of date, else `precheck()` then `enable()`, for callers
+    that already have the human's yes."""
+    pending = upgrades(root)
+    if pending and (scope != "project" or any(item.scope == "project" for item in pending)):
+        return upgrade(root, pending)
     return precheck(root, scope) or enable(root, scope)

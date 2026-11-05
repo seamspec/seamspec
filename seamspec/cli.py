@@ -370,6 +370,11 @@ def _init_plugin(root: Path, wanted: bool | None, scope: str | None = None) -> N
     if wanted is None and not _interactive():
         typer.echo("Claude Code plugin: not checked (no terminal). Run `seamspec init --plugin` to install it.")
         return
+    pending = claude_plugin.upgrades(root)
+    if pending:
+        result = _init_plugin_upgrade(root, pending, wanted)
+        if result is None or scope != "project" or any(item.scope == "project" for item in pending):
+            return
     result = claude_plugin.precheck(root, scope or "local")
     if result is None:
         source = claude_plugin.marketplace_source()
@@ -408,6 +413,30 @@ def _init_plugin(root: Path, wanted: bool | None, scope: str | None = None) -> N
                 f"  Commit {claude_plugin.SETTINGS['project']}. Teammates also need the `seamspec` command;"
                 " without it the plugin stays silent."
             )
+
+
+def _init_plugin_upgrade(
+    root: Path, pending: list[claude_plugin.Upgrade], wanted: bool | None
+) -> claude_plugin.PluginResult | None:
+    """Move an out-of-date plugin to the installed SeamSpec's tag; None if the human said no."""
+    if wanted is None:
+        typer.echo(f"The Claude Code plugin here doesn't match SeamSpec {__version__}. SeamSpec would run:")
+        for item in pending:
+            typer.echo(f"  (now {item.pinned_ref or 'unpinned'}, plugin version {item.version})")
+            for args in claude_plugin.upgrade_commands(item.source, item.scope):
+                typer.echo(f"  claude plugin {' '.join(args)}")
+        if not typer.confirm("Move the plugin to match?", default=True):
+            typer.echo("Claude Code plugin: not moved. Run `seamspec init --plugin` any time.")
+            return None
+    result = claude_plugin.upgrade(root, pending)
+    typer.echo(f"Claude Code plugin: {result.status} ({result.message})")
+    if result.gitignore in ("created", "updated"):
+        typer.echo(f"  {result.gitignore:<9} .gitignore ({claude_plugin.SETTINGS_LOCAL})")
+    if result.status == "upgraded":
+        typer.echo("  Restart Claude Code to load it.")
+        if any(item.scope == "project" for item in pending):
+            typer.echo(f"  Commit {claude_plugin.SETTINGS['project']}, so teammates move too.")
+    return result
 
 
 def _status_data(store: Store, cfg: Any) -> dict[str, Any]:

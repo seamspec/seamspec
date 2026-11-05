@@ -2,7 +2,8 @@
 
 Local checks: config, record schemas, integrity of LOCKED tests, runner config fingerprints,
 approval provenance, the approval journal, the CLAUDE.md block, the git pre-commit hook, scopes
-that match no files, and hosts allowlisting SeamSpec commands (§12.4.3 rule 6).
+that match no files, hosts allowlisting SeamSpec commands (§12.4.3 rule 6), and a Claude Code
+plugin that doesn't match the installed SeamSpec (§16.1).
 
 `--ci` drops the machine-local checks (journal, hook) and compares the ledger with the base
 branch: LOCKED rules may only move forward (to SUPERSEDED), never be edited, deleted or moved
@@ -127,7 +128,7 @@ def default_base() -> str:
 
 
 def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], report: DoctorReport) -> None:
-    from ..installers import directive, git_hooks
+    from ..installers import claude_plugin, directive, git_hooks
     from .store import RecordError, Store
 
     report.checks += ["journal", "directive", "pre-commit hook", "allowlist"]
@@ -183,6 +184,11 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
     if cfg.mode == "advisory" and git_hooks.MARKER in text:
         report.add("warning", "pre-commit hook", "advisory mode, but SeamSpec's pre-commit hook is still installed "
                    "(it runs nothing in advisory mode): rerun `seamspec init` to remove it")  # fmt: skip
+    report.checks.append("claude plugin")
+    for item in claude_plugin.upgrades(root):
+        report.add("warning", "claude plugin",
+                   f"the plugin in {claude_plugin.SETTINGS[item.scope]} is at {item.pinned_ref or 'no tag'} "
+                   f"(version {item.version}), not this SeamSpec's: run `seamspec init --plugin`")  # fmt: skip
     for name in ("settings.json", "settings.local.json"):
         path = root / ".claude" / name
         try:

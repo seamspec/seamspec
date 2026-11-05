@@ -66,7 +66,7 @@ Install the `seamspec` command:
 uv tool install seamspec
 ```
 
-To upgrade later, run `uv tool upgrade seamspec`.
+To upgrade later, run `uv tool upgrade seamspec`, then `seamspec init` in each project to move its Claude Code plugin to match.
 
 Then, in your project:
 
