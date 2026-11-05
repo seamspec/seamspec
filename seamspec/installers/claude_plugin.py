@@ -188,6 +188,19 @@ def upgrades(root: Path) -> list[Upgrade]:
     return found
 
 
+def _not_confirmed(root: Path, item: Upgrade) -> str | None:
+    """Why this install can't be shown to match now, or None. Needs positive evidence: a failed
+    `claude plugin list` must not read as "nothing left to move"."""
+    entry = next((e for e in _enabled_entries(root) if e.get("scope") == item.scope and _here(e, root)), None)
+    if entry is None:
+        return f"{item.scope} scope: `claude plugin list` doesn't show it"
+    if _settings_pin(root, item.scope) != _pinned(item.source):
+        return f"{item.scope} scope: {SETTINGS[item.scope]} doesn't pin {item.source}"
+    if not os.environ.get(SOURCE_ENV, "").strip() and entry.get("version") != __version__:
+        return f"{item.scope} scope: still version {entry.get('version')}"
+    return None
+
+
 def upgrade(root: Path, pending: list[Upgrade]) -> PluginResult:
     """Run the `upgrade_commands()` (after the human said yes), then check what is installed now."""
     root = root.resolve()
@@ -197,10 +210,10 @@ def upgrade(root: Path, pending: list[Upgrade]) -> PluginResult:
             if not ok:
                 failed = f"`claude plugin {' '.join(args)}` failed: {message}"
                 return PluginResult("failed", failed, _ignore_local_settings(root))
-    left = upgrades(root)
-    if left:
-        stuck = ", ".join(f"{item.version} ({item.scope})" for item in left)
-        return PluginResult("failed", f"{PLUGIN_ID} didn't move: it is still at {stuck}", _ignore_local_settings(root))
+    problems = [problem for item in pending if (problem := _not_confirmed(root, item))]
+    if problems:
+        message = f"{PLUGIN_ID} didn't move, or SeamSpec can't confirm it: {'; '.join(problems)}"
+        return PluginResult("failed", message, _ignore_local_settings(root))
     wanted = pending[0].source.partition("#")[2]
     scopes = " and ".join(SETTINGS[item.scope] for item in pending)
     return PluginResult("upgraded", f"{PLUGIN_ID} moved to {wanted}, in {scopes}", _ignore_local_settings(root))
@@ -257,9 +270,7 @@ def enable(root: Path, scope: str = "local") -> PluginResult:
 
 
 def install(root: Path, scope: str = "local") -> PluginResult:
-    """`upgrade()` if an install here is out of date, else `precheck()` then `enable()`, for callers
-    that already have the human's yes."""
-    pending = upgrades(root)
-    if pending and (scope != "project" or any(item.scope == "project" for item in pending)):
-        return upgrade(root, pending)
-    return precheck(root, scope) or enable(root, scope)
+    """`upgrade()` if the install at this scope is out of date, else `precheck()` then `enable()`, for
+    callers that already have the human's yes."""
+    pending = [item for item in upgrades(root) if item.scope == scope]
+    return upgrade(root, pending) if pending else precheck(root, scope) or enable(root, scope)

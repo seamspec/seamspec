@@ -18,8 +18,8 @@ A released SeamSpec installs the plugin from GitHub, pinned to its own tag, so t
 ## Decision
 
 - **`init` moves it.** It compares this repository's settings file and `claude plugin list` with the installed version. If the pin or the installed copy differs, it runs `claude plugin marketplace add <source> --scope <scope>` and then `claude plugin update seamspec@seamspec --scope <scope>`, using Claude Code's own CLI as everywhere else.
-- **It needs a yes**, like every change to Claude Code's settings: a question in a terminal, or `--plugin`. `--no-plugin`, or no terminal and no flag, changes nothing.
-- **It checks the result** and reports `failed` if the plugin is still behind after the commands succeed.
+- **It needs a yes**, like every change to Claude Code's settings: a question in a terminal, or `--plugin`. `--no-plugin`, or no terminal and no flag, changes nothing. `--plugin-scope` limits the move to that scope, so `local` never touches the committed file.
+- **It checks the result** and reports `upgraded` only when it can see the new pin and version. If `claude plugin list` fails afterwards, that's `failed`, not success.
 - **`doctor` warns** and names `seamspec init --plugin`, because people upgrade without re-running `init`. It runs `claude` only when this repository's settings already pin the plugin, so other projects pay nothing.
 - **The installed copy counts, not just the pin.** A teammate may have committed the new tag while this machine still has the old plugin.
 - **Left alone:** a checkout (it loads in place), a pin to another repository (someone's fork), and a `user` scope install, which covers every project on the machine, so one repository's `init` shouldn't change it.
