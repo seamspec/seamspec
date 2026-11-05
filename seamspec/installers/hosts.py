@@ -17,6 +17,7 @@ list; the commit gate and CI protect the ledger on every host.
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,10 +25,13 @@ from typing import Any
 from ..core import commands
 from ..core.store import atomic_write
 from . import directive
+from .scaffold import merge_gitignore
 
 HOSTS = commands.OTHER_HOSTS
 NAMES = {"cursor": "Cursor", "vscode": "VS Code (Copilot)", "antigravity": "Antigravity"}
 MARKERS = {"cursor": ".cursor", "vscode": ".vscode", "antigravity": ".agents"}  # a host's folder: it's in use
+# Antigravity's MCP config holds this machine's path, so it stays out of git (ADR-20261105-844f).
+MACHINE_FILES = {"antigravity": ".agents/mcp_config.json"}
 MCP_SERVER = {"command": "seamspec", "args": ["mcp"]}
 # What a person has to do in the tool itself; SeamSpec can't, and mustn't, do it for them (ADR-20261016-2d9a).
 SETUP_NOTES = {
@@ -51,11 +55,34 @@ class Change:
 
 
 def detect(root: Path) -> list[str]:
-    """Hosts whose project folder exists here (or `.agent`, Antigravity's older name)."""
+    """Hosts whose project folder exists here, or for Antigravity `.agent` (its older name) or a
+    `GEMINI.md`, which a project can have before Antigravity makes its folder (dogfooding, 2026-11-04).
+    Gemini CLI reads `GEMINI.md` too; a wrong guess costs one question that defaults to yes."""
     found = [h for h in HOSTS if (root / MARKERS[h]).is_dir()]
-    if "antigravity" not in found and (root / ".agent").is_dir():
+    if "antigravity" not in found and ((root / ".agent").is_dir() or (root / "GEMINI.md").is_file()):
         found.append("antigravity")
     return found
+
+
+def tracked(root: Path, rel: str) -> bool:
+    """Is the file committed (in git's index)? False outside git or when git can't say."""
+    try:
+        out = subprocess.run(["git", "ls-files", "--error-unmatch", rel], cwd=root, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return out.returncode == 0
+
+
+def ignore_machine_files(root: Path, host: str) -> list[Change]:
+    """Keep the host's machine-specific file out of git. An ignore line doesn't untrack a file that
+    is already committed, so that case gets the command to run, not a change made for the person."""
+    rel = MACHINE_FILES.get(host)
+    if rel is None:
+        return []
+    changes = [Change(".gitignore", merge_gitignore(root, (rel,), "SeamSpec: holds this machine's path"))]
+    if tracked(root, rel):
+        changes.append(Change(rel, f"committed: it holds this machine's path, so run `git rm --cached {rel}`"))
+    return changes
 
 
 def _hook(host: str, event: str) -> str:
@@ -228,7 +255,7 @@ def install(root: Path, host: str) -> list[Change]:
     changes = [
         Change(directive.AGENTS_FILE, status + (f", kept {len(kept)} line(s) of yours above it" if kept else ""))
     ]
-    changes += [install_mcp(root, host), install_hooks(root, host)]
+    changes += [install_mcp(root, host), *ignore_machine_files(root, host), install_hooks(root, host)]
     changes += install_commands(root, host)
     changes += install_agents(root, host)
     return changes

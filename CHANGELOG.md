@@ -5,6 +5,8 @@ All notable changes to SeamSpec are listed here. The format follows [Keep a Chan
 ## [Unreleased]
 
 ### Fixed
+- **Antigravity is offered for a `GEMINI.md`.** `seamspec init` now offers to set up Antigravity when a project has a `GEMINI.md` but no `.agents` folder yet.
+- **Antigravity's MCP config stays out of git.** `.agents/mcp_config.json` holds this machine's path, so `init` adds it to `.gitignore`. If it was already committed, `init` and `doctor` say to run `git rm --cached .agents/mcp_config.json`. After cloning, run `seamspec init --hosts antigravity`.
 - **Upgrades reach the Claude Code plugin.** After `uv tool upgrade seamspec`, `seamspec init` offers to move the plugin to the new version's tag and update it (`--plugin` does it without asking), and `seamspec doctor` warns when the plugin doesn't match.
 
 ## [0.1.0] - 2026-10-27

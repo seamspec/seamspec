@@ -131,7 +131,7 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
     from ..installers import claude_plugin, directive, git_hooks
     from .store import RecordError, Store
 
-    report.checks += ["journal", "directive", "pre-commit hook", "allowlist"]
+    report.checks += ["journal", "directive", "pre-commit hook", "allowlist", "machine path"]
     try:
         for problem in journal.unjournaled_changes(Store(root)):
             report.add("error", "journal", problem)
@@ -175,6 +175,12 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
             f"Antigravity's SeamSpec server is set to {stale}, not this folder:"
             " rerun `seamspec init --hosts antigravity`",
         )
+    from ..installers import hosts as host_installer
+
+    for rel in host_installer.MACHINE_FILES.values():
+        if (root / rel).is_file() and host_installer.tracked(root, rel):
+            report.add("warning", "machine path", f"{rel} is committed but holds this machine's path:"
+                       f" run `git rm --cached {rel}`, then `seamspec init --hosts antigravity`")  # fmt: skip
     hooks = _git(root, "rev-parse", "--git-path", "hooks")
     hook = (root / hooks.strip() / "pre-commit") if hooks else None
     text = hook.read_text(encoding="utf-8", errors="replace") if hook and hook.is_file() else ""

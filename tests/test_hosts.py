@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from seamspec.adapters import hosts as adapter
 from seamspec.cli import app
-from seamspec.core import commands
+from seamspec.core import commands, doctor
 from seamspec.installers import directive
 from seamspec.installers import hosts as installer
 
@@ -194,6 +194,54 @@ def test_detect_finds_the_hosts_folders(tmp_path: Path) -> None:
     (tmp_path / ".vscode").mkdir()
     (tmp_path / ".agent").mkdir()  # Antigravity's older folder name
     assert installer.detect(tmp_path) == ["vscode", "antigravity"]
+
+
+def test_a_gemini_file_is_a_sign_of_antigravity(tmp_path: Path) -> None:
+    """SessionWalk had GEMINI.md but no .agents folder yet, so init never offered Antigravity."""
+    (tmp_path / "GEMINI.md").write_text("# Rules for Gemini\n")
+    assert installer.detect(tmp_path) == ["antigravity"]
+    (tmp_path / ".agents").mkdir()
+    assert installer.detect(tmp_path) == ["antigravity"]  # once, however many signs
+
+
+def test_init_offers_antigravity_for_a_gemini_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "GEMINI.md").write_text("# Rules for Gemini\n")
+    out = runner.invoke(app, ["init", "--path", str(tmp_path), "--mode", "advisory", "--no-claude-md", "--no-plugin"])
+    assert out.exit_code == 0, out.output
+    assert "seamspec init --hosts antigravity" in out.output
+
+
+def test_antigravity_config_stays_out_of_git(git_repo: Path) -> None:
+    """It holds this machine's absolute path (ADR-20261105-844f)."""
+    statuses = {c.path: c.status for c in installer.install(git_repo, "antigravity")}
+    assert statuses[".gitignore"] in ("created", "updated")
+    assert ".agents/mcp_config.json" in (git_repo / ".gitignore").read_text().splitlines()
+    assert ".agents/mcp_config.json" not in statuses or "committed" not in statuses[".agents/mcp_config.json"]
+    assert {c.path: c.status for c in installer.install(git_repo, "antigravity")}[".gitignore"] == "unchanged"
+    for rel in (".agents/hooks.json", "AGENTS.md"):  # the rest is the same on every machine: it stays shareable
+        assert rel not in (git_repo / ".gitignore").read_text()
+
+
+def test_other_hosts_add_nothing_to_gitignore(git_repo: Path) -> None:
+    before = (git_repo / ".gitignore").read_text() if (git_repo / ".gitignore").exists() else None
+    installer.install(git_repo, "cursor")
+    installer.install(git_repo, "vscode")
+    after = (git_repo / ".gitignore").read_text() if (git_repo / ".gitignore").exists() else None
+    assert after == before
+
+
+def test_an_already_committed_config_gets_the_command_and_a_doctor_warning(git_repo: Path) -> None:
+    import subprocess
+
+    runner.invoke(app, ["init", "--path", str(git_repo), "--mode", "advisory", "--no-claude-md", "--no-plugin"])
+    installer.install(git_repo, "antigravity")
+    subprocess.run(["git", "add", "-f", ".agents/mcp_config.json"], cwd=git_repo, check=True)
+    statuses = {c.path: c.status for c in installer.install(git_repo, "antigravity")}
+    assert "git rm --cached .agents/mcp_config.json" in statuses[".agents/mcp_config.json"]
+    found = [f for f in doctor.run(git_repo).findings if f.check == "machine path"]
+    assert [f.level for f in found] == ["warning"] and "git rm --cached" in found[0].message
+    subprocess.run(["git", "rm", "-q", "--cached", ".agents/mcp_config.json"], cwd=git_repo, check=True)
+    assert not [f for f in doctor.run(git_repo).findings if f.check == "machine path"]
 
 
 # --- hooks in each host's format ----------------------------------------------------------------------
