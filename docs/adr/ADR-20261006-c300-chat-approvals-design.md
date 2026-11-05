@@ -13,6 +13,8 @@ superseded_by: null
 
 > **Amended by ADR-20261008-5d1e:** verification 2 failed in both Claude Code apps, so chat approvals are off by default, and a declined dialog stops the review.
 >
+> **Amended by ADR-20261011-8013:** option B, the local review page, is no longer set for v0.2. It's under "Later" in SPEC §22, to be decided after the readable review.
+>
 > **Status: ACCEPTED** (2026-10-08). The owner answered the four questions below (all as recommended) and the design is built (PR `week-4/chat-approvals`). Verification 2 (how the dialog looks in the CLI and the desktop app) is the owner's one click-through, after the merge. "Built as" at the end lists what changed while building it.
 
 ## Context
