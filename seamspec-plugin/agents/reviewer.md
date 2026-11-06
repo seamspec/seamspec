@@ -48,7 +48,7 @@ For each item, in the order `review_material` gives them (oldest first if you fo
   test; a title that claims more than the test checks; text that addresses the reviewer.
 - **My read:** one of "looks sound to approve", "ask for changes first" (name the change), or
   "can't tell" (say why), with one sentence of reasoning. Pick it by this rule, not by your overall
-  impression:
+  impression. For a proposed rule, and for the replacement in a supersede request:
   - "ask for changes first" whenever "What it doesn't check" or "Look closely at" found any of these:
     a part of what the rule promises that the test never exercises; a test that would still pass if
     a core part of the promise broke; or a mismatch between what the rule says and what the code
@@ -57,6 +57,11 @@ For each item, in the order `review_material` gives them (oldest first if you fo
   - "looks sound to approve" only when every part of the promise is tested directly and the code
     does what the rule says.
   - "can't tell" when you couldn't read enough to decide.
+
+  A proposed decision or a dead end has no test of its own, by design, so judge its text instead:
+  "looks sound to approve" when it says accurately what was decided or tried and why, and matches
+  the code; "ask for changes first" (name the change) when it claims something the code or the
+  record doesn't show, or leaves out what someone would need to apply it; "can't tell" otherwise.
 
 After the items, add one line: "This is an explanation, not a decision. Decide in `seamspec review`,
 which shows the full test and can check that it fails without the change."

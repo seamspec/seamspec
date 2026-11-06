@@ -27,6 +27,8 @@ The template asked for one of three verdicts "with one sentence of reasoning", w
 
 Gaps outside the promise (say, performance a rule never mentions) don't force "ask for changes first".
 
+This rule covers proposed rules and the replacement in a supersede request. A proposed decision or a dead end has no test by design, so its "My read" judges the text: accurate and matching the code means "looks sound to approve"; a claim the code or record doesn't show, or a missing detail someone would need, means "ask for changes first" (Copilot on #114).
+
 Alternatives: dropping "My read" altogether, rejected because the owner finds it useful and SeamSpec's facts and red-green still sit beside it in `seamspec review`; having SeamSpec parse the answer and flag a contradiction, rejected because the core stays model-free and doesn't grade the reviewer's prose (§3).
 
 ## Enforced Invariants

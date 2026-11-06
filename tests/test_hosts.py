@@ -110,6 +110,9 @@ def test_my_read_follows_the_gaps_in_every_reviewer() -> None:
             '"looks sound to approve" only when every part of the promise is tested directly and the code does '
             "what the rule says."
         ) in flat, host
+        assert "For a proposed rule, and for the replacement in a supersede request:" in flat, host
+        # Copilot on #114: decisions and dead ends have no test by design, so they get their own criteria
+        assert "A proposed decision or a dead end has no test of its own, by design, so judge its text" in flat, host
 
 
 def test_agents_md_gets_the_protocol_worded_for_these_hosts(tmp_path: Path) -> None:
