@@ -403,7 +403,7 @@ def test_junit_checks_reads_line_and_message_and_counts_repeats(tmp_path: Path) 
     checks = reports.junit_checks(xml, ids)
     assert checks == {
         "inv_00000001": [reports.FailedCheck(29, "assert 4 == 5", 2)],  # two cases, one line
-        "inv_00000002": [reports.FailedCheck(1, "ImportError: cannot import name 'x'")],
+        "inv_00000002": [reports.FailedCheck(1, "ImportError: cannot import name 'x'", errored=True)],
         "inv_00000003": [reports.FailedCheck(3, "expected 9 to be 3")],  # a JavaScript stack starts at the failure
     }
     assert reports.junit_checks(tmp_path / "missing.xml", ids) == {}
@@ -435,7 +435,7 @@ def test_failure_summary_names_the_rule_and_the_check(py_repo: Path) -> None:
         "    Test: .seamspec/tests/test_inv_00000002.py",
     ]
     assert report.to_dict()["results"][0]["checks"]["inv_00000002"] == [
-        {"line": 4, "message": "assert 99.0 <= 30", "cases": 1}
+        {"line": 4, "message": "assert 99.0 <= 30", "cases": 1, "errored": False}
     ]
 
 
