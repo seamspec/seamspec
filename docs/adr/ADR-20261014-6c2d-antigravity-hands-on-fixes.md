@@ -11,6 +11,8 @@ superseded_by: null
 
 # ADR-20261014-6c2d: Fixes from the Antigravity hands-on test
 
+> **Amended by ADR-20261105-844f:** `.agents/mcp_config.json` is now git-ignored, so each clone writes its own copy instead of committing one.
+
 ## Context
 
 The owner tried SeamSpec in Antigravity on a fresh project (`bdtest`, a small cart with BRAINDUMP notes). The session-start summary, sorting notes, approving rules, `/seamspec-status`, the agent declining a rule-breaking change and the Stop check blocking one all worked. Five things didn't:
