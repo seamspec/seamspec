@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -85,6 +86,42 @@ PLUGIN_TEAM_QUESTION = (
 
 def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _in_git(root: Path) -> bool:
+    """`root` is inside a git work tree (a subfolder of a repository counts)."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+                             capture_output=True, text=True, timeout=10)  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0 and out.stdout.strip() == "true"
+
+
+def _projects_inside(root: Path) -> list[str]:
+    """Folders right inside `root` that are git repositories of their own."""
+    try:
+        return sorted(p.name for p in root.iterdir() if p.is_dir() and (p / ".git").exists())
+    except OSError:
+        return []
+
+
+def _confirm_outside_git(root: Path) -> None:
+    """A new setup outside git: ask before writing anything (ADR-20261105-5c1d). Once, `init` ran in the
+    folder that holds the owner's projects instead of in one of them, and set that folder up."""
+    others = _projects_inside(root)
+    lines = [f"{root} isn't a git repository. SeamSpec compares rules with git HEAD, and its commit check"
+             " and CI need git."]  # fmt: skip
+    if others:
+        shown = ", ".join(others[:4]) + (f" and {len(others) - 4} more" if len(others) > 4 else "")
+        lines.append(f"It holds other projects ({shown}): did you mean to run this inside one of them?")
+    if not _interactive():
+        if others:
+            raise _fail(" ".join(lines) + " Nothing was written. Run it in the project's folder (or pass --path).")
+        return  # a scripted setup in a plain folder: allowed, with the note at the end as before
+    typer.echo("\n".join(lines))
+    if not typer.confirm("Set SeamSpec up here anyway?", default=False):
+        raise _fail("nothing was written. Run `seamspec init` in your project's folder, or `git init` here first.")
 
 
 def _consented(root: Path) -> bool:
@@ -191,6 +228,8 @@ def init(
         raise _fail(f"{root} is not a directory")
 
     current = scaffold.current_mode(root)
+    if current is None and not _in_git(root):
+        _confirm_outside_git(root)
     target = mode or scaffold.default_mode(current)
     lowering = current is not None and scaffold.MODE_RANK[target] < scaffold.MODE_RANK[current]
     if lowering:
