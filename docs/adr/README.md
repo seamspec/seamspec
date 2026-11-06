@@ -105,4 +105,5 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261105-bf19](ADR-20261105-bf19-init-moves-the-plugin-pin.md) | Re-running init moves the Claude Code plugin to the installed version, and doctor warns when it hasn't | ACCEPTED |
 | [ADR-20261105-844f](ADR-20261105-844f-gemini-sign-and-antigravity-config-ignored.md) | A GEMINI.md suggests Antigravity, and Antigravity's MCP config stays out of git | ACCEPTED |
 | [ADR-20261105-a7d2](ADR-20261105-a7d2-approval-identity-warning-and-local-frozen-check.md) | Warn before a personal email is approved into a rule, and check a locked rule's details locally | ACCEPTED |
+| [ADR-20261105-0576](ADR-20261105-0576-an-error-is-not-a-regression.md) | A test that stops with an error isn't reported as a regression | ACCEPTED |
 | [ADR-20261105-e2c9](ADR-20261105-e2c9-reviewer-my-read-follows-the-gaps.md) | The reviewer's "My read" follows the gaps it listed | ACCEPTED |

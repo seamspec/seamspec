@@ -1077,11 +1077,9 @@ def verify(
         else:
             typer.echo(_verify_text(store, report, problems, gate, staged), err=gate)
             if not proposed:
-                typer.echo(
-                    "\nFix the regression, or if the change is intentional, supersede the rule "
-                    "(`seamspec supersede <id> --reason ...`).",
-                    err=gate,
-                )
+                not_started = failtext.did_not_start(report) and not problems
+                hint = failtext.NOT_STARTED_HINT if not_started else failtext.REGRESSION_HINT
+                typer.echo(f"\n{hint}", err=gate)
             if gate and report.results and not staged:  # `verify --all` runs the files on disk
                 typer.echo("Full test output: `seamspec verify --all`", err=True)
         if gate and pending:
