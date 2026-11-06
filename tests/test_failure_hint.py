@@ -46,6 +46,11 @@ FAILURE = FailedCheck(4, "assert 99.0 <= 30")
         (VerifyReport(False, results=[result(["inv_1"], ERROR, FAILURE)]), False),  # one check failed: a regression
         (VerifyReport(False, results=[result(["inv_1"], ERROR), result(["inv_2"], FAILURE)]), False),
         (VerifyReport(False, results=[result(["inv_1"], ERROR, timed_out=True)]), False),  # a hang can be a regression
+        # Copilot on #113: the Stop deadline marks a timed-out group incomplete too; it still rules this out
+        (
+            VerifyReport(False, results=[result(["inv_1"], ERROR), result(["inv_2"], timed_out=True, incomplete=True)]),
+            False,
+        ),
         (VerifyReport(False, results=[result(["inv_1"])]), False),  # nothing says what failed: assume the worst
         (VerifyReport(False, integrity_failures=["inv_1: harness modified since approval"]), False),
         (VerifyReport(False, config_failures=["pytest.ini changed"], results=[result(["inv_1"], ERROR)]), False),
@@ -90,3 +95,19 @@ def test_the_stop_hook_keeps_the_supersede_hint_for_a_regression(git_repo: Path,
     (git_repo / "src/queue.py").write_text(BROKEN_CODE)
     out = stop(git_repo)
     assert out is not None and claude.SUPERSEDE_HINT in out["reason"] and claude.NOT_STARTED_HINT not in out["reason"]
+
+
+def test_an_error_on_a_declined_rule_gets_the_error_advice(git_repo: Path, human: None) -> None:
+    """Copilot on #113: a person declined retiring the rule earlier; now its test can't import. The decline is
+    still shown, but the advice is about the error, not "Fix the regression"."""
+    from seamspec.core import lifecycle, requests
+    from seamspec.core.store import Store
+
+    inv_id = lock(git_repo)
+    store = Store(git_repo)
+    lifecycle.request_supersede(store, inv_id, "cap is changing")
+    requests.decline(store, inv_id, "we keep the 30 s cap")
+    (git_repo / "src/queue.py").unlink()
+    out = stop(git_repo)
+    assert out is not None and f"A person declined the request to retire {inv_id}" in out["reason"]
+    assert claude.NOT_STARTED_HINT in out["reason"] and claude.DECLINED_HINT not in out["reason"]

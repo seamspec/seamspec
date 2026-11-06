@@ -225,10 +225,10 @@ def stop(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] |
     if report.incomplete:
         lines.append("[INCOMPLETE] time ran out before every locked rule was checked.")
     declines = declined_lines(store, failing)  # a person said no: say so, or the agent asks again (ADR-20261024-6f0c)
-    if declines and len(declines) == len(failing):
-        hint = DECLINED_HINT
-    elif failtext.did_not_start(report) and not other:
+    if failtext.did_not_start(report) and not other:  # an error first: a declined rule can break for other reasons
         hint = NOT_STARTED_HINT
+    elif declines and len(declines) == len(failing):
+        hint = DECLINED_HINT
     else:
         hint = SUPERSEDE_HINT
     details = "SeamSpec: locked rule check failed.\n" + "\n".join(lines + declines) + "\n" + hint

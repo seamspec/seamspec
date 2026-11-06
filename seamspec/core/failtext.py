@@ -118,14 +118,14 @@ def did_not_start(report: VerifyReport) -> bool:
     dogfooding, ADR-20261105-0576). A timeout, an edited test or a check that failed is never this."""
     if report.integrity_failures or report.config_failures:
         return False
+    if any(r.timed_out for r in report.results if not r.passed):  # a Stop deadline marks it incomplete too
+        return False
     failing = [r for r in report.results if not r.passed and not r.incomplete]
     if not failing:
         return False
     for result in failing:
         if result.could_not_run:
             continue
-        if result.timed_out:
-            return False
         ids = result.failed_ids if result.failed_ids is not None else result.invariant_ids
         checks = [c for i in ids for c in result.checks.get(i, [])]
         if not ids or not all(result.checks.get(i) for i in ids) or not all(c.errored for c in checks):
