@@ -214,6 +214,9 @@ def _message(store: Store, cfg: Config, state: dict[str, Any]) -> str:
                          "(`seamspec review`) after checking it.")  # fmt: skip
         lines += ["", "approve: SeamSpec runs the test now and, if it passes, locks the rule: from then on "
                   "it runs at every stop, commit and CI run.", "reject: give a reason; the agent sees it."]  # fmt: skip
+        warning = lifecycle.identity_warning(lifecycle.approver_identity(store))
+        if warning:
+            lines.append(f"Note: {warning}")
         if state.get("rg") is None:
             lines.append("redgreen: asks before running the test, to see if it fails without the change.")
     return "\n".join(lines)

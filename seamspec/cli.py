@@ -281,6 +281,8 @@ def init(
         typer.echo("This clone isn't trusted yet: run `seamspec trust` to review its runner commands.")
     if not (root / ".git").exists():
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
+    if warning := lifecycle.identity_warning(lifecycle.approver_identity(Store(root))):
+        typer.echo(f"  note: {warning}")
     _init_ci(root, report.mode, ci)
     _init_plugin(root, plugin, plugin_scope)
     _init_hosts(root, hosts)

@@ -747,9 +747,11 @@ stateDiagram-v2
 | any status | any **different** status, **including back to `PROPOSED`** | **Yes.** The CLI never moves a record back to `PROPOSED`, so e.g. `LOCKED → PROPOSED` (which would silently drop the rule from verification) is always flagged |
 | `LOCKED` | file deleted | **Always flagged.** The CLI never deletes records, so there is no valid journal entry for this |
 
-The journal explains a change when its entries for that `id` form a **chain** from the `HEAD` status to the current one, e.g. `PROPOSED → LOCKED` then `LOCKED → SUPERSEDED` for a rule approved and superseded before the next commit. That is not tamper-proof, since an agent with shell access could write the journal too, but it turns a silent retirement into a visible warning. CI adds a **retirement summary** listing every rule whose status changed in the PR (§16.5), so a reviewer can't miss it.
+The journal explains a change when its entries for that `id` form a **chain** from the `HEAD` status to the current one, e.g. `PROPOSED → LOCKED` then `LOCKED → SUPERSEDED` for a rule approved and superseded before the next commit. That is not tamper-proof, since an agent with shell access could write the journal too, but it turns a silent retirement into a visible warning.
 
-**Approver identity.** `approved_by` (and `actor` in the journal) is the identity git records for commits, `Name <email>`, read with `git var GIT_AUTHOR_IDENT` so git's own rules apply (environment overrides, and the OS full name when `user.name` is unset; dogfooding finding, ADR-20261006-0f6e). It falls back to the OS user name when git can't say. It is committed with the record; users who keep their email private should use their forge's noreply address in git config.
+**Frozen fields.** The same check also compares the details of every rule that is `LOCKED` at `HEAD` and still `LOCKED`: its `title`, `assertion`, `scope`, `verification`, `approved_at` and `approved_by` must match `HEAD`, as `doctor --ci` requires against the base branch (§16.5). The CLI never edits them in place, so no journal entry can explain a difference; it is flagged with the `git checkout HEAD -- <record>` that reverts it (ADR-20261105-a7d2). CI adds a **retirement summary** listing every rule whose status changed in the PR (§16.5), so a reviewer can't miss it.
+
+**Approver identity.** `approved_by` (and `actor` in the journal) is the identity git records for commits, `Name <email>`, read with `git var GIT_AUTHOR_IDENT` so git's own rules apply (environment overrides, and the OS full name when `user.name` is unset; dogfooding finding, ADR-20261006-0f6e). It falls back to the OS user name when git can't say. It is committed with the record, and a locked record can't be edited; users who keep their email private should use their forge's noreply address in git config. When the email is at a well-known personal mail provider, `init` says so, `seamspec review` says so before anything is decided and asks *"Continue with this address?"*, and the chat review dialog shows the same note (SessionWalk dogfooding, ADR-20261105-a7d2). A work address isn't flagged.
 
 ### 11.2 Supersede Flow (Intentional Breaking Changes)
 
@@ -2098,7 +2100,7 @@ Only the rules are described as human-approved: dead ends appear under their own
 1. Read stdin JSON (inside the error handler): `session_id`, `prompt_id`, `cwd`.
 2. Retries are counted **per user prompt** (`prompt_id`), so a new user message gets a fresh budget. Current Claude Code no longer sends `stop_hook_active`; if an older version does, a stop with `stop_hook_active: false` resets the count (ADR-20261005-5009).
 3. If auto-run consent is missing or the clone is not trusted (§12.4) → allow, with a warning; **no tests run**.
-4. **Journal check** (§11.1, including records absent at `HEAD` and deleted LOCKED records): any invariant whose status differs from `HEAD` without a matching journal entry counts as a failure: *"inv_1a2b3c4d was changed to SUPERSEDED outside the SeamSpec CLI. Revert it, or ask the user to run `seamspec review`."*
+4. **Journal check** (§11.1, including records absent at `HEAD` and deleted LOCKED records): any invariant whose status differs from `HEAD` without a matching journal entry counts as a failure: *"inv_1a2b3c4d was changed to SUPERSEDED outside the SeamSpec CLI. Revert it, or ask the user to run `seamspec review`."* A locked rule whose frozen fields differ from `HEAD` counts too.
 5. If the tree fingerprint (git-visible files only, §12.2) equals the last **green** verify and step 4 found nothing → allow.
 6. Run the verifier on `LOCKED` invariants only, within `verify.stop_deadline_seconds`. Selection follows `verify.run_on_stop`: `auto` (default) runs all of them below `stop_all_threshold` (100) and only those matching changed files at or above it. Proposed tests never run here.
 7. All pass → save result, allow.
@@ -2478,7 +2480,8 @@ Python ≥ 3.11. Dependencies: `mcp` (2.x), `pydantic>=2`, `typer`, `rich`, `pat
 - `approve`: computes runner config fingerprints, moves the harness from `proposed/` into the runner's `harness_dir`, and runs it with those fingerprints. On failure the harness moves back and **nothing is written**. On success it records hashes, `LOCKED`, `approved_at`, `approved_by` (the identity git records, `git var GIT_AUTHOR_IDENT`, §11.1), writes `fingerprints.json`, journals `PROPOSED → LOCKED` and sets the ADR to `ACCEPTED`.
 - `reject` / `supersede` move the harness to `.seamspec/retired/<id>/` (the record keeps its hash) and journal the change. `reject(as_dead_end=True)` also records a dead end. `supersede` takes its reason and replacement from a pending request when none is given, and clears the request. It raises `LifecycleError` while the replacement is still `PROPOSED` (or missing, or rejected): callers approve the replacement first (ADR-20261013-7c2e).
 - `harness_in_place(...)`: context manager that copies a `PROPOSED` harness to its runner location for one run (`verify --proposed`, red-green) and removes it afterwards.
-- `journal.unjournaled_changes(store)` implements the rules in §11.1 against `git HEAD` (works when `.seamspec/` sits in a subfolder of the git repo). No git or no commit means "everything is new".
+- `journal.unjournaled_changes(store)` implements the rules in §11.1 against `git HEAD` (works when `.seamspec/` sits in a subfolder of the git repo), including the frozen fields of rules `LOCKED` at `HEAD` (`journal.FROZEN`, shared with `doctor --ci`). No git or no commit means "everything is new". `journal.head_records(root)` returns the records at `HEAD` as raw JSON; `head_statuses(root)` their statuses.
+- `lifecycle.personal_email(identity)` returns the email in `Name <email>` when it is at a well-known personal mail provider; `identity_warning(identity)` the note `init`, `review` and the chat dialog show for it (ADR-20261105-a7d2).
 - Every prose field written into a record passes through `redact()` (§13.8) when `braindump.redact_secrets` is on (the default), for every origin, not only braindump: `origin.text`, a rule's `title` and `assertion` and its `adr_draft`, a decision's `title`, `context`, `decision` and `consequences`, a dead end's approach and `failure_symptom` (ADR-20261027-9d14). Not `harness_code`.
 - ADR files use JSON-valued frontmatter (valid YAML flow style), so no YAML dependency is needed. Hand-written ADRs in the same format, including this repo's `docs/adr/`, parse (a test checks it).
 
@@ -2749,6 +2752,7 @@ seamspec/
     ├── test_verifier_vitest.py     # real vitest runs (CI job `vitest`)
     ├── test_lifecycle.py           # propose/approve/reject/supersede against real pytest runs
     ├── test_journal_adr.py         # journal vs real git history; ADR files
+    ├── test_approval_records.py    # personal-email warning; locked rules' frozen fields vs HEAD
     ├── test_cli_lifecycle.py
     ├── test_trust_gate.py          # consent, trust, verify CLI, pre-commit end to end with real git
     ├── test_review.py              # review flow via the CLI; red-green against real git worktrees

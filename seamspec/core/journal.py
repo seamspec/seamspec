@@ -17,6 +17,8 @@ from .models import utcnow
 from .store import Store
 
 JOURNAL = "journal.jsonl"
+# Fields of a LOCKED record that only a supersede may change (forward-only, §16.5).
+FROZEN = ("title", "assertion", "scope", "verification", "approved_at", "approved_by")
 BASELINE_ABSENT = "PROPOSED"  # a record new since HEAD starts from PROPOSED: proposing needs no entry
 
 
@@ -62,8 +64,8 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
         return None
 
 
-def head_statuses(root: Path) -> dict[str, str]:
-    """Invariant statuses as committed at HEAD. Empty if there is no git repo or no commit yet."""
+def head_records(root: Path) -> dict[str, dict]:
+    """Invariant records as committed at HEAD, as raw JSON. Empty if there is no git repo or no commit yet."""
     prefix = _git(root, "rev-parse", "--show-prefix")
     if prefix is None or prefix.returncode != 0:
         return {}
@@ -71,7 +73,7 @@ def head_statuses(root: Path) -> dict[str, str]:
     listing = _git(root, "ls-tree", "-r", "--name-only", "--full-tree", "HEAD", "--", folder)
     if listing is None or listing.returncode != 0:
         return {}
-    out: dict[str, str] = {}
+    out: dict[str, dict] = {}
     for name in listing.stdout.splitlines():
         if not name.endswith(".json"):
             continue
@@ -83,7 +85,26 @@ def head_statuses(root: Path) -> dict[str, str]:
         except ValueError:
             continue
         if isinstance(data, dict) and isinstance(data.get("id"), str):
-            out[data["id"]] = str(data.get("status"))
+            out[data["id"]] = data
+    return out
+
+
+def head_statuses(root: Path) -> dict[str, str]:
+    """Invariant statuses as committed at HEAD. Empty if there is no git repo or no commit yet."""
+    return {inv_id: str(data.get("status")) for inv_id, data in head_records(root).items()}
+
+
+def _records_now(store: Store) -> dict[str, dict]:
+    """Invariant records on disk, as raw JSON (unreadable ones are left to the schema checks)."""
+    out: dict[str, dict] = {}
+    folder = store._folder("inv")
+    for path in sorted(folder.glob("inv_*.json")) if folder.is_dir() else []:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and isinstance(data.get("id"), str):
+            out[data["id"]] = data
     return out
 
 
@@ -105,7 +126,8 @@ def _explained(edges: set[tuple[str, str]], start: str, goal: str) -> bool:
 
 def unjournaled_changes(store: Store) -> list[str]:
     """Human-readable problems; empty when every status change since HEAD went through the CLI."""
-    head = head_statuses(store.root)
+    head_full = head_records(store.root)
+    head = {inv_id: str(data.get("status")) for inv_id, data in head_full.items()}
     now = {inv.id: inv.status.value for inv in store.load_all("inv")}
     edges: dict[str, set[tuple[str, str]]] = defaultdict(set)
     for e in entries(store):
@@ -127,4 +149,18 @@ def unjournaled_changes(store: Store) -> list[str]:
     for inv_id, status in sorted(head.items()):
         if inv_id not in now and status == "LOCKED":
             problems.append(f"{inv_id} was LOCKED at HEAD and its record was deleted. The CLI never deletes records.")
+    # A locked rule's details never change in place: the CLI only supersedes it (ADR-20261105-a7d2).
+    # The same comparison `doctor --ci` makes with the base branch, made here with HEAD.
+    raw = _records_now(store)
+    for inv_id, before in sorted(head_full.items()):
+        after = raw.get(inv_id)
+        if before.get("status") != "LOCKED" or after is None or after.get("status") != "LOCKED":
+            continue
+        changed = [f for f in FROZEN if before.get(f) != after.get(f)]
+        if changed:
+            rel = store.path_for(inv_id).relative_to(store.root).as_posix()
+            problems.append(
+                f"{inv_id} is LOCKED and its {', '.join(changed)} changed since HEAD. Only a supersede may change "
+                f"a locked rule: revert the edit (`git checkout HEAD -- {rel}`)."
+            )
     return problems
