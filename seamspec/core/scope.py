@@ -23,9 +23,13 @@ def matches(patterns: list[str], rel_path: str) -> bool:
 
 def effective_protected_paths(cfg: Config) -> list[str]:
     """One list used by the PreToolUse hook, CODEOWNERS and `doctor --ci` (§12A.5):
-    protect.paths + every runner's harness glob + every runner's config files."""
+    protect.paths + every runner's harness glob + every runner's config files + the command, skill and
+    reviewer files SeamSpec writes for other hosts (ADR-20261105-9d3f)."""
+    from .commands import GENERATED_GLOBS
+
     globs = list(cfg.protect.paths)
     for runner in cfg.runners.values():
         globs.append(runner.protect_glob())
         globs.extend(runner.config_files)
+    globs.extend(GENERATED_GLOBS)
     return globs

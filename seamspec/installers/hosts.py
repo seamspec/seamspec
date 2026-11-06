@@ -247,6 +247,38 @@ def install_agents(root: Path, host: str) -> list[Change]:
     return out
 
 
+def generated(host: str) -> dict[str, str]:
+    """Every file SeamSpec writes for `host` whole, by path: its commands or skills and its reviewer."""
+    out = {commands.HOST_FILES[host].format(name=n): commands.render(n, host) for n in commands.commands_for(host)}
+    if host in commands.AGENT_FILES:
+        out |= {commands.AGENT_FILES[host].format(name=n): commands.render_agent(n, host) for n in commands.V01_AGENTS}
+    return out
+
+
+def drifted(root: Path, host: str) -> list[str]:
+    """SeamSpec's files for `host` that exist here but differ from what this version writes: edited by
+    hand or by an agent, or written by another version (ADR-20261105-9d3f)."""
+    out = []
+    for rel, text in generated(host).items():
+        path = root / rel
+        if path.is_file() and path.read_text(encoding="utf-8", errors="replace") != text:
+            out.append(rel)
+    return out
+
+
+def drift_notes(root: Path) -> list[str]:
+    """One line per host whose SeamSpec files changed, for `doctor` and the commit check."""
+    out = []
+    for host in HOSTS:
+        if changed := drifted(root, host):
+            shown = ", ".join(changed[:3]) + (f" and {len(changed) - 3} more" if len(changed) > 3 else "")
+            out.append(
+                f"{shown} {'differs' if len(changed) == 1 else 'differ'} from what this SeamSpec writes (edited, or"
+                f" from another version): check the diff, then rerun `seamspec init --hosts {host}`"
+            )
+    return out
+
+
 def install(root: Path, host: str) -> list[Change]:
     """Set SeamSpec up for one host. Safe to rerun."""
     if host not in HOSTS:

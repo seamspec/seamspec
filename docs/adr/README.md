@@ -107,3 +107,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261105-a7d2](ADR-20261105-a7d2-approval-identity-warning-and-local-frozen-check.md) | Warn before a personal email is approved into a rule, and check a locked rule's details locally | ACCEPTED |
 | [ADR-20261105-0576](ADR-20261105-0576-an-error-is-not-a-regression.md) | A test that stops with an error isn't reported as a regression | ACCEPTED |
 | [ADR-20261105-e2c9](ADR-20261105-e2c9-reviewer-my-read-follows-the-gaps.md) | The reviewer's "My read" follows the gaps it listed | ACCEPTED |
+| [ADR-20261105-9d3f](ADR-20261105-9d3f-guard-seamspecs-own-host-files.md) | Agents may not edit SeamSpec's reviewer and command files, and changes to them are reported | ACCEPTED |
