@@ -1531,7 +1531,7 @@ SeamSpec has **two command surfaces**:
 | `/seamspec:lock` | `<behavior>` (required) | "This works. Protect it." | `get_constraints`, `propose_invariant` | One `PROPOSED` invariant + passing test + optional draft ADR |
 | `/seamspec:dead-end` | `[note]` (optional) | "That approach failed. Don't retry it." | `get_constraints`, `log_dead_end` | One `ACTIVE` dead end |
 | `/seamspec:drain` | — | After writing in BRAINDUMP.md | `braindump_pending`, `propose_invariant`, `propose_decision`, `log_dead_end` | Items proposed, logged, dismissed, or left pending |
-| `/seamspec:checkpoint` | `[focus]` (optional) | End of a session or before a commit | `verify`, `get_constraints`, `propose_invariant`, `log_dead_end` | Verification result + up to N proposals + dead ends |
+| `/seamspec:checkpoint` | `[focus]` (optional) | End of a session or before a commit | `verify`, `get_constraints`, `propose_invariant`, `log_dead_end`, `propose_decision` (ADR-20261105-7a4e) | Verification result + up to N proposals + dead ends |
 | `/seamspec:supersede` | `<invariant_id> <reason>` | A requirement genuinely changed | `get_constraints`, `propose_invariant`, `request_supersede` | Replacement `PROPOSED` invariant + supersede request |
 | `/seamspec:context` | `[files...]` (optional) | Before a big change | `get_constraints` | Plain-language explanation of what applies |
 | `/seamspec:explain` | `[ids]` (optional) | Before `seamspec review` | `review_material`, through the `seamspec:reviewer` agent | The reviewer's plain-language explanation of each pending item, shown unchanged; then the offer to open `seamspec review` (§15.3) |
@@ -1563,7 +1563,8 @@ Rules for every SeamSpec command:
   (repeat `--proposed <id>` for each id) with your shell tool; the user may be asked to allow it.
   Never try to work around that prompt.
 - If SeamSpec MCP tools are unavailable, use the CLI instead: `seamspec context <files>`,
-  `seamspec propose --json -`, `seamspec dead-end --json -`, `seamspec verify --json`, `seamspec drain --json`.
+  `seamspec propose --json -`, `seamspec dead-end --json -`, `seamspec propose-decision --json -`,
+  `seamspec verify --json`, `seamspec drain --json`.
 - End your reply with the SeamSpec summary block:
 
   SeamSpec · <command>
@@ -1675,7 +1676,7 @@ Sort the notes in the user's BRAINDUMP.md. Only these notes, if given: {{args}}
 ```markdown
 ---
 name: checkpoint
-description: End-of-session SeamSpec check. Verifies the locked rules, proposes rules for behavior built this session, and records approaches that failed. Use when the user says "wrap up", "checkpoint" or "before I commit".
+description: End-of-session SeamSpec check. Verifies the locked rules, proposes rules for behavior built this session, and records approaches that failed and design decisions made. Use when the user says "wrap up", "checkpoint" or "before I commit".
 argument-hint: "[area to focus on]"
 ---
 Run a SeamSpec checkpoint for this session. Optional focus: {{args}}
@@ -1691,6 +1692,11 @@ Run a SeamSpec checkpoint for this session. Optional focus: {{args}}
    user constraints, user-visible behavior, security, data integrity. Skip cosmetic or trivial
    behavior. Propose each with `propose_invariant`, then run `seamspec verify --proposed <id>`.
 5. Record every approach tried and abandoned this session with `log_dead_end`.
+6. Record design choices settled this session that shape future work on specific files (for
+   example deferring a feature after measuring it, choosing an algorithm or a data
+   representation, or setting a module boundary) with `propose_decision`, scoped to those files.
+   Only a rationale or trade-off belongs here: something a test can check is a rule (step 4), and
+   a failed attempt is a dead end (step 5). Skip choices `get_constraints` already shows.
 ```
 
 #### `supersede.md`
@@ -2353,7 +2359,11 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
    If the project keeps a list of rules it intends to lock (for example a section of its
    plan), propose each one when its code exists and works.
 3. When an approach fails, or the user tells you about one that failed before, call
-   `log_dead_end` with what was tried and why it failed.
+   `log_dead_end` with what was tried and why it failed. When you and the user settle a design
+   choice that shapes future work on specific files (for example deferring a feature after
+   measuring it, choosing an algorithm or a data representation, or setting a module boundary),
+   and it is a rationale or trade-off rather than something a test can check or a failed attempt,
+   call `propose_decision` scoped to those files, so `get_constraints` shows it in later sessions.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
 5. Never edit files under `.seamspec/` directly; use SeamSpec tools. If they are missing or fail,

@@ -291,7 +291,7 @@ def propose_decision(
     origin_ref: str | None = None,
     roots: SessionRoots = None,
 ) -> dict[str, Any]:
-    """Propose a decision (ADR) with no test of its own; the user decides in `seamspec review`."""
+    """Propose a design decision for these files (a trade-off, no test); the user decides in `seamspec review`."""
     return _with_services(
         lambda svc: lifecycle.propose_decision(
             svc.store,

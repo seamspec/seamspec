@@ -1,6 +1,6 @@
 ---
 name: checkpoint
-description: End-of-session SeamSpec check. Verifies the locked rules, proposes rules for behavior built this session, and records approaches that failed. Use when the user says "wrap up", "checkpoint" or "before I commit".
+description: End-of-session SeamSpec check. Verifies the locked rules, proposes rules for behavior built this session, and records approaches that failed and design decisions made. Use when the user says "wrap up", "checkpoint" or "before I commit".
 argument-hint: "[area to focus on]"
 ---
 Run a SeamSpec checkpoint for this session. Optional focus: {{args}}
@@ -18,3 +18,8 @@ Run a SeamSpec checkpoint for this session. Optional focus: {{args}}
    user constraints, user-visible behavior, security, data integrity. Skip cosmetic or trivial
    behavior. Propose each with `propose_invariant`, then run `seamspec verify --proposed <id>`.
 5. Record every approach tried and abandoned this session with `log_dead_end`.
+6. Record design choices settled this session that shape future work on specific files (for
+   example deferring a feature after measuring it, choosing an algorithm or a data
+   representation, or setting a module boundary) with `propose_decision`, scoped to those files.
+   Only a rationale or trade-off belongs here: something a test can check is a rule (step 4), and
+   a failed attempt is a dead end (step 5). Skip choices `get_constraints` already shows.
