@@ -1084,7 +1084,7 @@ def verify(
         if gate and pending:
             typer.echo(f"SeamSpec: {pending} item(s) awaiting review: run `seamspec review`.", err=True)
     if gate and not as_json:  # every host commits through here, even where no edit hook exists yet
-        for note in host_installer.drift_notes(root):
+        for note in host_installer.drift_notes(root, staged=True):  # what the commit records (Copilot, #115)
             typer.echo(f"SeamSpec (warning, not blocking): {note}", err=True)
     if not ok:
         raise typer.Exit(1)

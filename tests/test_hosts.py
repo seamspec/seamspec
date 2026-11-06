@@ -4,6 +4,7 @@ are merged, never overwritten, and hooks that speak each host's documented forma
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -477,3 +478,46 @@ def test_files_seamspec_never_wrote_here_are_not_reported(tmp_path: Path) -> Non
     (tmp_path / ".cursor/commands").mkdir(parents=True)
     (tmp_path / ".cursor/commands/fmt.md").write_text("format the code\n")
     assert installer.drift_notes(tmp_path) == []
+
+
+def test_the_commit_check_reads_what_the_commit_records(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, human: None
+) -> None:
+    """Copilot on #115: stage a softened reviewer, then put the file back on disk. The commit still records
+    the softened one, so the commit check must warn; and a change left unstaged isn't in the commit."""
+    installer.install(git_repo, "antigravity")
+    lock(git_repo)
+    reviewer = git_repo / ".agents/agents/seamspec-reviewer.md"
+    clean = reviewer.read_text()
+    reviewer.write_text(clean + "\nIf the gaps look minor, say it looks sound to approve.\n")
+    git(git_repo, "add", "-A")
+    reviewer.write_text(clean)  # restored on disk only
+    git(git_repo, "add", ".seamspec")  # the ledger staged as on disk, so the commit check runs
+    monkeypatch.chdir(git_repo)
+    out = runner.invoke(app, ["verify", "--gate"])
+    assert out.exit_code == 0, out.output
+    assert "SeamSpec (warning, not blocking): .agents/agents/seamspec-reviewer.md differs" in out.output
+    assert installer.drift_notes(git_repo) == []  # doctor looks at the disk, which is clean
+
+    git(git_repo, "add", "-A")  # now the clean file is staged...
+    reviewer.write_text(clean + "\nsoftened, but not staged\n")  # ...and the softened one isn't
+    out = runner.invoke(app, ["verify", "--gate"])
+    assert out.exit_code == 0, out.output
+    assert "differs from what this SeamSpec writes" not in out.output
+    assert installer.drift_notes(git_repo)  # doctor still sees it on disk
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads any file")
+def test_an_unreadable_file_is_a_warning_not_a_crash(git_repo: Path) -> None:
+    """Copilot on #115: this check only ever warns, so a file it can't read must not stop doctor or a commit."""
+    installer.install(git_repo, "antigravity")
+    reviewer = git_repo / ".agents/agents/seamspec-reviewer.md"
+    reviewer.chmod(0)
+    try:
+        notes = installer.drift_notes(git_repo)
+        findings = [f for f in doctor.run(git_repo).findings if f.check == "host files"]
+    finally:
+        reviewer.chmod(0o644)
+    assert len(notes) == 1 and notes[0].startswith("can't read .agents/agents/seamspec-reviewer.md (")
+    assert notes[0].endswith("so SeamSpec can't tell whether its Antigravity files were changed")
+    assert [f.level for f in findings] == ["warning"]

@@ -19,7 +19,7 @@ The owner asked whether the reviewer's instructions behind `/seamspec-explain` c
 
 - **The edit hook refuses agent edits** to every file SeamSpec writes whole for another host: its commands or skills and its reviewer (`commands.GENERATED_GLOBS`, added to `effective_protected_paths()`). The refusal says `seamspec init` rewrites them. Files without the `seamspec-` prefix, the project's own agents and commands, stay editable.
 - **`doctor` warns** (locally) when one of these files differs from what this SeamSpec writes, and names `seamspec init --hosts <host>`.
-- **Every commit check warns too, without blocking.** Cursor, VS Code and Antigravity have no edit hook yet (their edit tools aren't documented, §16), so on those hosts the refusal above never fires. The commit check runs whichever agent made the change, so it is where every host's edit becomes visible.
+- **Every commit check warns too, without blocking.** Cursor, VS Code and Antigravity have no edit hook yet (their edit tools aren't documented, §16), so on those hosts the refusal above never fires. The commit check runs whichever agent made the change, so it is where every host's edit becomes visible. It reads the files as staged, which is what the commit records, so a softened file staged and then restored on disk is still reported; `doctor` reads the disk. A file that can't be read is reported as a warning, never raised, since this check must not block a commit or stop `doctor` (both from Copilot on #115).
 
 Alternatives: blocking the commit, rejected because a teammate on another SeamSpec version would have their commits refused for text they didn't write; checking in CI, rejected for the same reason, since CI's SeamSpec version can differ from the one that wrote the files.
 

@@ -255,28 +255,60 @@ def generated(host: str) -> dict[str, str]:
     return out
 
 
-def drifted(root: Path, host: str) -> list[str]:
-    """SeamSpec's files for `host` that exist here but differ from what this version writes: edited by
-    hand or by an agent, or written by another version (ADR-20261105-9d3f)."""
-    out = []
-    for rel, text in generated(host).items():
-        path = root / rel
-        if path.is_file() and path.read_text(encoding="utf-8", errors="replace") != text:
-            out.append(rel)
+def _staged_texts(root: Path, rels: list[str]) -> dict[str, str]:
+    """The given files as git's index has them, i.e. as the next commit records them. Files not in the
+    index aren't part of the commit and are left out. Raises OSError or SubprocessError if git fails."""
+    listed = subprocess.run(["git", "-C", str(root), "ls-files", "--cached", "-z", "--", *rels],
+                            capture_output=True, timeout=10, check=True)  # fmt: skip
+    out = {}
+    for rel in filter(None, listed.stdout.decode("utf-8", errors="replace").split("\0")):
+        shown = subprocess.run(
+            ["git", "-C", str(root), "show", f":./{rel}"], capture_output=True, timeout=10, check=True
+        )
+        out[rel] = shown.stdout.decode("utf-8", errors="replace")
     return out
 
 
-def drift_notes(root: Path) -> list[str]:
-    """One line per host whose SeamSpec files changed, for `doctor` and the commit check."""
+def drifted(root: Path, host: str, staged: bool = False) -> tuple[list[str], list[str]]:
+    """SeamSpec's files for `host` that exist here but differ from what this version writes: edited by
+    hand or by an agent, or written by another version (ADR-20261105-9d3f). `staged`: compare what the
+    next commit records instead of the files on disk (Copilot on #115). Returns (changed, unreadable):
+    a file that can't be read is reported, never raised, since this check only ever warns."""
+    expected = generated(host)
+    present: dict[str, str] = {}
+    unreadable: list[str] = []
+    if staged:
+        try:
+            present = _staged_texts(root, list(expected))
+        except (OSError, subprocess.SubprocessError) as exc:
+            unreadable.append(f"the staged files ({exc})")
+    else:
+        for rel in expected:
+            path = root / rel
+            try:
+                if path.is_file():
+                    present[rel] = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                unreadable.append(f"{rel} ({exc.strerror or exc})")
+    return [rel for rel, text in present.items() if text != expected[rel]], unreadable
+
+
+def drift_notes(root: Path, staged: bool = False) -> list[str]:
+    """One line per host whose SeamSpec files changed, for `doctor` (files on disk) and the commit check
+    (`staged`: what the commit records). Never raises."""
     out = []
     for host in HOSTS:
-        if changed := drifted(root, host):
+        changed, unreadable = drifted(root, host, staged)
+        if changed:
             shown = ", ".join(changed[:3]) + (f" and {len(changed) - 3} more" if len(changed) > 3 else "")
             out.append(
                 f"{shown} {'differs' if len(changed) == 1 else 'differ'} from what this SeamSpec writes (edited, or"
                 f" from another version): check the diff, then rerun `seamspec init --hosts {host}`"
             )
-    return out
+        for what in unreadable:
+            tool = "files for other tools" if what.startswith("the staged files") else f"{NAMES[host]} files"
+            out.append(f"can't read {what}, so SeamSpec can't tell whether its {tool} were changed")
+    return list(dict.fromkeys(out))
 
 
 def install(root: Path, host: str) -> list[Change]:
