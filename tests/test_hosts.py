@@ -91,6 +91,30 @@ def test_reviewer_is_read_only_in_every_other_host(tmp_path: Path) -> None:
     assert (tmp_path / "cursor/.cursor/agents/seamspec-reviewer.md").is_file()  # installed in the loop above
 
 
+def test_my_read_follows_the_gaps_in_every_reviewer() -> None:
+    """SessionWalk dogfooding: two reviewers listed the same gaps in two rules; Claude's said "ask for changes
+    first", Antigravity's argued the gaps away and said "looks sound to approve". The verdict follows a rule
+    tied to the gaps, not an overall impression, in every host's copy (ADR-20261105-e2c9)."""
+    plugin = (Path(__file__).resolve().parents[1] / "seamspec-plugin/agents/reviewer.md").read_text()
+    copies = {"claude": plugin, **{host: commands.render_agent("reviewer", host) for host in commands.REVIEWER_HOSTS}}
+    for host, text in copies.items():
+        flat = " ".join(text.split())
+        assert "Pick it by this rule, not by your overall impression" in flat, host
+        assert (
+            '"ask for changes first" whenever "What it doesn\'t check" or "Look closely at" found any of these: '
+            "a part of what the rule promises that the test never exercises; a test that would still pass if a "
+            "core part of the promise broke; or a mismatch between what the rule says and what the code does."
+        ) in flat, host
+        assert "Once you have listed such a gap, don't argue it away here." in flat, host
+        assert (
+            '"looks sound to approve" only when every part of the promise is tested directly and the code does '
+            "what the rule says."
+        ) in flat, host
+        assert "For a proposed rule, and for the replacement in a supersede request:" in flat, host
+        # Copilot on #114: decisions and dead ends have no test by design, so they get their own criteria
+        assert "A proposed decision or a dead end has no test of its own, by design, so judge its text" in flat, host
+
+
 def test_agents_md_gets_the_protocol_worded_for_these_hosts(tmp_path: Path) -> None:
     text = directive.directive_text("agents")
     assert "/seamspec-drain" in text and "/seamspec:" not in text
