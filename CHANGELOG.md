@@ -5,6 +5,7 @@ All notable changes to SeamSpec are listed here. The format follows [Keep a Chan
 ## [Unreleased]
 
 ### Fixed
+- **An error isn't reported as a regression.** When a rule's test stops with an error before or around its checks (a missing package, a broken import or fixture) and no check actually failed, `seamspec verify`, the commit check and the agent's stop message now say so, instead of "Fix the regression, or supersede the rule". The commit is still blocked.
 - **A warning before a personal email goes into a rule.** Approving records your git identity in the rule, which is committed and can't be edited. When that identity uses a personal address (Gmail, Outlook, iCloud and similar), `init`, `seamspec review`, `seamspec approve` and the chat review now say so first, so you can switch to a noreply address.
 - **Hand edits to a locked rule are caught locally.** The stop and commit checks and `seamspec doctor` now compare a locked rule's title, scope, test details and approval with the last commit, not just its status. Before, only CI caught them.
 - **Antigravity is offered for a `GEMINI.md`.** `seamspec init` now offers to set up Antigravity when a project has a `GEMINI.md` but no `.agents` folder yet.

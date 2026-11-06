@@ -44,6 +44,12 @@ SUPERSEDE_HINT = (
     "request_supersede(invariant_id, reason, replacement_id) and tell the user."
 )
 DECLINED_HINT = "Fix the regression: a person already decided to keep these rules."
+NOT_STARTED_HINT = (
+    "No check failed: these tests stopped with an error (while importing, setting up or tearing down) or "
+    "couldn't be started, so this may not be a behavior change. Fix the error shown above. If it comes from "
+    "your change to code the test imports (a rename, a removed function), treat it as a regression. Don't call "
+    "request_supersede for a setup problem."
+)
 DECLINED_HEADING = "SeamSpec: changes a person declined; the rules stay in force:"
 
 
@@ -219,7 +225,12 @@ def stop(payload: dict[str, Any], store: Store, cfg: Config) -> dict[str, Any] |
     if report.incomplete:
         lines.append("[INCOMPLETE] time ran out before every locked rule was checked.")
     declines = declined_lines(store, failing)  # a person said no: say so, or the agent asks again (ADR-20261024-6f0c)
-    hint = DECLINED_HINT if declines and len(declines) == len(failing) else SUPERSEDE_HINT
+    if declines and len(declines) == len(failing):
+        hint = DECLINED_HINT
+    elif failtext.did_not_start(report) and not other:
+        hint = NOT_STARTED_HINT
+    else:
+        hint = SUPERSEDE_HINT
     details = "SeamSpec: locked rule check failed.\n" + "\n".join(lines + declines) + "\n" + hint
     return _block(state, store, cfg, key, details, ids=sorted(failing))
 

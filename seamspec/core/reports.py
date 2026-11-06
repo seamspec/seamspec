@@ -30,6 +30,9 @@ class FailedCheck:
     line: int | None  # line in the rule's test file, when the report names one
     message: str  # the failure's first line, as the runner reported it
     cases: int = 1  # test cases that failed this way (a parametrized test fails once per case)
+    # The runner reported an error, not a failed check: the test stopped while importing, setting up or
+    # tearing down (pytest's <error>). Often the environment, sometimes renamed code (SessionWalk dogfooding).
+    errored: bool = False
 
 
 def junit(report_path: Path, ids: list[str]) -> Attribution | None:
@@ -85,15 +88,16 @@ def junit_checks(report_path: Path, ids: list[str]) -> dict[str, list[FailedChec
         tree = ET.parse(report_path)  # local file written by the runner SeamSpec just started
     except (OSError, ET.ParseError):
         return {}
-    found: dict[str, dict[tuple[int | None, str], int]] = defaultdict(dict)
+    found: dict[str, dict[tuple[int | None, str, bool], int]] = defaultdict(dict)
     for case in tree.iter("testcase"):
         where = " ".join(case.get(k, "") for k in ("file", "classname", "name"))
-        for node in [*case.findall("failure"), *case.findall("error")]:
+        nodes = [(n, False) for n in case.findall("failure")] + [(n, True) for n in case.findall("error")]
+        for node, errored in nodes:
             for owner in (i for i in ids if i in where):
-                key = (_line_in_harness(node.text or "", owner), _message(node))
+                key = (_line_in_harness(node.text or "", owner), _message(node), errored)
                 found[owner][key] = found[owner].get(key, 0) + 1
     return {
-        owner: [FailedCheck(line, message, cases) for (line, message), cases in checks.items()]
+        owner: [FailedCheck(line, message, cases, errored) for (line, message, errored), cases in checks.items()]
         for owner, checks in found.items()
     }
 
