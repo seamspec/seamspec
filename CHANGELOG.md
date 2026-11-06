@@ -5,6 +5,8 @@ All notable changes to SeamSpec are listed here. The format follows [Keep a Chan
 ## [Unreleased]
 
 ### Fixed
+- **A warning before a personal email goes into a rule.** Approving records your git identity in the rule, which is committed and can't be edited. When that identity uses a personal address (Gmail, Outlook, iCloud and similar), `init`, `seamspec review`, `seamspec approve` and the chat review now say so first, so you can switch to a noreply address.
+- **Hand edits to a locked rule are caught locally.** The stop and commit checks and `seamspec doctor` now compare a locked rule's title, scope, test details and approval with the last commit, not just its status. Before, only CI caught them.
 - **Antigravity is offered for a `GEMINI.md`.** `seamspec init` now offers to set up Antigravity when a project has a `GEMINI.md` but no `.agents` folder yet.
 - **Antigravity's MCP config stays out of git.** `.agents/mcp_config.json` holds this machine's path, so `init` adds it to `.gitignore`. If it was already committed, `init` and `doctor` say to run `git rm --cached .agents/mcp_config.json`. After cloning, run `seamspec init --hosts antigravity`.
 - **Upgrades reach the Claude Code plugin.** After `uv tool upgrade seamspec`, `seamspec init` offers to move the plugin to the new version's tag and update it (`--plugin` does it without asking), and `seamspec doctor` warns when the plugin doesn't match.

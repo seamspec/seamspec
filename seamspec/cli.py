@@ -281,6 +281,8 @@ def init(
         typer.echo("This clone isn't trusted yet: run `seamspec trust` to review its runner commands.")
     if not (root / ".git").exists():
         typer.echo("  note: not a git repository; SeamSpec's checks compare against git HEAD.")
+    if warning := lifecycle.identity_warning(lifecycle.approver_identity(Store(root))):
+        typer.echo(f"  note: {warning}")
     _init_ci(root, report.mode, ci)
     _init_plugin(root, plugin, plugin_scope)
     _init_hosts(root, hosts)
@@ -793,6 +795,8 @@ def approve(inv_id: Annotated[str, typer.Argument(help="PROPOSED invariant to lo
     _root_dir, cfg, store = _open()
     inv = _get_invariant(store, inv_id)
     _show_invariant(store, inv)
+    if not review_mod.identity_ok(store):
+        raise _fail("not approved: set the address, then run `seamspec approve` again", code=1)
     confirm_config: dict[str, str] | None = None
     if verifier.check_fingerprints(store.root, cfg):
         typer.echo("Runner config changed since it was last confirmed (approving also confirms it):")

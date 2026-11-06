@@ -27,8 +27,7 @@ from .scope import matches
 from .verifier import FINGERPRINTS_REL, check_fingerprints, check_integrity
 
 LEDGER = {"invariants": "invariant", "dead_ends": "dead_end"}
-# Fields of a LOCKED record that only a supersede may change (forward-only, §16.5).
-FROZEN = ("title", "assertion", "scope", "verification", "approved_at", "approved_by")
+FROZEN = journal.FROZEN  # fields of a LOCKED record that only a supersede may change (§16.5)
 CRITICAL_MANY = 10  # more critical rules than this gets a warning
 
 

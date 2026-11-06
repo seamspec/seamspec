@@ -22,6 +22,14 @@ def _no_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _example_git_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Approvals record git's identity: use an example one, never the developer's (which may be a personal
+    email, and would trigger the personal-email prompt, ADR-20261105-a7d2). Tests that need another set it."""
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Maya Rao")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "maya@example.com")
+
+
+@pytest.fixture(autouse=True)
 def _isolated_claude_config(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
     """Any real `claude plugin ...` a test reaches writes to a throwaway config, never the developer's."""
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path_factory.mktemp("claude-config")))

@@ -260,6 +260,9 @@ def run(store: Store, cfg: Config) -> Tally:
         + (", runner config changes" if config_changed else "")
         + "."
     )
+    if (proposals or reqs) and not identity_ok(store):
+        typer.echo("Stopped before anything was decided. Set the address, then run `seamspec review` again.")
+        return tally
     seen: list[DeadEnd] = []  # dead ends actually shown and answered
     cursor = started
     try:
@@ -275,6 +278,15 @@ def run(store: Store, cfg: Config) -> Tally:
     _save_review(store, cursor)
     _summary(tally)
     return tally
+
+
+def identity_ok(store: Store) -> bool:
+    """Approving commits the approver's identity for good; say so first when it is a personal email."""
+    warning = lifecycle.identity_warning(lifecycle.approver_identity(store))
+    if warning is None:
+        return True
+    typer.echo(f"Note: {warning}")
+    return typer.confirm("Continue with this address?", default=True)
 
 
 def _review_decisions(store: Store, decisions: list[adr.Adr], tally: Tally) -> None:

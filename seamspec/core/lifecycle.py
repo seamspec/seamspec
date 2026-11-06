@@ -80,6 +80,44 @@ def approver_identity(store: Store) -> str:
     return getpass.getuser()
 
 
+# Mail providers people use for personal addresses, matched exactly (country variants listed). A work
+# address in a work repo is expected, and a forge's noreply address is the fix, so only these are
+# flagged (SessionWalk dogfooding, ADR-20261105-a7d2).
+PERSONAL_MAIL = frozenset({
+    "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com",
+    "ymail.com", "rocketmail.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me",
+    "protonmail.com", "pm.me", "gmx.com", "gmx.de", "gmx.net", "web.de", "mail.com", "yandex.com",
+    "yandex.ru", "zoho.com", "fastmail.com", "hey.com", "qq.com", "163.com", "126.com",
+    "yahoo.co.uk", "yahoo.co.in", "yahoo.co.jp", "yahoo.com.au", "yahoo.com.br", "yahoo.ca", "yahoo.de",
+    "yahoo.es", "yahoo.fr", "yahoo.it", "hotmail.co.uk", "hotmail.de", "hotmail.es", "hotmail.fr",
+    "hotmail.it", "outlook.de", "outlook.es", "outlook.fr", "outlook.it", "live.ca", "live.co.uk",
+    "live.de", "live.fr", "live.it",
+})  # fmt: skip
+
+
+def personal_email(identity: str) -> str | None:
+    """The email in a `Name <email>` identity when it is at a personal mail provider, else None."""
+    if not identity.endswith(">") or "<" not in identity:
+        return None
+    email = identity.rsplit("<", 1)[1][:-1].strip()
+    domain = email.rpartition("@")[2].lower()
+    if domain in PERSONAL_MAIL:
+        return email
+    return None
+
+
+def identity_warning(identity: str) -> str | None:
+    """What to tell a human about to approve as `identity`, when approving would commit a personal email."""
+    email = personal_email(identity)
+    if email is None:
+        return None
+    return (
+        f"Approving records your git identity, {email}, in the rule's committed record, and a locked rule"
+        " can't be edited afterwards. If this repository is or may become public, set your forge's"
+        " noreply address first (`git config user.email <noreply address>`; on GitHub, Settings > Emails)."
+    )
+
+
 # --- harness locations ---------------------------------------------------------------------------
 
 
