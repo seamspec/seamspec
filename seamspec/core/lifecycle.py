@@ -80,15 +80,19 @@ def approver_identity(store: Store) -> str:
     return getpass.getuser()
 
 
-# Mail providers people use for personal addresses. A work address in a work repo is expected, and a
-# forge's noreply address is the fix, so only these are flagged (SessionWalk dogfooding, ADR-20261105-a7d2).
+# Mail providers people use for personal addresses, matched exactly (country variants listed). A work
+# address in a work repo is expected, and a forge's noreply address is the fix, so only these are
+# flagged (SessionWalk dogfooding, ADR-20261105-a7d2).
 PERSONAL_MAIL = frozenset({
     "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com",
-    "ymail.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me", "protonmail.com", "pm.me",
-    "gmx.com", "gmx.de", "gmx.net", "web.de", "mail.com", "yandex.com", "yandex.ru", "zoho.com",
-    "fastmail.com", "hey.com", "qq.com", "163.com", "126.com",
+    "ymail.com", "rocketmail.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me",
+    "protonmail.com", "pm.me", "gmx.com", "gmx.de", "gmx.net", "web.de", "mail.com", "yandex.com",
+    "yandex.ru", "zoho.com", "fastmail.com", "hey.com", "qq.com", "163.com", "126.com",
+    "yahoo.co.uk", "yahoo.co.in", "yahoo.co.jp", "yahoo.com.au", "yahoo.com.br", "yahoo.ca", "yahoo.de",
+    "yahoo.es", "yahoo.fr", "yahoo.it", "hotmail.co.uk", "hotmail.de", "hotmail.es", "hotmail.fr",
+    "hotmail.it", "outlook.de", "outlook.es", "outlook.fr", "outlook.it", "live.ca", "live.co.uk",
+    "live.de", "live.fr", "live.it",
 })  # fmt: skip
-PERSONAL_MAIL_FAMILIES = ("yahoo.", "hotmail.", "outlook.", "live.")  # yahoo.co.uk, hotmail.fr, ...
 
 
 def personal_email(identity: str) -> str | None:
@@ -97,7 +101,7 @@ def personal_email(identity: str) -> str | None:
         return None
     email = identity.rsplit("<", 1)[1][:-1].strip()
     domain = email.rpartition("@")[2].lower()
-    if domain in PERSONAL_MAIL or domain.startswith(PERSONAL_MAIL_FAMILIES):
+    if domain in PERSONAL_MAIL:
         return email
     return None
 

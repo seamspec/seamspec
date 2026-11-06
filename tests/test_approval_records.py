@@ -33,6 +33,7 @@ def human(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def gmail(monkeypatch: pytest.MonkeyPatch) -> str:
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Maya Rao")  # CI runners have no git user name to fall back on
     monkeypatch.setenv("GIT_AUTHOR_EMAIL", "maya.rao@gmail.com")
     return "maya.rao@gmail.com"
 
@@ -51,6 +52,8 @@ def gmail(monkeypatch: pytest.MonkeyPatch) -> str:
         ("Maya Rao <12345+maya@users.noreply.github.com>", False),
         ("Maya Rao <maya@acme.com>", False),  # a work address in a work repo is expected
         ("Maya Rao <maya@mail.gmail.com.example.org>", False),
+        ("Maya Rao <maya@outlook.acme.com>", False),  # Copilot on #112: a company host, not the provider
+        ("Maya Rao <maya@yahoo.com.example.org>", False),
         ("maya", False),  # git couldn't say: the OS user name, no email
     ],
 )
@@ -99,6 +102,20 @@ def test_review_says_nothing_for_a_noreply_address(
     out = runner.invoke(app, ["review"], input="n\ns\n")
     assert "Approving records your git identity" not in out.output
     assert "Continue with this address?" not in out.output
+
+
+def test_approve_warns_and_can_stop(git_repo: Path, monkeypatch: pytest.MonkeyPatch, human: None, gmail: str) -> None:
+    """Copilot on #112: `seamspec approve <id>` locks a rule too, so it warns the same way."""
+    monkeypatch.chdir(git_repo)
+    inv_id = propose(git_repo)["id"]
+    out = runner.invoke(app, ["approve", inv_id], input="n\n")
+    assert out.exit_code == 1
+    assert f"Note: Approving records your git identity, {gmail}" in out.output
+    assert "not approved: set the address" in out.output
+    assert Store(git_repo).get(inv_id).status == InvStatus.PROPOSED
+    kept = runner.invoke(app, ["approve", inv_id], input="y\ny\n")  # keep the address, then lock it
+    assert kept.exit_code == 0, kept.output
+    assert Store(git_repo).get(inv_id).status == InvStatus.LOCKED
 
 
 def test_the_chat_dialog_shows_the_warning(project: Path, gmail: str) -> None:  # noqa: F811

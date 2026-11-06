@@ -795,6 +795,8 @@ def approve(inv_id: Annotated[str, typer.Argument(help="PROPOSED invariant to lo
     _root_dir, cfg, store = _open()
     inv = _get_invariant(store, inv_id)
     _show_invariant(store, inv)
+    if not review_mod.identity_ok(store):
+        raise _fail("not approved: set the address, then run `seamspec approve` again", code=1)
     confirm_config: dict[str, str] | None = None
     if verifier.check_fingerprints(store.root, cfg):
         typer.echo("Runner config changed since it was last confirmed (approving also confirms it):")
