@@ -25,6 +25,8 @@ Run a SeamSpec checkpoint for this session. Optional focus: $ARGUMENTS
    representation, or setting a module boundary) with `propose_decision`, scoped to those files.
    Only a rationale or trade-off belongs here: something a test can check is a rule (step 4), and
    a failed attempt is a dead end (step 5). Skip choices `get_constraints` already shows.
+   Decisions count toward the same limit as the rules in step 4 (rules and decisions together);
+   if it's reached, list the choices you didn't record and say so.
 
 ---
 Rules for every SeamSpec command:

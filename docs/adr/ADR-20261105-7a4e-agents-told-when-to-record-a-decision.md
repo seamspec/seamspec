@@ -20,7 +20,7 @@ A decision is worth having: the MCP `get_constraints` tool already lists decisio
 ## Decision
 
 - **Protocol rule 3** gains a sentence: when the user and the agent settle a design choice that shapes future work on specific files, and it is a rationale or trade-off rather than something a test can check or a failed attempt, call `propose_decision` scoped to those files. The rule numbers stay the same, since the SPEC and skills refer to them.
-- **The checkpoint** gains step 6, which records such choices made in the session, and says how they differ from a rule (step 4) and a dead end (step 5).
+- **The checkpoint** gains step 6, which records such choices made in the session, and says how they differ from a rule (step 4) and a dead end (step 5). Decisions share step 4's limit (`commands.max_proposals_per_run`, 3 by default) with the rules, as in drain; choices left over are listed, not recorded (Copilot on #117).
 - **The shared command footer** lists `seamspec propose-decision --json -` among the CLI fallbacks.
 - **The MCP tool's description** names it a design decision for these files (a trade-off, no test). It stays short: the tool definitions have a token budget, and the guidance belongs in the protocol.
 

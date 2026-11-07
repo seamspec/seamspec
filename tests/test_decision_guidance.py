@@ -40,6 +40,10 @@ def test_the_checkpoint_records_decisions_and_the_fallback_names_the_command(hos
         others = [commands.render(name, host) for name in commands.commands_for(host)]
     assert "6. Record design choices settled this session" in checkpoint
     assert "with `propose_decision`, scoped to those files" in flat(checkpoint)
+    # Copilot on #117: one limit for rules and decisions together, as in drain
+    assert "Decisions count toward the same limit as the rules in step 4 (rules and decisions together)" in flat(
+        checkpoint
+    )
     with_footer = [t for t in others if "Rules for every SeamSpec command" in t]  # not VS Code's reviewer prompt
     assert len(with_footer) >= len(others) - 1
     for text in with_footer:  # the shared rules, including the CLI fallback
