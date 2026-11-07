@@ -8,6 +8,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
 
 | Date | What | Where |
 |---|---|---|
+| 2026-11-07 | **0.1.1 scope and the 0.2.0 order** (PR `docs/v0-2-0-order`, ADR-20261107-dbf9, docs only). 0.1.1 is the dogfooding fixes (#110 to #117). `verify --proposed` running like the commit check moves to 0.2.0: it needs a design. 0.2.0 order: presets, rules from a notes file, the OpenSpec importer, then the remaining host work (to be sized). MCP elicitation and the `npx` wrapper move to Later. | SPEC §22 |
 | 2026-11-05 | **Agents told when to record a decision** (PR `fix/decision-guidance`, ADR-20261105-7a4e). SessionWalk's `.seamspec/adrs/` stayed empty for four milestones: `propose_decision` was only in the drain command. Protocol rule 3, a new checkpoint step 6 and the CLI fallback footer now say when to use it; the tool description is a little clearer, within the token budget. | `seamspec/templates/directive.md`, `seamspec/templates/commands/`, `seamspec/mcp_server.py`, SPEC §15A, §18 |
 | 2026-11-05 | **`init` asks outside git** (PR `fix/init-outside-git`, ADR-20261105-5c1d). The owner ran `init --hosts antigravity` from the folder holding their projects; it set that folder up and only then noted "not a git repository". A new setup outside a git work tree now names the repositories inside it and asks first (default no); without a terminal, a folder of repositories is refused. | `seamspec/cli.py`, SPEC §15 |
 | 2026-11-05 | **SeamSpec's own host files are guarded** (PR `fix/guard-host-files`, ADR-20261105-9d3f). The owner asked whether the reviewer's instructions can be tampered with. Claude Code's edit hook now refuses agent edits to the reviewer and `seamspec-*` command files written for Cursor, VS Code and Antigravity; `doctor` and every commit check warn (never block) when one differs from what this SeamSpec writes, which covers the hosts with no edit hook yet. | `seamspec/core/scope.py`, `seamspec/installers/hosts.py`, `seamspec/core/doctor.py`, `seamspec/cli.py`, SPEC §12A.5 |
@@ -131,7 +132,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
   6. ~~Two more benchmark tests~~: **done and passed**: capture from conversation and a long session (2026-10-18), plus a second-actor test (2026-10-19). Don't rerun them: they are paid.
   7. ~~README and pitch~~: **done** (README and getting-started, 2026-10-19). What's left is the [release steps](#release-steps-agreed-2026-10-23-publishing-only-with-the-owners-go-ahead-adr-20261005-3adc) below.
   - Earlier steps, all done: the dogfooding fixes and the readable review (#47 to #53), dogfooding on the owner's project (findings 1 to 11 fixed), `seamspec spec` (#58). Still to try by hand: a session moved with `/cd` (ADR-20261011-d4a1).
-  - v0.2: the OpenSpec importer, rules from an existing notes file, more runner presets, the `npx` wrapper.
+  - Next: the 0.1.1 release (version PR, rehearsal, publish with the owner's go-ahead). Then v0.2, in order (ADR-20261107-dbf9): presets (jest, Go, Rust, `custom`), rules from an existing notes file, the OpenSpec importer, the remaining host work.
 
 ## Dogfooding findings (2026-10-08 to 2026-10-11, the owner's Python project)
 
@@ -205,7 +206,7 @@ The single place to see where the SeamSpec build stands. **Read this first** whe
    - [x] from a clean install, `uv tool install seamspec` → `seamspec init` installs the plugin from GitHub at `v0.1.0` (alone and with `--plugin-scope project`)
 7. [x] Website: real install commands, GitHub link, links to the benchmark write-ups (owner's OK; `seamspec.github.io#2`, 2026-10-27)
 8. [ ] Launch posts: LinkedIn post and article, a short demo
-- **Before 0.1.1, from SessionWalk dogfooding (2026-11-05):** if small, `verify --proposed` should run the way the commit check does. (The `approved_by` warning, the local frozen-field check and the error-vs-regression wording are done.)
+- **Moved to 0.2.0 (ADR-20261107-dbf9):** `verify --proposed` running the way the commit check does, from SessionWalk dogfooding. The other 0.1.1 items from SessionWalk are done (#112 to #117).
 - **Follow-up (ADR-20261105-7a4e):** `seamspec context` (the CLI fallback for `get_constraints`) doesn't list decisions, so agents without SeamSpec's MCP tools don't see them.
 - **Follow-up (ADR-20261105-9d3f):** in strict mode, add SeamSpec's generated host files to the CODEOWNERS block; consider how to report tampering with the merged hook and MCP config files.
 - **Follow-up:** a commit or stop blocked only because tests errored is still counted in `catches.jsonl`; decide whether the benchmark should count it (ADR-20261105-0576).

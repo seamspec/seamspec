@@ -1129,7 +1129,7 @@ When `harness_dir` is outside `.seamspec/`, LOCKED harnesses sit in the project'
 - **Recommended:** `uv tool install seamspec`. uv downloads a suitable Python by itself, so nothing else needs setting up. `pipx install seamspec` also works.
 - Hooks and pre-commit call `seamspec` from `PATH`.
 - **CI:** `astral-sh/setup-uv` + `uv tool install "seamspec==<version>"` (the version that wrote the workflow, ADR-20261011-a9f3), plus the project's own toolchain (§16.5).
-- **v0.2:** `npx seamspec` wrapper for JS developers (runs through `uvx`). **Later:** standalone binary.
+- **Later** (moved out of v0.2, ADR-20261107-dbf9): an `npx seamspec` wrapper for JS developers (runs through `uvx`), and a standalone binary.
 
 ### 12A.9 Limits
 
@@ -2801,7 +2801,7 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 **How progress is tracked** (ADR-20261005-ae6e, ADR-20261005-2565): one GitHub milestone per week above, each with a tracking issue that mirrors its deliverables and exit criteria, plus a committed [`docs/PROGRESS.md`](PROGRESS.md) (done / in progress / next), updated in the same commit as the code. `CLAUDE.md` at the repo root is the entry point for agents picking up the work. From week 2, every change lands through a branch and a pull request (ADR-20261005-d8bc). This spec is kept current as the code evolves; anything that changes or adds to it gets an ADR in `docs/adr/` (moving to `.seamspec/adrs/` when SeamSpec starts governing its own repo in week 3).
 
 > [!IMPORTANT]
-> **Publishing is gated** (ADR-20261005-3adc): nothing goes to PyPI or npm (real releases, pre-releases, placeholder bumps, the v0.2 `npx` wrapper) until the owner explicitly confirms that release. No early pre-release is planned. Version 0.1.0 is set in the code (ADR-20261027-5e17). A release is published by `.github/workflows/release.yml` when the owner pushes its `v<version>` tag, through PyPI trusted publishing (ADR-20261027-b1a4); until the owner publishes it, try SeamSpec with `uv tool install --force --editable <path-to-repo>`.
+> **Publishing is gated** (ADR-20261005-3adc): nothing goes to PyPI or npm (real releases, pre-releases, placeholder bumps, a future `npx` wrapper) until the owner explicitly confirms that release. No early pre-release is planned. Version 0.1.0 is set in the code (ADR-20261027-5e17). A release is published by `.github/workflows/release.yml` when the owner pushes its `v<version>` tag, through PyPI trusted publishing (ADR-20261027-b1a4); until the owner publishes it, try SeamSpec with `uv tool install --force --editable <path-to-repo>`.
 
 **Added after dogfooding on a real project (2026-10-11, ADR-20261011-0995, ADR-20261011-8013).** Order of work for the rest of v0.1:
 
@@ -2811,21 +2811,25 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 
 **Changed after the full benchmark (2026-10-13, ADR-20261013-f4a8).** The benchmark passed (ADR-20261013-e2b6) and showed where SeamSpec's case lies: not in remembering rules, which a well-kept notes file does as well, but in rules nobody has to write, proven by tests and approved by a person. The owner moved these into v0.1: **BRAINDUMP** (§13), the **"critical" rule marking**, and three more hosts, **Cursor, VS Code (Copilot) and Google Antigravity**; and added an **explainer for reviews** (a separate read-only agent that explains each rule and its test in chat, beside `seamspec review`, never inside it) and **two more benchmark tests** (capture from conversation; a long session). Proposed order: the benchmark write-up, the explainer, the critical marking, BRAINDUMP, the three hosts, the two tests, then the README and release. The week table above no longer describes v0.1; rough estimate from here, 4 to 5 weeks.
 
-### v0.2 — soon after v0.1
+### v0.1.1 — a patch release after dogfooding (ADR-20261107-dbf9)
 
-Competing tools already support several hosts, so v0.2 follows quickly. The adapter layer stays thin so new hosts are cheap to add.
+The fixes from dogfooding 0.1.0 on the owner's project (SessionWalk), PRs #110 to #117: the Claude Code plugin follows an upgrade, Antigravity setup fixes, a personal-email warning and local checks of a locked rule's details, an error isn't called a regression, the reviewer's verdict follows its gaps, SeamSpec's own host files are guarded, `init` asks outside git, and agents are told when to record a decision.
 
-In this order (ADR-20261011-0995):
+### v0.2 — in this order (ADR-20261107-dbf9, amending ADR-20261011-0995)
 
-- **OpenSpec importer** (`origin.type = "import"`), moved up from "Later": SeamSpec works alongside spec-first tools, so reading their requirements as proposed rules comes first.
-- ~~Cursor and VS Code Copilot adapters~~, ~~the "critical" rule marking~~ and ~~BRAINDUMP~~: **moved into v0.1** (ADR-20261013-f4a8); the marking (ADR-20261013-c1a9) and BRAINDUMP (ADR-20261013-d9e4) are built. In v0.2 what remains of the hosts: in-session blocking wherever v0.1 shipped only the rules, the tools and the commit gate.
-- **Rules from an existing notes file** (new, from the benchmark): read a project's `CLAUDE.md` or similar and propose one tested rule per agreement.
-- **More presets**: jest, Go, Rust (cargo), `custom` (§12A.2).
-- MCP **elicitation** for `run_proposed = "ask"`. (`trust_level = "harness"` moved into v0.1, ADR-20261005-8e80.)
-- `npx seamspec` wrapper for JS developers.
+1. **More presets**: jest, Go, Rust (cargo), `custom` (§12A.2). Today only pytest and vitest projects can use SeamSpec.
+2. **Rules from an existing notes file**: read a project's `CLAUDE.md`, `AGENTS.md` or similar and propose one tested rule per agreement.
+3. **OpenSpec importer** (`origin.type = "import"`).
+4. **Remaining host work**: edit-time context and edit protection on Cursor, VS Code and Antigravity, where v0.1 ships the rules, the tools, the session-start and stop hooks and the commit gate. Sized before it is scheduled: it needs each tool's edit-tool names.
+
+Also in v0.2, smaller: `verify --proposed` that can run the way the commit check does (on the staged files); decisions listed by `seamspec context`. Considered: a warning when a proposed test gives different results on repeated runs.
+
+~~Cursor and VS Code Copilot adapters~~, ~~the "critical" rule marking~~ and ~~BRAINDUMP~~ moved into v0.1 (ADR-20261013-f4a8) and are built.
 
 ### Later
 
+- MCP **elicitation** for `run_proposed = "ask"`, and the `npx seamspec` wrapper for JS developers (both moved out of v0.2, ADR-20261107-dbf9).
+- Per-rule risk levels (some rules block, others warn), drift checks, rules that span repositories, and a blind-spot check (warn when a rule's test skips new code it governs). Each needs a design first.
 - More presets: Java/Kotlin (Maven/Gradle), C#, Ruby, PHP; per-runner `cwd` for monorepos (multiple Go modules, Cargo workspaces).
 - Semantic scope matching via tags + optional local embeddings (still model-free core; opt-in).
 - Opt-in `--isolated` verifier (containers).
@@ -2949,7 +2953,7 @@ Formerly "Open Questions". Decisions 1–8 resolved 2026-10-03; 9–16 resolved 
 
 **Still open (non-blocking):**
 
-1. Does each target host's MCP client declare elicitation support today? This decides how often `auto` resolves to `ask` *(verify before v0.2)*.
+1. Does each target host's MCP client declare elicitation support today? This decides how often `auto` resolves to `ask` *(verify before elicitation is built; it moved to Later, ADR-20261107-dbf9)*.
 2. Is 100 the right `stop_all_threshold`? Tune it with Stop-hook timing data from the benchmark (§23).
 3. ~~Edit-time context: does `additionalContext` on `PreToolUse` reach the model?~~ **Resolved (ADR-20261005-5675):** yes, confirmed in a real session. It arrives together with the first edit of the file (the model learns the rule as it makes that edit), not before it. `gate_mode = "deny_once"` shows the rule strictly before any change.
 
