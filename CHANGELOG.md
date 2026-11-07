@@ -5,6 +5,7 @@ All notable changes to SeamSpec are listed here. The format follows [Keep a Chan
 ## [Unreleased]
 
 ### Fixed
+- **Agents record design decisions.** The SeamSpec block in `CLAUDE.md` and `AGENTS.md` and `/seamspec:checkpoint` now say when to call `propose_decision`: a settled design choice that shapes future work on some files (deferring a feature, choosing an algorithm, a module boundary) and isn't a test or a failed attempt. Before, agents rarely recorded any. Rerun `seamspec init` to update the block.
 - **`init` asks before setting up a folder that isn't a git repository.** Run from the wrong folder (say, the one that holds your projects), it now names the projects inside it and asks "Set SeamSpec up here anyway?" before writing anything; no is the default. Without a terminal, such a folder is refused.
 - **The reviewer's instructions are guarded.** In Claude Code, agents can no longer edit the reviewer and `/seamspec-*` command files that `init --hosts` writes for Cursor, VS Code and Antigravity. In every tool, `seamspec doctor` and each commit now warn when one of those files was changed or is from another version, and say to rerun `seamspec init --hosts <tool>`.
 - **An error isn't reported as a regression.** When a rule's test stops with an error before or around its checks (a missing package, a broken import or fixture) and no check actually failed, `seamspec verify`, the commit check and the agent's stop message now say so, instead of "Fix the regression, or supersede the rule". The commit is still blocked.

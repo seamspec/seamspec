@@ -17,7 +17,8 @@ Rules for every SeamSpec command:
   (repeat `--proposed <id>` for each id) with your shell tool; the user may be asked to allow it.
   Never try to work around that prompt.
 - If SeamSpec MCP tools are unavailable, use the CLI instead: `seamspec context <files>`,
-  `seamspec propose --json -`, `seamspec dead-end --json -`, `seamspec verify --json`.
+  `seamspec propose --json -`, `seamspec dead-end --json -`, `seamspec propose-decision --json -`,
+  `seamspec verify --json`.
 - End your reply with the SeamSpec summary block:
 
   SeamSpec · <command>

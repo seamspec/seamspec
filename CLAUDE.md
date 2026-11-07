@@ -59,7 +59,11 @@ CI where the SeamSpec workflow is installed): failing them blocks you from finis
    If the project keeps a list of rules it intends to lock (for example a section of its
    plan), propose each one when its code exists and works.
 3. When an approach fails, or the user tells you about one that failed before, call
-   `log_dead_end` with what was tried and why it failed.
+   `log_dead_end` with what was tried and why it failed. When you and the user settle a design
+   choice that shapes future work on specific files (for example deferring a feature after
+   measuring it, choosing an algorithm or a data representation, or setting a module boundary),
+   and it is a rationale or trade-off rather than something a test can check or a failed attempt,
+   call `propose_decision` scoped to those files, so `get_constraints` shows it in later sessions.
 4. If your change must intentionally break a LOCKED invariant, do not edit or delete its test.
    Call `request_supersede(invariant_id, reason, replacement_id)` and tell the user.
 5. Never edit files under `.seamspec/` directly; use SeamSpec tools. If they are missing or fail,
