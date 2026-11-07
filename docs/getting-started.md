@@ -21,7 +21,7 @@ Check it works:
 seamspec --version
 ```
 
-**To upgrade later:** `uv tool upgrade seamspec`, then `seamspec init` in each project to move its Claude Code plugin to match. `seamspec doctor` warns if you forget. If you added the CI workflow (section 6), change the version on its install line too.
+**To upgrade later:** `uv tool upgrade seamspec`, then `seamspec init` in each project to move its Claude Code plugin to match. (If you installed a pinned version, such as `seamspec==0.1.0`, `uv tool upgrade` keeps that pin: use `uv tool install seamspec@latest` instead.) `seamspec doctor` warns if you forget. If you added the CI workflow (section 6), change the version on its install line too.
 
 To try changes that aren't released yet, install a clone instead; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
