@@ -41,6 +41,8 @@ AGENT_FILES = {
     "antigravity": ".agents/agents/seamspec-{name}.md",  # started by the main agent with invoke_subagent
     "cursor": ".cursor/agents/seamspec-{name}.md",  # started by the main agent, or typed as /seamspec-reviewer
 }
+# Every file SeamSpec writes for these hosts, as globs: agents may not edit them (ADR-20261105-9d3f).
+GENERATED_GLOBS = tuple(dict.fromkeys(p.format(name="*") for p in (*HOST_FILES.values(), *AGENT_FILES.values())))
 REVIEWER_LINES = (  # sentences that point at the reviewer; other hosts don't have it
     ("   Offer an explanation from SeamSpec's reviewer, a separate agent that didn't write the test\n"
      "   (`/seamspec:explain`), and offer to open the review for them:", "   Offer to open the review for them:"),
