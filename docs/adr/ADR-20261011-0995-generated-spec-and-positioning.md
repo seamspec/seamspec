@@ -76,3 +76,5 @@ To be proposed when built: "the generated spec lists only human-approved rules",
 * SPEC §15 gains `seamspec spec` (§15.2 describes the plan until it's built); §22 changes: `seamspec spec` and the positioning join week 5, the OpenSpec importer moves from "Later" to v0.2.
 * The area rule moves from the Claude adapter to a shared module when `seamspec spec` is built.
 * `docs/PROGRESS.md` records the order and the dogfooding findings.
+
+> **Amended 2026-11-07** by ADR-20261107-dbf9: the v0.2 order is now presets, rules from a notes file, the OpenSpec importer, then the remaining host work; MCP elicitation and the `npx` wrapper moved to Later.
