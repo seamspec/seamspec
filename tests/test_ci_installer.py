@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -135,6 +136,7 @@ def test_comments_and_a_leftover_placeholder_never_cost_a_reviewer(tmp_path: Pat
 
 def init(root: Path, *args: str, input: str = "") -> str:
     (root / "pyproject.toml").write_text("")
+    subprocess.run(["git", "init", "-q", str(root)], check=True)  # a project; init asks first outside git
     result = runner.invoke(app, ["init", "--path", str(root), "--no-claude-md", "--no-plugin", *args], input)
     assert result.exit_code == 0, result.output
     return result.output
