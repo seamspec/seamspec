@@ -67,6 +67,7 @@ def calls(log: Path) -> list[str]:
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
     root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)  # a project; init asks first outside git
     return root
 
 
