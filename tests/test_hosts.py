@@ -521,3 +521,15 @@ def test_an_unreadable_file_is_a_warning_not_a_crash(git_repo: Path) -> None:
     assert len(notes) == 1 and notes[0].startswith("can't read .agents/agents/seamspec-reviewer.md (")
     assert notes[0].endswith("so SeamSpec can't tell whether its Antigravity files were changed")
     assert [f.level for f in findings] == ["warning"]
+
+
+def test_a_folder_in_place_of_a_generated_file_is_not_a_crash(git_repo: Path) -> None:
+    """Copilot on #115: git's pathspec matches files below a folder with a generated file's name."""
+    installer.install(git_repo, "antigravity")
+    reviewer = git_repo / ".agents/agents/seamspec-reviewer.md"
+    reviewer.unlink()
+    reviewer.mkdir()
+    (reviewer / "notes.md").write_text("not SeamSpec's\n")
+    git(git_repo, "add", "-A")
+    assert installer.drift_notes(git_repo, staged=True) == []
+    assert installer.drift_notes(git_repo) == []

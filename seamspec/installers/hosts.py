@@ -260,8 +260,9 @@ def _staged_texts(root: Path, rels: list[str]) -> dict[str, str]:
     index aren't part of the commit and are left out. Raises OSError or SubprocessError if git fails."""
     listed = subprocess.run(["git", "-C", str(root), "ls-files", "--cached", "-z", "--", *rels],
                             capture_output=True, timeout=10, check=True)  # fmt: skip
+    wanted = set(rels)  # a pathspec also matches files below a folder that replaced one (Copilot, #115)
     out = {}
-    for rel in filter(None, listed.stdout.decode("utf-8", errors="replace").split("\0")):
+    for rel in filter(wanted.__contains__, listed.stdout.decode("utf-8", errors="replace").split("\0")):
         shown = subprocess.run(
             ["git", "-C", str(root), "show", f":./{rel}"], capture_output=True, timeout=10, check=True
         )
