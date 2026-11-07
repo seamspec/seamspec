@@ -109,8 +109,8 @@ def _projects_inside(root: Path) -> list[str]:
 def _confirm_outside_git(root: Path) -> None:
     """A new setup outside git: ask before writing anything (ADR-20261105-5c1d). Once, `init` ran in the
     folder that holds the owner's projects instead of in one of them, and set that folder up."""
-    others = _projects_inside(root)
-    lines = [f"{root} isn't a git repository. SeamSpec compares rules with git HEAD, and its commit check"
+    others = [_shown(name) for name in _projects_inside(root)]  # names could carry terminal escapes (#116)
+    lines = [f"{_shown(str(root))} isn't a git repository. SeamSpec compares rules with git HEAD, and its commit check"
              " and CI need git."]  # fmt: skip
     if others:
         shown = ", ".join(others[:4]) + (f" and {len(others) - 4} more" if len(others) > 4 else "")
@@ -228,8 +228,8 @@ def init(
         raise _fail(f"{root} is not a directory")
 
     current = scaffold.current_mode(root)
-    if current is None and not _in_git(root):
-        _confirm_outside_git(root)
+    if not (root / scaffold.CONFIG_REL).exists() and not _in_git(root):  # new setups only, even if a config
+        _confirm_outside_git(root)  # is there but broken: init reports that itself (Copilot, #116)
     target = mode or scaffold.default_mode(current)
     lowering = current is not None and scaffold.MODE_RANK[target] < scaffold.MODE_RANK[current]
     if lowering:

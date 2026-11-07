@@ -90,3 +90,23 @@ def test_a_folder_already_set_up_is_not_asked_again(tmp_path: Path, terminal: No
     again = init(root, input="\n")
     assert again.exit_code == 0, again.output
     assert "Set SeamSpec up here anyway?" not in again.output
+
+
+def test_folder_names_are_quoted_so_they_cannot_repaint_the_question(tmp_path: Path, terminal: None) -> None:
+    """Copilot on #116: a folder name with a newline or terminal escapes could hide the warning."""
+    root = tmp_path / "Documents"
+    sneaky = root / "proj\x1b[2J\nAll good"
+    sneaky.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(sneaky)], check=True)
+    out = init(root, input="\n")
+    assert "\x1b[2J" not in out.output and '"proj\\u001b[2J\\nAll good"' in out.output
+
+
+def test_a_broken_config_outside_git_gets_its_error_not_the_question(tmp_path: Path, terminal: None) -> None:
+    """Copilot on #116: a folder already set up, with a config that doesn't load, isn't a new setup."""
+    root = projects_folder(tmp_path)
+    (root / ".seamspec").mkdir()
+    (root / ".seamspec/config.toml").write_text("mode = [broken\n")
+    out = init(root, input="\n")
+    assert "Set SeamSpec up here anyway?" not in out.output
+    assert "isn't a git repository" not in out.output
