@@ -23,6 +23,7 @@ from .core.scope import matches
 from .core.store import RecordError, Store, atomic_write
 from .installers import ci as ci_installer
 from .installers import claude_plugin, scaffold
+from .installers import hosts as host_installer
 from .installers.directive import DirectiveError
 
 app = typer.Typer(
@@ -369,8 +370,6 @@ def _init_ci(root: Path, mode: str, wanted: bool | None) -> None:
 
 def _init_hosts(root: Path, wanted: str | None) -> None:
     """Cursor, VS Code and Antigravity (ADR-20261013-e8f3): project files only, merged, asked first."""
-    from .installers import hosts as host_installer
-
     if wanted is not None and wanted.strip().lower() == "none":
         return
     if wanted is not None:
@@ -1123,6 +1122,9 @@ def verify(
                 typer.echo("Full test output: `seamspec verify --all`", err=True)
         if gate and pending:
             typer.echo(f"SeamSpec: {pending} item(s) awaiting review: run `seamspec review`.", err=True)
+    if gate and not as_json:  # every host commits through here, even where no edit hook exists yet
+        for note in host_installer.drift_notes(root, staged=True):  # what the commit records (Copilot, #115)
+            typer.echo(f"SeamSpec (warning, not blocking): {note}", err=True)
     if not ok:
         raise typer.Exit(1)
 
