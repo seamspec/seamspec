@@ -36,8 +36,9 @@ from ..core.trust import execution_permitted
 
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 PROTECTED_MESSAGE = (
-    "SeamSpec: direct edits to SeamSpec records, rule tests and runner config are blocked. "
-    "Use the SeamSpec tools (propose_invariant, log_dead_end, request_supersede) or the seamspec CLI."
+    "SeamSpec: direct edits to SeamSpec records, rule tests, runner config and SeamSpec's own command and "
+    "reviewer files are blocked. Use the SeamSpec tools (propose_invariant, log_dead_end, request_supersede) "
+    "or the seamspec CLI; `seamspec init` rewrites SeamSpec's command and reviewer files."
 )
 SUPERSEDE_HINT = (
     "Fix the regression. If this behavior change is intentional, call "
