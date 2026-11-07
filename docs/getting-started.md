@@ -118,7 +118,7 @@ A notes file guides whichever agent reads it. SeamSpec's rules are tests, and **
    - runs `seamspec doctor --ci` (rules can't be quietly deleted or weakened);
    - runs `seamspec verify --all --ci` (every approved rule passes).
 
-   The workflow installs the SeamSpec version that wrote it (`uv tool install "seamspec==0.1.0"`), so CI runs the same SeamSpec as you. When you upgrade SeamSpec, update that line too.
+   The workflow installs the SeamSpec version that wrote it (`uv tool install "seamspec==0.1.1"`), so CI runs the same SeamSpec as you. When you upgrade SeamSpec, update that line too.
 3. **Make the check required.** On GitHub: **Settings → Branches → Add branch protection rule** for `main`, then tick **Require status checks to pass** and choose **`seamspec / verify`**. Without this, CI reports a broken rule but doesn't stop the merge.
 4. **Optional, `strict` mode:** `seamspec init --mode strict` also adds a block to `.github/CODEOWNERS` for `.seamspec/` and the rule tests. Two more steps make it count:
    - **Name your reviewers:** replace the placeholder `@your-team/leads` with real people or a team (`@maya`, `@acme/leads`) who have write access to the repository. Rerunning `init` keeps them. `seamspec doctor` warns while the placeholder is there.

@@ -4,17 +4,27 @@ All notable changes to SeamSpec are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-07
+
+Fixes from using 0.1.0 on a real project.
+
+### Upgrading
+- `uv tool upgrade seamspec`, then rerun `seamspec init` in each project (add `--hosts …` if you use Cursor, VS Code or Antigravity). It offers to move the Claude Code plugin to the new version and refreshes SeamSpec's block in `CLAUDE.md` and `AGENTS.md` and its files for other tools. Restart Claude Code, or run `/reload-plugins`.
+- If you added the CI workflow, change `seamspec==0.1.0` to `seamspec==0.1.1` in `.github/workflows/seamspec.yml`: `init` keeps an existing workflow as it is.
+
 ### Fixed
-- **Agents record design decisions.** The SeamSpec block in `CLAUDE.md` and `AGENTS.md` and `/seamspec:checkpoint` now say when to call `propose_decision`: a settled design choice that shapes future work on some files (deferring a feature, choosing an algorithm, a module boundary) and isn't a test or a failed attempt. Before, agents rarely recorded any. Rerun `seamspec init` to update the block.
-- **`init` asks before setting up a folder that isn't a git repository.** Run from the wrong folder (say, the one that holds your projects), it now names the projects inside it and asks "Set SeamSpec up here anyway?" before writing anything; no is the default. Without a terminal, such a folder is refused.
-- **The reviewer's instructions are guarded.** In Claude Code, agents can no longer edit the reviewer and `/seamspec-*` command files that `init --hosts` writes for Cursor, VS Code and Antigravity. In every tool, `seamspec doctor` and each commit now warn when one of those files was changed or is from another version, and say to rerun `seamspec init --hosts <tool>`.
-- **An error isn't reported as a regression.** When a rule's test stops with an error before or around its checks (a missing package, a broken import or fixture) and no check actually failed, `seamspec verify`, the commit check and the agent's stop message now say so, instead of "Fix the regression, or supersede the rule". The commit is still blocked.
-- **The reviewer's verdict matches its own findings.** `/seamspec:explain` (and `/seamspec-explain`) could list real gaps in a rule and still end with "looks sound to approve". Its "My read" now says "ask for changes first", naming the change, whenever it found part of the promise untested, a test that would pass with the promise broken, or code that doesn't match the rule. Rerun `seamspec init --hosts ...` to update the reviewer in Antigravity, VS Code and Cursor.
-- **A warning before a personal email goes into a rule.** Approving records your git identity in the rule, which is committed and can't be edited. When that identity uses a personal address (Gmail, Outlook, iCloud and similar), `init`, `seamspec review`, `seamspec approve` and the chat review now say so first, so you can switch to a noreply address.
-- **Hand edits to a locked rule are caught locally.** The stop and commit checks and `seamspec doctor` now compare a locked rule's title, scope, test details and approval with the last commit, not just its status. Before, only CI caught them.
+- **Upgrades reach the Claude Code plugin.** After `uv tool upgrade seamspec`, `seamspec init` offers to move the plugin to the new version's tag and update it (`--plugin` does it without asking), and `seamspec doctor` warns when the plugin doesn't match.
 - **Antigravity is offered for a `GEMINI.md`.** `seamspec init` now offers to set up Antigravity when a project has a `GEMINI.md` but no `.agents` folder yet.
 - **Antigravity's MCP config stays out of git.** `.agents/mcp_config.json` holds this machine's path, so `init` adds it to `.gitignore`. If it was already committed, `init` and `doctor` say to run `git rm --cached .agents/mcp_config.json`. After cloning, run `seamspec init --hosts antigravity`.
-- **Upgrades reach the Claude Code plugin.** After `uv tool upgrade seamspec`, `seamspec init` offers to move the plugin to the new version's tag and update it (`--plugin` does it without asking), and `seamspec doctor` warns when the plugin doesn't match.
+- **An error isn't reported as a regression.** When a rule's test stops with an error before or around its checks (a missing package, a broken import or fixture) and no check actually failed, `seamspec verify`, the commit check and the agent's stop message now say so, instead of "Fix the regression, or supersede the rule". The commit is still blocked.
+- **Hand edits to a locked rule are caught locally.** The stop and commit checks and `seamspec doctor` now compare a locked rule's title, scope, test details and approval with the last commit, not just its status. Before, only CI caught them.
+- **The reviewer's verdict matches its own findings.** `/seamspec:explain` (and `/seamspec-explain`) could list real gaps in a rule and still end with "looks sound to approve". Its "My read" now says "ask for changes first", naming the change, whenever it found part of the promise untested, a test that would pass with the promise broken, or code that doesn't match the rule. Rerun `seamspec init --hosts ...` to update the reviewer in Antigravity, VS Code and Cursor.
+
+### Added
+- **A warning before a personal email goes into a rule.** Approving records your git identity in the rule, which is committed and can't be edited. When that identity uses a personal address (Gmail, Outlook, iCloud and similar), `init`, `seamspec review`, `seamspec approve` and the chat review now say so first, so you can switch to a noreply address.
+- **`init` asks before setting up a folder that isn't a git repository.** Run from the wrong folder (say, the one that holds your projects), it now names the projects inside it and asks "Set SeamSpec up here anyway?" before writing anything; no is the default. Without a terminal, such a folder is refused.
+- **The reviewer's instructions are guarded.** In Claude Code, agents can no longer edit the reviewer and `/seamspec-*` command files that `init --hosts` writes for Cursor, VS Code and Antigravity. In every tool, `seamspec doctor` and each commit now warn when one of those files was changed or is from another version, and say to rerun `seamspec init --hosts <tool>`.
+- **Agents record design decisions.** The SeamSpec block in `CLAUDE.md` and `AGENTS.md` and `/seamspec:checkpoint` now say when to call `propose_decision`: a settled design choice that shapes future work on some files (deferring a feature, choosing an algorithm, a module boundary) and isn't a test or a failed attempt. Before, agents rarely recorded any. Rerun `seamspec init` to update the block.
 
 ## [0.1.0] - 2026-10-27
 
@@ -50,4 +60,5 @@ The first release.
 - Tested on Linux and macOS, Python 3.11 to 3.14. Windows isn't tested.
 - An upgrade doesn't yet move the Claude Code plugin to the new version's tag; that comes before 0.1.1.
 
+[0.1.1]: https://github.com/seamspec/seamspec/releases/tag/v0.1.1
 [0.1.0]: https://github.com/seamspec/seamspec/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 [project]
 name = "seamspec"
-version = "0.1.0"
+version = "0.1.1"
 description = "Executable specs for AI coding agents. Build first; every seam that works gets a spec."
 readme = "README.md"
 license = "Apache-2.0"
