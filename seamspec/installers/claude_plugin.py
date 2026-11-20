@@ -85,13 +85,27 @@ def _pinned(source: str) -> tuple[str, str] | None:
     return (url, ref) if "://" in url and ref else None
 
 
+_NO_JSON = re.compile(r"unknown option ['\"]?--json")
+_PLAIN = set()  # `claude plugin` subcommands that ran without --json (an older Claude Code, ADR-20261119-6b2e)
+
+
 def _claude(root: Path, *args: str) -> tuple[bool, str]:
-    """Run `claude plugin ...`; (ok, message from its --json result line or its output)."""
+    """Run `claude plugin ...`; (ok, message from its --json result line or its output). An older Claude
+    Code (2.1.153) has no `--json` on some subcommands: then the command runs again without it, and the
+    caller confirms the result through `claude plugin list --json`, which those versions have."""
     try:
         out = subprocess.run(
             ["claude", "plugin", *args, "--json"],
             cwd=root, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
         )  # fmt: skip
+        if out.returncode != 0 and _NO_JSON.search(f"{out.stderr}\n{out.stdout}"):
+            _PLAIN.add(" ".join(args[:2]))
+            out = subprocess.run(
+                ["claude", "plugin", *args],
+                cwd=root, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+            )  # fmt: skip
+            lines = [ln.strip() for ln in f"{out.stdout}\n{out.stderr}".splitlines() if ln.strip()]
+            return out.returncode == 0, (lines[-1] if lines else f"exit code {out.returncode}")
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
     text = (out.stdout or "").strip()
@@ -257,16 +271,53 @@ def enable(root: Path, scope: str = "local") -> PluginResult:
     source = marketplace_source()
     if source is None:
         return PluginResult("skipped", "no published plugin or SeamSpec checkout to install it from")
+    _PLAIN.clear()
     for args in commands(source, scope):
         ok, message = _claude(root, *args)
         if not ok:
             failed = f"`claude plugin {' '.join(args)}` failed: {message}"
             return PluginResult("failed", failed, _ignore_local_settings(root))  # `add` may have written it
+    if _PLAIN and not enabled_here(root, scope):  # no --json result to trust: ask Claude Code what's installed
+        failed = (f"`claude plugin` ran without --json (an older Claude Code), but `claude plugin list` doesn't "
+                  f"show {PLUGIN_ID} enabled here")  # fmt: skip
+        return PluginResult("failed", failed, _ignore_local_settings(root))
     if scope == "project":
         message = f"{PLUGIN_ID} enabled for everyone in this repository, in {SETTINGS['project']} (commit it)"
     else:
         message = f"{PLUGIN_ID} enabled for this repository only, in {SETTINGS_LOCAL}"
     return PluginResult("installed", message, _ignore_local_settings(root))
+
+
+FAILURE_REL = Path(".seamspec/.local/plugin_install.json")  # this machine's last failed install (ADR-20261119-6b2e)
+
+
+def manual_commands(scope: str = "local") -> list[str]:
+    """The install, as a person can type it: no --json, which some Claude Code versions don't accept."""
+    source = marketplace_source() or release_source()
+    return [f"claude plugin {' '.join(args)}" for args in commands(source, scope)]
+
+
+def remember(root: Path, result: PluginResult, scope: str) -> None:
+    """Record a failed install for `doctor`; forget it once an install or upgrade worked."""
+    path = root / FAILURE_REL
+    if result.status == "failed":
+        if path.parent.is_dir():
+            body = {"scope": scope, "message": result.message, "version": __version__}
+            path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+    elif result.status in ("installed", "upgraded", "unchanged"):
+        path.unlink(missing_ok=True)
+
+
+def unresolved_failure(root: Path) -> dict | None:
+    """The last recorded failed install, if the plugin still isn't enabled here; else None."""
+    try:
+        data = json.loads((root / FAILURE_REL).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    scope = data.get("scope") if data.get("scope") in SCOPES else "local"
+    return None if enabled_here(root, scope) else {**data, "scope": scope}
 
 
 def install(root: Path, scope: str = "local") -> PluginResult:
