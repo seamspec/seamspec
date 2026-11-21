@@ -111,3 +111,4 @@ Same as SeamSpec's own ADRs (SPEC §10.3), so these can move into `.seamspec/adr
 | [ADR-20261105-5c1d](ADR-20261105-5c1d-init-asks-outside-git.md) | init asks before setting up a folder that isn't a git repository | ACCEPTED |
 | [ADR-20261105-9d3f](ADR-20261105-9d3f-guard-seamspecs-own-host-files.md) | Agents may not edit SeamSpec's reviewer and command files, and changes to them are reported | ACCEPTED |
 | [ADR-20261107-dbf9](ADR-20261107-dbf9-v0-1-1-then-the-v0-2-0-order.md) | 0.1.1 ships the dogfooding fixes; the order of work for 0.2.0 | ACCEPTED |
+| [ADR-20261119-6b2e](ADR-20261119-6b2e-plugin-install-on-older-claude-code.md) | The plugin installs on Claude Code versions without --json, and doctor reports a failed install | ACCEPTED |

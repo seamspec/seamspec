@@ -196,6 +196,12 @@ def _local_checks(root: Path, cfg: Any, records: dict[str, dict[str, Any]], repo
         report.add("warning", "claude plugin",
                    f"the plugin in {claude_plugin.SETTINGS[item.scope]} is at {item.pinned_ref or 'no tag'} "
                    f"(version {item.version}), not this SeamSpec's: run `seamspec init --plugin`")  # fmt: skip
+    for failure in claude_plugin.unresolved_failures(root):  # init tried and failed (ADR-20261119-6b2e)
+        upgrade, scope = failure["upgrade"], failure["scope"]
+        commands = "; ".join(f"`{c}`" for c in claude_plugin.manual_commands(scope, upgrade=upgrade))
+        report.add("warning", "claude plugin",
+                   f"`seamspec init --plugin` couldn't {'move' if upgrade else 'install'} the Claude Code plugin"
+                   f" ({scope} scope: {failure['message']}): run it again, or do it yourself: {commands}")  # fmt: skip
     for name in ("settings.json", "settings.local.json"):
         path = root / ".claude" / name
         try:

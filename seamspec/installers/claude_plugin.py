@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ class PluginResult:
     status: str  # installed | upgraded | unchanged | skipped | failed
     message: str = ""
     gitignore: str | None = None  # what happened to .gitignore (created | updated | unchanged)
+    scopes: tuple[str, ...] = ()  # failed only: the scopes it left without a working plugin
 
 
 def checkout() -> Path | None:
@@ -85,13 +87,27 @@ def _pinned(source: str) -> tuple[str, str] | None:
     return (url, ref) if "://" in url and ref else None
 
 
+_NO_JSON = re.compile(r"unknown option ['\"]?--json")
+_PLAIN = set()  # `claude plugin` subcommands that ran without --json (an older Claude Code, ADR-20261119-6b2e)
+
+
 def _claude(root: Path, *args: str) -> tuple[bool, str]:
-    """Run `claude plugin ...`; (ok, message from its --json result line or its output)."""
+    """Run `claude plugin ...`; (ok, message from its --json result line or its output). An older Claude
+    Code (2.1.153) has no `--json` on some subcommands: then the command runs again without it, and the
+    caller confirms the result through `claude plugin list --json`, which those versions have."""
     try:
         out = subprocess.run(
             ["claude", "plugin", *args, "--json"],
             cwd=root, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
         )  # fmt: skip
+        if out.returncode != 0 and _NO_JSON.search(f"{out.stderr}\n{out.stdout}"):
+            _PLAIN.add(" ".join(args[:2]))
+            out = subprocess.run(
+                ["claude", "plugin", *args],
+                cwd=root, capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+            )  # fmt: skip
+            lines = [ln.strip() for ln in f"{out.stdout}\n{out.stderr}".splitlines() if ln.strip()]
+            return out.returncode == 0, (lines[-1] if lines else f"exit code {out.returncode}")
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
     text = (out.stdout or "").strip()
@@ -204,16 +220,19 @@ def _not_confirmed(root: Path, item: Upgrade) -> str | None:
 def upgrade(root: Path, pending: list[Upgrade]) -> PluginResult:
     """Run the `upgrade_commands()` (after the human said yes), then check what is installed now."""
     root = root.resolve()
-    for item in pending:
+    for at, item in enumerate(pending):
         for args in upgrade_commands(item.source, item.scope):
             ok, message = _claude(root, *args)
             if not ok:
                 failed = f"`claude plugin {' '.join(args)}` failed: {message}"
-                return PluginResult("failed", failed, _ignore_local_settings(root))
-    problems = [problem for item in pending if (problem := _not_confirmed(root, item))]
+                # earlier scopes whose commands said ok but can't be confirmed, this one, and those not reached
+                unconfirmed = tuple(done.scope for done in pending[:at] if _not_confirmed(root, done))
+                left = unconfirmed + tuple(later.scope for later in pending[at:])
+                return PluginResult("failed", failed, _ignore_local_settings(root), left)
+    problems = [(item.scope, problem) for item in pending if (problem := _not_confirmed(root, item))]
     if problems:
-        message = f"{PLUGIN_ID} didn't move, or SeamSpec can't confirm it: {'; '.join(problems)}"
-        return PluginResult("failed", message, _ignore_local_settings(root))
+        message = f"{PLUGIN_ID} didn't move, or SeamSpec can't confirm it: {'; '.join(p for _, p in problems)}"
+        return PluginResult("failed", message, _ignore_local_settings(root), tuple(s for s, _ in problems))
     wanted = pending[0].source.partition("#")[2]
     scopes = " and ".join(SETTINGS[item.scope] for item in pending)
     return PluginResult("upgraded", f"{PLUGIN_ID} moved to {wanted}, in {scopes}", _ignore_local_settings(root))
@@ -257,16 +276,71 @@ def enable(root: Path, scope: str = "local") -> PluginResult:
     source = marketplace_source()
     if source is None:
         return PluginResult("skipped", "no published plugin or SeamSpec checkout to install it from")
+    _PLAIN.clear()
     for args in commands(source, scope):
         ok, message = _claude(root, *args)
         if not ok:
             failed = f"`claude plugin {' '.join(args)}` failed: {message}"
-            return PluginResult("failed", failed, _ignore_local_settings(root))  # `add` may have written it
+            return PluginResult("failed", failed, _ignore_local_settings(root), (scope,))  # `add` may have written it
+    if _PLAIN and not enabled_here(root, scope):  # no --json result to trust: ask Claude Code what's installed
+        failed = (f"`claude plugin` ran without --json (an older Claude Code), but `claude plugin list` doesn't "
+                  f"show {PLUGIN_ID} enabled here")  # fmt: skip
+        return PluginResult("failed", failed, _ignore_local_settings(root), (scope,))
     if scope == "project":
         message = f"{PLUGIN_ID} enabled for everyone in this repository, in {SETTINGS['project']} (commit it)"
     else:
         message = f"{PLUGIN_ID} enabled for this repository only, in {SETTINGS_LOCAL}"
     return PluginResult("installed", message, _ignore_local_settings(root))
+
+
+FAILURE_REL = Path(".seamspec/.local/plugin_install.json")  # this machine's failed installs (ADR-20261119-6b2e)
+
+
+def manual_commands(scope: str = "local", *, upgrade: bool = False) -> list[str]:
+    """The install (or, for an `upgrade`, the move to this version) as a person types it: no --json, which
+    some Claude Code versions don't accept, and each argument quoted for a shell (a folder may have spaces)."""
+    source = marketplace_source() or release_source()
+    build = upgrade_commands if upgrade else commands
+    return ["claude plugin " + " ".join(shlex.quote(arg) for arg in args) for args in build(source, scope)]
+
+
+def _failures(root: Path) -> dict[str, dict]:
+    try:
+        data = json.loads((root / FAILURE_REL).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict) or not isinstance(data.get("failures"), dict):
+        return {}
+    return {scope: item for scope, item in data["failures"].items() if scope in SCOPES and isinstance(item, dict)}
+
+
+def remember(root: Path, result: PluginResult, scopes: tuple[str, ...], *, upgrade: bool = False) -> None:
+    """Record a failed install or upgrade for `doctor`, per scope; forget a scope once an install or
+    upgrade there worked. `scopes` are the ones this run tried; a failure names the ones it left behind."""
+    path = root / FAILURE_REL
+    failures = _failures(root)
+    if result.status == "failed":
+        for scope in result.scopes or scopes:
+            failures[scope] = {"message": result.message, "upgrade": upgrade, "version": __version__}
+    elif result.status in ("installed", "upgraded", "unchanged"):
+        for scope in scopes:
+            failures.pop(scope, None)
+    else:
+        return
+    if failures:
+        if path.parent.is_dir():
+            path.write_text(json.dumps({"failures": failures}, indent=2) + "\n", encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+
+
+def unresolved_failures(root: Path) -> list[dict]:
+    """Each recorded failure whose scope still has no enabled plugin here, as {scope, message, upgrade}."""
+    found = []
+    for scope, item in sorted(_failures(root).items()):
+        if not enabled_here(root, scope):
+            found.append({"scope": scope, "message": item.get("message"), "upgrade": bool(item.get("upgrade"))})
+    return found
 
 
 def install(root: Path, scope: str = "local") -> PluginResult:

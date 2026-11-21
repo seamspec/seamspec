@@ -4,6 +4,10 @@ All notable changes to SeamSpec are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Fixed
+- **The Claude Code plugin installs on older Claude Code versions.** Claude Code 2.1.153 rejects the `--json` option SeamSpec passed to `claude plugin marketplace add`, so `seamspec init --plugin` failed. SeamSpec now retries without it and checks the result with `claude plugin list`.
+- **`seamspec doctor` notices a failed plugin install.** When `init` couldn't install the plugin, `doctor` now warns, with the two commands to run by hand, until the plugin is installed. `init` prints the same commands when the install fails.
+
 ## [0.1.1] - 2026-11-07
 
 Fixes from using 0.1.0 on a real project.
