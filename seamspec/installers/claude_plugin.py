@@ -225,8 +225,10 @@ def upgrade(root: Path, pending: list[Upgrade]) -> PluginResult:
             ok, message = _claude(root, *args)
             if not ok:
                 failed = f"`claude plugin {' '.join(args)}` failed: {message}"
-                untried = tuple(later.scope for later in pending[at:])  # this one, and those not reached
-                return PluginResult("failed", failed, _ignore_local_settings(root), untried)
+                # earlier scopes whose commands said ok but can't be confirmed, this one, and those not reached
+                unconfirmed = tuple(done.scope for done in pending[:at] if _not_confirmed(root, done))
+                left = unconfirmed + tuple(later.scope for later in pending[at:])
+                return PluginResult("failed", failed, _ignore_local_settings(root), left)
     problems = [(item.scope, problem) for item in pending if (problem := _not_confirmed(root, item))]
     if problems:
         message = f"{PLUGIN_ID} didn't move, or SeamSpec can't confirm it: {'; '.join(p for _, p in problems)}"

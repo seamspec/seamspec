@@ -724,3 +724,22 @@ def test_a_failed_upgrade_names_the_scope_it_left_behind_and_how_to_move_it(
     assert "--scope local" not in manual and "plugin install" not in manual
     warnings = [f.message for f in doctor.run(project).findings if f.check == "claude plugin"]
     assert any("couldn't move" in w and "project scope" in w for w in warnings)
+
+
+def test_a_failed_upgrade_also_records_an_earlier_scope_it_cant_confirm(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local's commands said ok but its plugin is gone, then project's failed: both need the reminder."""
+    for scope in ("local", "project"):
+        installed(project, tmp_path, scope=scope)
+    both = [
+        {"id": "seamspec@seamspec", "version": "0.1.0", "scope": s, "enabled": True, "projectPath": str(project)}
+        for s in ("local", "project")
+    ]
+    (tmp_path / "list.json").write_text(json.dumps(both))
+    (tmp_path / "list.json.after").write_text("[]")  # the local update leaves nothing installed
+    monkeypatch.setenv("FAKE_CLAUDE_FAIL", "--scope project")
+    pending = claude_plugin.upgrades(project)
+    assert [item.scope for item in pending] == ["local", "project"]
+    result = claude_plugin.upgrade(project, pending)
+    assert result.status == "failed" and result.scopes == ("local", "project")
