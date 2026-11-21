@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ class PluginResult:
     status: str  # installed | upgraded | unchanged | skipped | failed
     message: str = ""
     gitignore: str | None = None  # what happened to .gitignore (created | updated | unchanged)
+    scopes: tuple[str, ...] = ()  # failed only: the scopes it left without a working plugin
 
 
 def checkout() -> Path | None:
@@ -218,16 +220,17 @@ def _not_confirmed(root: Path, item: Upgrade) -> str | None:
 def upgrade(root: Path, pending: list[Upgrade]) -> PluginResult:
     """Run the `upgrade_commands()` (after the human said yes), then check what is installed now."""
     root = root.resolve()
-    for item in pending:
+    for at, item in enumerate(pending):
         for args in upgrade_commands(item.source, item.scope):
             ok, message = _claude(root, *args)
             if not ok:
                 failed = f"`claude plugin {' '.join(args)}` failed: {message}"
-                return PluginResult("failed", failed, _ignore_local_settings(root))
-    problems = [problem for item in pending if (problem := _not_confirmed(root, item))]
+                untried = tuple(later.scope for later in pending[at:])  # this one, and those not reached
+                return PluginResult("failed", failed, _ignore_local_settings(root), untried)
+    problems = [(item.scope, problem) for item in pending if (problem := _not_confirmed(root, item))]
     if problems:
-        message = f"{PLUGIN_ID} didn't move, or SeamSpec can't confirm it: {'; '.join(problems)}"
-        return PluginResult("failed", message, _ignore_local_settings(root))
+        message = f"{PLUGIN_ID} didn't move, or SeamSpec can't confirm it: {'; '.join(p for _, p in problems)}"
+        return PluginResult("failed", message, _ignore_local_settings(root), tuple(s for s, _ in problems))
     wanted = pending[0].source.partition("#")[2]
     scopes = " and ".join(SETTINGS[item.scope] for item in pending)
     return PluginResult("upgraded", f"{PLUGIN_ID} moved to {wanted}, in {scopes}", _ignore_local_settings(root))
@@ -276,11 +279,11 @@ def enable(root: Path, scope: str = "local") -> PluginResult:
         ok, message = _claude(root, *args)
         if not ok:
             failed = f"`claude plugin {' '.join(args)}` failed: {message}"
-            return PluginResult("failed", failed, _ignore_local_settings(root))  # `add` may have written it
+            return PluginResult("failed", failed, _ignore_local_settings(root), (scope,))  # `add` may have written it
     if _PLAIN and not enabled_here(root, scope):  # no --json result to trust: ask Claude Code what's installed
         failed = (f"`claude plugin` ran without --json (an older Claude Code), but `claude plugin list` doesn't "
                   f"show {PLUGIN_ID} enabled here")  # fmt: skip
-        return PluginResult("failed", failed, _ignore_local_settings(root))
+        return PluginResult("failed", failed, _ignore_local_settings(root), (scope,))
     if scope == "project":
         message = f"{PLUGIN_ID} enabled for everyone in this repository, in {SETTINGS['project']} (commit it)"
     else:
@@ -288,36 +291,54 @@ def enable(root: Path, scope: str = "local") -> PluginResult:
     return PluginResult("installed", message, _ignore_local_settings(root))
 
 
-FAILURE_REL = Path(".seamspec/.local/plugin_install.json")  # this machine's last failed install (ADR-20261119-6b2e)
+FAILURE_REL = Path(".seamspec/.local/plugin_install.json")  # this machine's failed installs (ADR-20261119-6b2e)
 
 
-def manual_commands(scope: str = "local") -> list[str]:
-    """The install, as a person can type it: no --json, which some Claude Code versions don't accept."""
+def manual_commands(scope: str = "local", *, upgrade: bool = False) -> list[str]:
+    """The install (or, for an `upgrade`, the move to this version) as a person types it: no --json, which
+    some Claude Code versions don't accept, and each argument quoted for a shell (a folder may have spaces)."""
     source = marketplace_source() or release_source()
-    return [f"claude plugin {' '.join(args)}" for args in commands(source, scope)]
+    build = upgrade_commands if upgrade else commands
+    return ["claude plugin " + " ".join(shlex.quote(arg) for arg in args) for args in build(source, scope)]
 
 
-def remember(root: Path, result: PluginResult, scope: str) -> None:
-    """Record a failed install for `doctor`; forget it once an install or upgrade worked."""
-    path = root / FAILURE_REL
-    if result.status == "failed":
-        if path.parent.is_dir():
-            body = {"scope": scope, "message": result.message, "version": __version__}
-            path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
-    elif result.status in ("installed", "upgraded", "unchanged"):
-        path.unlink(missing_ok=True)
-
-
-def unresolved_failure(root: Path) -> dict | None:
-    """The last recorded failed install, if the plugin still isn't enabled here; else None."""
+def _failures(root: Path) -> dict[str, dict]:
     try:
         data = json.loads((root / FAILURE_REL).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    scope = data.get("scope") if data.get("scope") in SCOPES else "local"
-    return None if enabled_here(root, scope) else {**data, "scope": scope}
+        return {}
+    if not isinstance(data, dict) or not isinstance(data.get("failures"), dict):
+        return {}
+    return {scope: item for scope, item in data["failures"].items() if scope in SCOPES and isinstance(item, dict)}
+
+
+def remember(root: Path, result: PluginResult, scopes: tuple[str, ...], *, upgrade: bool = False) -> None:
+    """Record a failed install or upgrade for `doctor`, per scope; forget a scope once an install or
+    upgrade there worked. `scopes` are the ones this run tried; a failure names the ones it left behind."""
+    path = root / FAILURE_REL
+    failures = _failures(root)
+    if result.status == "failed":
+        for scope in result.scopes or scopes:
+            failures[scope] = {"message": result.message, "upgrade": upgrade, "version": __version__}
+    elif result.status in ("installed", "upgraded", "unchanged"):
+        for scope in scopes:
+            failures.pop(scope, None)
+    else:
+        return
+    if failures:
+        if path.parent.is_dir():
+            path.write_text(json.dumps({"failures": failures}, indent=2) + "\n", encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+
+
+def unresolved_failures(root: Path) -> list[dict]:
+    """Each recorded failure whose scope still has no enabled plugin here, as {scope, message, upgrade}."""
+    found = []
+    for scope, item in sorted(_failures(root).items()):
+        if not enabled_here(root, scope):
+            found.append({"scope": scope, "message": item.get("message"), "upgrade": bool(item.get("upgrade"))})
+    return found
 
 
 def install(root: Path, scope: str = "local") -> PluginResult:

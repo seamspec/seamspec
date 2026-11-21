@@ -682,3 +682,45 @@ def test_no_install_attempt_means_no_reminder(fake_claude: Path, project: Path) 
     """A repository that never asked for the plugin (or a machine without Claude Code) gets no warning."""
     init(project, "--no-plugin")
     assert not [f for f in doctor.run(project).findings if f.check == "claude plugin"]
+
+
+def test_recovery_commands_quote_a_folder_with_spaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Copied into a shell, a checkout under "Work Projects" must stay one argument."""
+    monkeypatch.setattr(claude_plugin, "marketplace_source", lambda: "/Users/alice/Work Projects/seamspec")
+    assert claude_plugin.manual_commands("local")[0] == (
+        "claude plugin marketplace add '/Users/alice/Work Projects/seamspec' --scope local"
+    )
+
+
+def test_a_working_local_install_keeps_the_teams_failure(fake_claude: Path, project: Path) -> None:
+    """The team-wide (project) install failed; this person then got it locally. The team still lacks it."""
+    init(project, "--no-plugin")
+    failed = claude_plugin.PluginResult("failed", "boom", scopes=("project",))
+    claude_plugin.remember(project, failed, ("project",))
+    assert "Claude Code plugin: installed" in init(project, "--plugin", "--plugin-scope", "local")
+    warnings = [f.message for f in doctor.run(project).findings if f.check == "claude plugin"]
+    assert len(warnings) == 1 and "project scope" in warnings[0] and "--scope project" in warnings[0]
+
+
+def test_a_failed_upgrade_names_the_scope_it_left_behind_and_how_to_move_it(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local moved, the team's (project) copy failed: record and print the move for the project scope."""
+    init(project, "--no-plugin")
+    for scope in ("local", "project"):
+        installed(project, tmp_path, scope=scope)
+    both = [
+        {"id": "seamspec@seamspec", "version": "0.1.0", "scope": s, "enabled": True, "projectPath": str(project)}
+        for s in ("local", "project")
+    ]
+    (tmp_path / "list.json").write_text(json.dumps(both))
+    monkeypatch.setenv("FAKE_CLAUDE_FAIL", "update seamspec@seamspec --scope project")
+    (tmp_path / "list.json.after").write_text(json.dumps([both[0] | {"version": "0.1.1"}]))  # project copy gone
+
+    out = init(project, "--plugin")
+    assert "Claude Code plugin: failed" in out and "To move it yourself" in out
+    manual = out.split("To move it yourself", 1)[1]
+    assert "claude plugin update seamspec@seamspec --scope project" in manual
+    assert "--scope local" not in manual and "plugin install" not in manual
+    warnings = [f.message for f in doctor.run(project).findings if f.check == "claude plugin"]
+    assert any("couldn't move" in w and "project scope" in w for w in warnings)
