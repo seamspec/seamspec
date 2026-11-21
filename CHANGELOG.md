@@ -4,7 +4,7 @@ All notable changes to SeamSpec are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-11-20
+## [0.1.2] - 2026-11-21
 
 Fixes the Claude Code plugin install on older Claude Code versions.
 
