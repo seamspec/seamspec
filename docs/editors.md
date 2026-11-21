@@ -42,6 +42,7 @@ You lose convenience, not protection.
 
 Antigravity loads them by itself.
 
+- **Permission prompts for SeamSpec's tools:** Antigravity asks before each call to an MCP tool, and a prompt left unanswered times out after about a minute. If that happens while the reviewer runs, `/seamspec-explain` stops with "permission prompt timed out" and writes nothing itself; run it again. To stop the prompts, choose to always allow the `seamspec` server's tools when Antigravity asks. That is safe: `review_material`, `get_constraints` and `verify` only read the project or run your tests, and the `propose_*`, `log_dead_end`, `braindump_pending` and `request_supersede` tools only add pending items, and `open_review` only shows you review dialogs that you answer. A rule is locked, changed or replaced only when you approve it in `seamspec review`. If you'd rather keep prompts for the tools that write, always allow `review_material` at least: the reviewer needs it.
 - **After re-creating the folder or rerunning `init`:** restart the `seamspec` server in Antigravity's MCP settings, or reload the window.
 - **In a clone elsewhere:** the saved path points at the old folder. Rerun `seamspec init --hosts antigravity`; `seamspec doctor` warns about it.
 
