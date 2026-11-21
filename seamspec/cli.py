@@ -443,7 +443,10 @@ def _init_plugin(root: Path, wanted: bool | None, scope: str | None = None) -> N
                     for args in claude_plugin.commands(source, scope):
                         typer.echo(f"  claude plugin {' '.join(args)}")
         result = claude_plugin.enable(root, scope or "local")
+    claude_plugin.remember(root, result, (scope or "local",))
     typer.echo(f"Claude Code plugin: {result.status} ({result.message})")
+    if result.status == "failed":
+        _echo_manual_install(result.scopes or (scope or "local",))
     if result.gitignore in ("created", "updated"):
         typer.echo(f"  {result.gitignore:<9} .gitignore ({claude_plugin.SETTINGS_LOCAL})")
     if result.status == "installed":
@@ -453,6 +456,15 @@ def _init_plugin(root: Path, wanted: bool | None, scope: str | None = None) -> N
                 f"  Commit {claude_plugin.SETTINGS['project']}. Teammates also need the `seamspec` command;"
                 " without it the plugin stays silent."
             )
+
+
+def _echo_manual_install(scopes: tuple[str, ...], *, upgrade: bool = False) -> None:
+    verb = "move" if upgrade else "install"
+    typer.echo(f"  To {verb} it yourself, run these in this folder, then restart Claude Code:")
+    for scope in dict.fromkeys(scopes):
+        for command in claude_plugin.manual_commands(scope, upgrade=upgrade):
+            typer.echo(f"    {command}")
+    typer.echo("  `seamspec doctor` reminds you until the plugin is installed.")
 
 
 def _init_plugin_upgrade(root: Path, pending: list[claude_plugin.Upgrade], wanted: bool | None) -> None:
@@ -467,7 +479,10 @@ def _init_plugin_upgrade(root: Path, pending: list[claude_plugin.Upgrade], wante
             typer.echo("Claude Code plugin: not moved. Run `seamspec init --plugin` any time.")
             return
     result = claude_plugin.upgrade(root, pending)
+    claude_plugin.remember(root, result, tuple(item.scope for item in pending), upgrade=True)
     typer.echo(f"Claude Code plugin: {result.status} ({result.message})")
+    if result.status == "failed":
+        _echo_manual_install(result.scopes or tuple(item.scope for item in pending), upgrade=True)
     if result.gitignore in ("created", "updated"):
         typer.echo(f"  {result.gitignore:<9} .gitignore ({claude_plugin.SETTINGS_LOCAL})")
     if result.status == "upgraded":

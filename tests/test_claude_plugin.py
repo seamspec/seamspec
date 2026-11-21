@@ -23,6 +23,14 @@ CHECKOUT = Path(__file__).resolve().parents[1]
 
 FAKE = """#!/bin/sh
 echo "$*" >> "$FAKE_CLAUDE_LOG"
+if [ -n "$FAKE_CLAUDE_OLD" ] && [ "$*" != "plugin list --json" ]; then  # like Claude Code 2.1.153
+  case "$*" in *--json*) echo "error: unknown option '--json'" >&2; exit 1 ;; esac
+  case "$*" in "plugin install"*)
+    [ -n "$FAKE_CLAUDE_OLD_UNLISTED" ] || printf '[{"id":"seamspec@seamspec","version":"0.1.1","scope":"%s",\
+"enabled":true,"projectPath":"%s"}]' "$5" "$PWD" > "$FAKE_CLAUDE_LIST"
+    echo "✔ Successfully installed plugin: seamspec@seamspec (scope: $5)"; exit 0 ;;
+  esac
+fi
 case "$*" in
   "plugin list --json") cat "$FAKE_CLAUDE_LIST" 2>/dev/null || echo "[]" ;;
   *"$FAKE_CLAUDE_FAIL"*) echo '{"outcome":"error","message":"boom"}'; exit 1 ;;
@@ -604,3 +612,134 @@ def test_real_claude_cli_moves_the_pin_and_updates_the_plugin(
     assert settings["extraKnownMarketplaces"]["seamspec"]["source"]["ref"] == "v1.0.1"
     versions = [p["version"] for p in claude_plugin._enabled_entries(project)]
     assert versions == ["1.0.1"]
+
+
+# --- an older Claude Code without --json (found on the owner's work laptop, ADR-20261119-6b2e) ---------
+
+
+@pytest.fixture
+def older_claude(fake_claude: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Claude Code 2.1.153: `plugin marketplace add` and `plugin install` reject --json; `plugin list --json` works."""
+    monkeypatch.setenv("FAKE_CLAUDE_OLD", "1")
+    return fake_claude
+
+
+def test_an_older_claude_code_still_gets_the_plugin(older_claude: Path, project: Path) -> None:
+    result = claude_plugin.install(project)
+    assert result.status == "installed", result.message
+    made = calls(older_claude)
+    assert any(c.startswith("plugin marketplace add") and c.endswith("--json") for c in made)  # tried first
+    assert any(c.startswith("plugin marketplace add") and not c.endswith("--json") for c in made)  # then without
+    assert any(c.startswith("plugin install") and not c.endswith("--json") for c in made)
+    assert claude_plugin.enabled_here(project)  # confirmed through `plugin list --json`
+
+
+def test_without_json_an_install_the_list_doesnt_show_is_a_failure(
+    older_claude: Path, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No --json result to trust: SeamSpec only says "installed" when Claude Code's list shows it."""
+    monkeypatch.setenv("FAKE_CLAUDE_OLD_UNLISTED", "1")
+    result = claude_plugin.install(project)
+    assert result.status == "failed" and "doesn't show seamspec@seamspec enabled here" in result.message
+
+
+def test_a_failed_install_prints_the_commands_and_doctor_reminds_until_it_is_installed(
+    fake_claude: Path, project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On the work laptop, init's install failed and `doctor` still showed the plugin check as passing."""
+    monkeypatch.setenv("FAKE_CLAUDE_FAIL", "plugin install")
+    out = init(project, "--plugin")
+    assert "Claude Code plugin: failed" in out and "To install it yourself" in out
+    assert (
+        "    claude plugin marketplace add " in out
+        and "    claude plugin install seamspec@seamspec --scope local" in out
+    )
+    assert "--json" not in out.split("To install it yourself", 1)[1]  # commands a person can type anywhere
+
+    warnings = [f.message for f in doctor.run(project).findings if f.check == "claude plugin"]
+    assert len(warnings) == 1 and "couldn't install the Claude Code plugin" in warnings[0]
+    assert "`claude plugin install seamspec@seamspec --scope local`" in warnings[0]
+
+    # installed by hand afterwards: the reminder stops, with nothing else to do
+    (tmp_path / "list.json").write_text(
+        json.dumps([{"id": "seamspec@seamspec", "scope": "local", "enabled": True, "projectPath": str(project)}])
+    )
+    assert not [f for f in doctor.run(project).findings if f.check == "claude plugin"]
+
+
+def test_a_working_install_forgets_an_earlier_failure(
+    fake_claude: Path, project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_CLAUDE_FAIL", "plugin install")
+    init(project, "--plugin")
+    assert (project / claude_plugin.FAILURE_REL).is_file()
+    monkeypatch.setenv("FAKE_CLAUDE_FAIL", "nothing-fails")
+    assert "Claude Code plugin: installed" in init(project, "--plugin")
+    assert not (project / claude_plugin.FAILURE_REL).exists()
+
+
+def test_no_install_attempt_means_no_reminder(fake_claude: Path, project: Path) -> None:
+    """A repository that never asked for the plugin (or a machine without Claude Code) gets no warning."""
+    init(project, "--no-plugin")
+    assert not [f for f in doctor.run(project).findings if f.check == "claude plugin"]
+
+
+def test_recovery_commands_quote_a_folder_with_spaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Copied into a shell, a checkout under "Work Projects" must stay one argument."""
+    monkeypatch.setattr(claude_plugin, "marketplace_source", lambda: "/Users/alice/Work Projects/seamspec")
+    assert claude_plugin.manual_commands("local")[0] == (
+        "claude plugin marketplace add '/Users/alice/Work Projects/seamspec' --scope local"
+    )
+
+
+def test_a_working_local_install_keeps_the_teams_failure(fake_claude: Path, project: Path) -> None:
+    """The team-wide (project) install failed; this person then got it locally. The team still lacks it."""
+    init(project, "--no-plugin")
+    failed = claude_plugin.PluginResult("failed", "boom", scopes=("project",))
+    claude_plugin.remember(project, failed, ("project",))
+    assert "Claude Code plugin: installed" in init(project, "--plugin", "--plugin-scope", "local")
+    warnings = [f.message for f in doctor.run(project).findings if f.check == "claude plugin"]
+    assert len(warnings) == 1 and "project scope" in warnings[0] and "--scope project" in warnings[0]
+
+
+def test_a_failed_upgrade_names_the_scope_it_left_behind_and_how_to_move_it(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local moved, the team's (project) copy failed: record and print the move for the project scope."""
+    init(project, "--no-plugin")
+    for scope in ("local", "project"):
+        installed(project, tmp_path, scope=scope)
+    both = [
+        {"id": "seamspec@seamspec", "version": "0.1.0", "scope": s, "enabled": True, "projectPath": str(project)}
+        for s in ("local", "project")
+    ]
+    (tmp_path / "list.json").write_text(json.dumps(both))
+    monkeypatch.setenv("FAKE_CLAUDE_FAIL", "update seamspec@seamspec --scope project")
+    (tmp_path / "list.json.after").write_text(json.dumps([both[0] | {"version": "0.1.1"}]))  # project copy gone
+
+    out = init(project, "--plugin")
+    assert "Claude Code plugin: failed" in out and "To move it yourself" in out
+    manual = out.split("To move it yourself", 1)[1]
+    assert "claude plugin update seamspec@seamspec --scope project" in manual
+    assert "--scope local" not in manual and "plugin install" not in manual
+    warnings = [f.message for f in doctor.run(project).findings if f.check == "claude plugin"]
+    assert any("couldn't move" in w and "project scope" in w for w in warnings)
+
+
+def test_a_failed_upgrade_also_records_an_earlier_scope_it_cant_confirm(
+    fake_claude: Path, project: Path, tmp_path: Path, next_release: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local's commands said ok but its plugin is gone, then project's failed: both need the reminder."""
+    for scope in ("local", "project"):
+        installed(project, tmp_path, scope=scope)
+    both = [
+        {"id": "seamspec@seamspec", "version": "0.1.0", "scope": s, "enabled": True, "projectPath": str(project)}
+        for s in ("local", "project")
+    ]
+    (tmp_path / "list.json").write_text(json.dumps(both))
+    (tmp_path / "list.json.after").write_text("[]")  # the local update leaves nothing installed
+    monkeypatch.setenv("FAKE_CLAUDE_FAIL", "--scope project")
+    pending = claude_plugin.upgrades(project)
+    assert [item.scope for item in pending] == ["local", "project"]
+    result = claude_plugin.upgrade(project, pending)
+    assert result.status == "failed" and result.scopes == ("local", "project")
