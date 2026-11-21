@@ -2802,7 +2802,7 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 **How progress is tracked** (ADR-20261005-ae6e, ADR-20261005-2565): one GitHub milestone per week above, each with a tracking issue that mirrors its deliverables and exit criteria, plus a committed [`docs/PROGRESS.md`](PROGRESS.md) (done / in progress / next), updated in the same commit as the code. `CLAUDE.md` at the repo root is the entry point for agents picking up the work. From week 2, every change lands through a branch and a pull request (ADR-20261005-d8bc). This spec is kept current as the code evolves; anything that changes or adds to it gets an ADR in `docs/adr/` (moving to `.seamspec/adrs/` when SeamSpec starts governing its own repo in week 3).
 
 > [!IMPORTANT]
-> **Publishing is gated** (ADR-20261005-3adc): nothing goes to PyPI or npm (real releases, pre-releases, placeholder bumps, a future `npx` wrapper) until the owner explicitly confirms that release. No early pre-release is planned. Version 0.1.0 was published on 2026-10-27; the code now says 0.1.1 (ADR-20261027-5e17, ADR-20261107-dbf9). A release is published by `.github/workflows/release.yml` when the owner pushes its `v<version>` tag, through PyPI trusted publishing (ADR-20261027-b1a4); until the owner publishes it, try SeamSpec with `uv tool install --force --editable <path-to-repo>`.
+> **Publishing is gated** (ADR-20261005-3adc): nothing goes to PyPI or npm (real releases, pre-releases, placeholder bumps, a future `npx` wrapper) until the owner explicitly confirms that release. No early pre-release is planned. Version 0.1.0 was published on 2026-10-27; 0.1.1 on 2026-11-07; the code now says 0.1.2 (ADR-20261027-5e17, ADR-20261107-dbf9, ADR-20261119-6b2e). A release is published by `.github/workflows/release.yml` when the owner pushes its `v<version>` tag, through PyPI trusted publishing (ADR-20261027-b1a4); until the owner publishes it, try SeamSpec with `uv tool install --force --editable <path-to-repo>`.
 
 **Added after dogfooding on a real project (2026-10-11, ADR-20261011-0995, ADR-20261011-8013).** Order of work for the rest of v0.1:
 
@@ -2815,6 +2815,10 @@ Revised 2026-10-05 after the peer review: the original v0.1 (three hosts, six ru
 ### v0.1.1 — a patch release after dogfooding (ADR-20261107-dbf9)
 
 The fixes from dogfooding 0.1.0 on the owner's project (SessionWalk), PRs #110 to #117: the Claude Code plugin follows an upgrade, Antigravity setup fixes, a personal-email warning and local checks of a locked rule's details, an error isn't called a regression, the reviewer's verdict follows its gaps, SeamSpec's own host files are guarded, `init` asks outside git, and agents are told when to record a decision.
+
+### v0.1.2 — older Claude Code (ADR-20261119-6b2e)
+
+Found setting up the company demo on a work laptop (PR #121): `init --plugin` works on Claude Code versions that reject `--json` on `claude plugin marketplace add`, and `doctor` reminds about a failed plugin install until it is fixed.
 
 ### v0.2 — in this order (ADR-20261107-dbf9, amending ADR-20261011-0995)
 

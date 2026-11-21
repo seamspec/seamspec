@@ -4,9 +4,17 @@ All notable changes to SeamSpec are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-20
+
+Fixes the Claude Code plugin install on older Claude Code versions.
+
+### Upgrading
+- `uv tool upgrade seamspec` (or `uv tool install seamspec@latest` if you installed a pinned version), then rerun `seamspec init` in each project (add `--hosts …` if you use Cursor, VS Code or Antigravity). It offers to move the Claude Code plugin to 0.1.2. Restart Claude Code, or run `/reload-plugins`.
+- If you added the CI workflow, change `seamspec==0.1.1` to `seamspec==0.1.2` in `.github/workflows/seamspec.yml`: `init` keeps an existing workflow as it is.
+
 ### Fixed
 - **The Claude Code plugin installs on older Claude Code versions.** Claude Code 2.1.153 rejects the `--json` option SeamSpec passed to `claude plugin marketplace add`, so `seamspec init --plugin` failed. SeamSpec now retries without it and checks the result with `claude plugin list`.
-- **`seamspec doctor` notices a failed plugin install.** When `init` couldn't install the plugin, `doctor` now warns, with the two commands to run by hand, until the plugin is installed. `init` prints the same commands when the install fails.
+- **`seamspec doctor` notices a failed plugin install.** When `init` couldn't install the plugin, `doctor` now warns, with the commands to run by hand, until the plugin is enabled here (for a team-wide install, at project scope). If moving the plugin to a new version fails and the old one is still enabled, `doctor` keeps reporting that the plugin doesn't match. In both cases `init` prints the commands to run by hand, with a path that has spaces quoted, so they can be pasted as they are.
 
 ## [0.1.1] - 2026-11-07
 
@@ -64,5 +72,6 @@ The first release.
 - Tested on Linux and macOS, Python 3.11 to 3.14. Windows isn't tested.
 - An upgrade doesn't yet move the Claude Code plugin to the new version's tag; that comes before 0.1.1.
 
+[0.1.2]: https://github.com/seamspec/seamspec/releases/tag/v0.1.2
 [0.1.1]: https://github.com/seamspec/seamspec/releases/tag/v0.1.1
 [0.1.0]: https://github.com/seamspec/seamspec/releases/tag/v0.1.0
