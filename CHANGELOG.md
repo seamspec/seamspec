@@ -14,7 +14,7 @@ Fixes the Claude Code plugin install on older Claude Code versions.
 
 ### Fixed
 - **The Claude Code plugin installs on older Claude Code versions.** Claude Code 2.1.153 rejects the `--json` option SeamSpec passed to `claude plugin marketplace add`, so `seamspec init --plugin` failed. SeamSpec now retries without it and checks the result with `claude plugin list`.
-- **`seamspec doctor` notices a failed plugin install.** When `init` couldn't install the plugin, or couldn't move it to a new version, `doctor` now warns, with the commands to run by hand, until it works. `init` prints the same commands when it fails. A path with spaces is quoted, so the commands can be pasted as they are.
+- **`seamspec doctor` notices a failed plugin install.** When `init` couldn't install the plugin, `doctor` now warns, with the commands to run by hand, until the plugin is enabled here (for a team-wide install, at project scope). If moving the plugin to a new version fails and the old one is still enabled, `doctor` keeps reporting that the plugin doesn't match. In both cases `init` prints the commands to run by hand, with a path that has spaces quoted, so they can be pasted as they are.
 
 ## [0.1.1] - 2026-11-07
 
